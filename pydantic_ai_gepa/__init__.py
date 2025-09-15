@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from .adapter import PydanticAIGEPAAdapter
 from .runner import GepaOptimizationResult, optimize_agent_prompts
+from .signature import Signature
 from .types import DataInst, RolloutOutput, Trajectory
 
 __all__ = [
@@ -13,6 +14,7 @@ __all__ = [
     'DataInst',
     'Trajectory',
     'RolloutOutput',
+    'Signature',
 ]
 
 __version__ = '0.1.0'

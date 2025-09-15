@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter, ProposalFn
 
-from .components import apply_candidate_to_agent
+from .components import apply_candidate_to_agent_and_signatures
+from .signature import Signature
 from .types import DataInst, RolloutOutput, Trajectory
 
 if TYPE_CHECKING:
@@ -29,6 +30,7 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         agent: Agent[Any, Any],
         metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],
         *,
+        signatures: Sequence[type[Signature]] | None = None,
         deterministic_proposer: ProposalFn | None = None,
     ):
         """Initialize the adapter.
@@ -37,11 +39,13 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             agent: The pydantic-ai agent to optimize.
             metric: A function that computes (score, feedback) for a data instance
                    and its output. Higher scores are better.
+            signatures: Optional list of Signature classes whose prompts will be optimized.
             deterministic_proposer: Optional deterministic proposer for testing.
                                    If provided, this will be used as propose_new_texts.
         """
         self.agent = agent
         self.metric = metric
+        self.signatures = signatures or []
         self.propose_new_texts = deterministic_proposer
 
     def evaluate(
@@ -64,8 +68,8 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         scores: list[float] = []
         trajectories: list[Trajectory] | None = [] if capture_traces else None
 
-        # Apply the candidate to the agent
-        with apply_candidate_to_agent(self.agent, candidate):
+        # Apply the candidate to the agent and signatures
+        with apply_candidate_to_agent_and_signatures(candidate, agent=self.agent, signatures=self.signatures):
             for data_inst in batch:
                 result = self.process_data_instance(data_inst, capture_traces)
 

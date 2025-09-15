@@ -1,5 +1,6 @@
 """Integration tests for pydantic-ai-gepa."""
 
+from inline_snapshot import snapshot
 from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
@@ -102,10 +103,17 @@ def test_make_reflective_dataset():
     result = adapter.evaluate([data_inst], candidate, capture_traces=True)
 
     reflective_dataset = adapter.make_reflective_dataset(candidate, result, ['instructions'])
-    assert reflective_dataset['instructions'] == [
+    assert reflective_dataset == snapshot(
         {
-            'user_prompt': 'Hello',
-            'assistant_response': 'Test response',
-            'error': None,
+            'instructions': [
+                {
+                    'user_prompt': 'Hello',
+                    'assistant_response': 'Test response',
+                    'error': None,
+                    'score': 0.8,
+                    'success': True,
+                    'feedback': 'Good response',
+                }
+            ]
         }
-    ]
+    )

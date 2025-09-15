@@ -9,12 +9,9 @@ dependencies = [
     "pydantic-ai @ git+https://github.com/mwildehahn/pydantic-ai.git@615a87461b9d7129c6a3cc762b5670f62b8d1366",
 ]
 
-[project.optional-dependencies]
-test = [
+[dependency-groups]
+dev = [
     "pytest>=8.0.0",
     "pytest-cov>=5.0.0",
+    "inline-snapshot>=0.29.0",
 ]
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
