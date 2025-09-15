@@ -1,0 +1,21 @@
+[project]
+name = "pydantic-ai-gepa"
+version = "0.1.0"
+description = "GEPA optimization integration for pydantic-ai"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "gepa>=0.0.12",
+    "pydantic-ai-slim",
+    "pydantic-evals",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0.0",
+    "pytest-cov>=5.0.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
