@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from pydantic_ai.format_prompt import format_as_xml
-from pydantic_ai.messages import UserPromptPart
+from pydantic_ai.messages import UserContent
 
 
 class SignatureMeta(type(BaseModel)):
@@ -48,15 +48,15 @@ class Signature(BaseModel, metaclass=SignatureMeta):
     All fields are automatically treated as inputs.
     """
 
-    def to_prompt_parts(self, *, candidate: dict[str, str] | None = None) -> list[UserPromptPart]:
-        """Convert this signature instance to UserPromptPart objects for pydantic-ai.
+    def to_user_content(self, *, candidate: dict[str, str] | None = None) -> list[UserContent]:
+        """Convert this signature instance to UserContent objects for pydantic-ai.
 
         Args:
             candidate: Optional GEPA candidate with optimized text for components.
                       If not provided, uses the default descriptions.
 
         Returns:
-            List of UserPromptPart objects to pass to an agent.
+            List of UserContent objects to pass to an agent.
         """
         # Get the effective instructions and field descriptions
         instructions = self._get_effective_text('instructions', self.__class__.__doc__ or '', candidate)
@@ -111,8 +111,7 @@ class Signature(BaseModel, metaclass=SignatureMeta):
 
         # Join all parts into a single prompt, removing trailing empty lines
         full_prompt = '\n'.join(content_parts).rstrip()
-
-        return [UserPromptPart(content=full_prompt)]
+        return [full_prompt]
 
     def _get_effective_text(self, component_key: str, default: str, candidate: dict[str, str] | None) -> str:
         """Get the effective text for a component, using candidate if available."""

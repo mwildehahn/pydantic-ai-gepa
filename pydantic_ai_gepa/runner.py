@@ -17,7 +17,7 @@ from .components import apply_candidate_to_agent, extract_seed_candidate, valida
 from .types import DataInst, RolloutOutput
 
 if TYPE_CHECKING:
-    from pydantic_ai.agent import Agent
+    from pydantic_ai.agent import AbstractAgent
     from pydantic_ai.models import Model
 
 
@@ -47,7 +47,7 @@ class GepaOptimizationResult:
     """The raw GEPA optimization result (for advanced users)."""
 
     @contextmanager
-    def apply_best(self, agent: Agent[Any, Any]) -> Iterator[None]:
+    def apply_best(self, agent: AbstractAgent[Any, Any]) -> Iterator[None]:
         """Apply the best candidate to an agent as a context manager.
 
         Args:
@@ -71,7 +71,7 @@ class GepaOptimizationResult:
 
 
 def optimize_agent_prompts(
-    agent: Agent[Any, Any],
+    agent: AbstractAgent[Any, Any],
     trainset: Sequence[DataInst],
     *,
     metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],

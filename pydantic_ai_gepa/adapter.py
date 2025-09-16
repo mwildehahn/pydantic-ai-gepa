@@ -14,7 +14,7 @@ from .signature import Signature
 from .types import DataInst, RolloutOutput, Trajectory
 
 if TYPE_CHECKING:
-    from pydantic_ai.agent import Agent
+    from pydantic_ai.agent import AbstractAgent
     from pydantic_ai.messages import ModelMessage
 
 
@@ -27,7 +27,7 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
 
     def __init__(
         self,
-        agent: Agent[Any, Any],
+        agent: AbstractAgent[Any, Any],
         metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],
         *,
         signatures: Sequence[type[Signature]] | None = None,

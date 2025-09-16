@@ -36,8 +36,9 @@ def test_signature_basic():
     )
 
     # Get prompt parts
-    prompt_parts = sig.to_prompt_parts()
-    assert prompt_parts[0].content == snapshot("""\
+    user_content = sig.to_user_content()
+    assert len(user_content) == 1
+    assert user_content[0] == snapshot("""\
 Analyze emails for key information and sentiment.
 
 List of email messages to analyze. Look for sentiment and key topics.
@@ -85,8 +86,9 @@ def test_apply_candidate():
     )
 
     # Get prompt with the optimized candidate
-    prompt_parts = sig.to_prompt_parts(candidate=candidate)
-    assert prompt_parts[0].content == snapshot("""\
+    user_content = sig.to_user_content(candidate=candidate)
+    assert len(user_content) == 1
+    assert user_content[0] == snapshot("""\
 Extract actionable insights from customer emails.
 
 Customer emails requiring detailed analysis.

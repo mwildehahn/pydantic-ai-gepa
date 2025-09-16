@@ -9,10 +9,10 @@ from typing import TYPE_CHECKING, Any
 from .signature import Signature, apply_candidate_to_signature, extract_signature_components
 
 if TYPE_CHECKING:
-    from pydantic_ai.agent import Agent
+    from pydantic_ai.agent import AbstractAgent
 
 
-def extract_seed_candidate(agent: Agent[Any, Any]) -> dict[str, str]:
+def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     """Extract the current prompts from an agent as a GEPA candidate.
 
     Args:
@@ -28,7 +28,6 @@ def extract_seed_candidate(agent: Agent[Any, Any]) -> dict[str, str]:
     # Extract instructions
     # Note: In v1, we extract the literal instructions only, not the dynamic ones
     # The dynamic instructions from functions will be disabled during optimization
-    agent.instructions
     if hasattr(agent, '_instructions') and agent._instructions:  # type: ignore[attr-defined]
         candidate['instructions'] = agent._instructions  # type: ignore[attr-defined]
     else:
@@ -43,7 +42,7 @@ def extract_seed_candidate(agent: Agent[Any, Any]) -> dict[str, str]:
 
 
 @contextmanager
-def apply_candidate_to_agent(agent: Agent[Any, Any], candidate: dict[str, str]) -> Iterator[None]:
+def apply_candidate_to_agent(agent: AbstractAgent[Any, Any], candidate: dict[str, str]) -> Iterator[None]:
     """Apply a GEPA candidate to an agent via override_prompts.
 
     This returns a context manager that temporarily applies the candidate
@@ -82,7 +81,7 @@ def apply_candidate_to_agent(agent: Agent[Any, Any], candidate: dict[str, str]) 
         yield
 
 
-def get_component_names(agent: Agent[Any, Any]) -> list[str]:
+def get_component_names(agent: AbstractAgent[Any, Any]) -> list[str]:
     """Get the list of optimizable component names for an agent.
 
     Args:
@@ -104,7 +103,7 @@ def get_component_names(agent: Agent[Any, Any]) -> list[str]:
     return components
 
 
-def validate_components(agent: Agent[Any, Any], components: Sequence[str]) -> list[str]:
+def validate_components(agent: AbstractAgent[Any, Any], components: Sequence[str]) -> list[str]:
     """Validate that the requested components exist in the agent.
 
     Args:
@@ -128,7 +127,7 @@ def validate_components(agent: Agent[Any, Any], components: Sequence[str]) -> li
 
 
 def extract_seed_candidate_with_signatures(
-    agent: Agent[Any, Any] | None = None,
+    agent: AbstractAgent[Any, Any] | None = None,
     signatures: Sequence[type[Signature]] | None = None,
 ) -> dict[str, str]:
     """Extract initial prompts from an agent and/or signatures as a GEPA candidate.
@@ -156,7 +155,7 @@ def extract_seed_candidate_with_signatures(
 @contextmanager
 def apply_candidate_to_agent_and_signatures(
     candidate: dict[str, str],
-    agent: Agent[Any, Any] | None = None,
+    agent: AbstractAgent[Any, Any] | None = None,
     signatures: Sequence[type[Signature]] | None = None,
 ) -> Iterator[None]:
     """Apply a GEPA candidate to both an agent and signatures.
