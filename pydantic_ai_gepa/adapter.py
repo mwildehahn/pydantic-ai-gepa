@@ -5,7 +5,7 @@ from __future__ import annotations
 import random
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter, ProposalFn
 
@@ -16,6 +16,22 @@ from .types import DataInst, RolloutOutput, Trajectory
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
     from pydantic_ai.messages import ModelMessage
+
+
+class ReflectionSampler(Protocol):
+    """Protocol for sampling reflection records."""
+
+    def __call__(self, records: list[dict[str, Any]], max_records: int) -> list[dict[str, Any]]:
+        """Sample records for reflection.
+
+        Args:
+            records: All reflection records available.
+            max_records: Maximum number of records to return.
+
+        Returns:
+            Sampled list of records (up to max_records).
+        """
+        ...
 
 
 class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
@@ -34,6 +50,7 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         *,
         signature_class: type[Signature] | None = None,
         deterministic_proposer: ProposalFn | None = None,
+        reflection_sampler: ReflectionSampler | None = None,
     ):
         """Initialize the adapter.
 
@@ -46,11 +63,15 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
                             descriptions will be optimized alongside the agent's prompts.
             deterministic_proposer: Optional deterministic proposer for testing.
                                    If provided, this will be used as propose_new_texts.
+            reflection_sampler: Optional sampler for reflection records. If provided,
+                               it will be called to sample records when needed. If None,
+                               all reflection records are kept without sampling.
         """
         self.agent = agent
         self.metric = metric
         self.signature_class = signature_class
         self.propose_new_texts = deterministic_proposer
+        self.reflection_sampler = reflection_sampler
 
     def evaluate(
         self,
@@ -257,24 +278,11 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             record['feedback'] = feedback_text
             reflection_records.append(record)
 
-        # Sample records if too many (keep it manageable for reflection)
-        max_records = 10
-        if len(reflection_records) > max_records:
-            # Use deterministic sampling based on scores
-            # Include both good and bad examples
-            sorted_records: list[dict[str, Any]] = sorted(reflection_records, key=lambda r: r['score'])
-            sampled: list[dict[str, Any]] = []
-            # Take some low-scoring examples
-            sampled.extend(sorted_records[: max_records // 3])
-            # Take some high-scoring examples
-            sampled.extend(sorted_records[-(max_records // 3) :])
-            # Fill the rest randomly but deterministically
-            remaining = max_records - len(sampled)
-            if remaining > 0:
-                middle: list[dict[str, Any]] = sorted_records[max_records // 3 : -(max_records // 3)]
-                random.Random(42).shuffle(middle)
-                sampled.extend(middle[:remaining])
-            reflection_records = sampled
+        # Apply sampling if a sampler is configured
+        if self.reflection_sampler and reflection_records:
+            # Let the sampler determine its own max_records internally
+            # For backward compatibility, we can use a reasonable default
+            reflection_records = self.reflection_sampler(reflection_records, max_records=10)
 
         # Provide the same dataset to all components being updated
         return {comp: reflection_records for comp in components_to_update}

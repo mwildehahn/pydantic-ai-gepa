@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .adapter import PydanticAIGEPAAdapter
+from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
 from .runner import GepaOptimizationResult, optimize_agent_prompts
 from .signature import Signature
 from .signature_agent import SignatureAgent
@@ -12,6 +12,7 @@ __all__ = [
     'optimize_agent_prompts',
     'GepaOptimizationResult',
     'PydanticAIGEPAAdapter',
+    'ReflectionSampler',
     'DataInst',
     'Trajectory',
     'RolloutOutput',

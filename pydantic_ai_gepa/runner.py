@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
-from .adapter import PydanticAIGEPAAdapter
+from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
 from .components import (
     apply_candidate_to_agent,
     apply_candidate_to_agent_and_signature,
@@ -147,6 +147,8 @@ def optimize_agent_prompts(
     raise_on_exception: bool = True,
     # Testing support
     deterministic_proposer: Any | None = None,
+    # Reflection sampler
+    reflection_sampler: ReflectionSampler | None = None,
 ) -> GepaOptimizationResult:
     """Optimize agent (and optional signature) prompts using GEPA.
 
@@ -202,6 +204,11 @@ def optimize_agent_prompts(
         # Testing support
         deterministic_proposer: For testing - a deterministic proposal function.
 
+        # Reflection sampler
+        reflection_sampler: Optional sampler for reflection records. If provided,
+                               it will be called to sample records when needed. If None,
+                               all reflection records are kept without sampling.
+
     Returns:
         GepaOptimizationResult with the best candidate and metadata.
     """
@@ -223,6 +230,7 @@ def optimize_agent_prompts(
         metric=metric,
         signature_class=signature_class,
         deterministic_proposer=deterministic_proposer,
+        reflection_sampler=reflection_sampler,
     )
 
     if reflection_lm is None:
