@@ -12,6 +12,9 @@ from gepa.logging.logger import LoggerProtocol
 from gepa.proposer.reflective_mutation.base import LanguageModel, ReflectionComponentSelector
 from pydantic import BaseModel, ConfigDict, Field
 
+from pydantic_ai import Agent
+from pydantic_ai.models import KnownModelName, Model
+
 from .adapter import PydanticAIGEPAAdapter
 from .components import (
     apply_candidate_to_agent,
@@ -96,6 +99,17 @@ class GepaOptimizationResult(BaseModel):
             yield
 
 
+class DefaultLanguageModel:
+    """Simple LanguageModel wrapper using a pydantic-ai Agent returning text."""
+
+    def __init__(self, model: Any | None):
+        self._agent = Agent(model, output_type=str)
+
+    def __call__(self, prompt: str) -> str:
+        result = self._agent.run_sync(prompt)
+        return result.output
+
+
 def optimize_agent_prompts(
     agent: AbstractAgent[Any, Any],
     trainset: Sequence[DataInst],
@@ -104,7 +118,8 @@ def optimize_agent_prompts(
     valset: Sequence[DataInst] | None = None,
     signature_class: type[Signature] | None = None,
     # Reflection-based configuration
-    reflection_model: Model | str | None = None,
+    reflection_lm: LanguageModel | None = None,
+    reflection_model: Model | KnownModelName | str | None = None,
     candidate_selection_strategy: str = 'pareto',
     skip_perfect_score: bool = True,
     reflection_minibatch_size: int = 3,
@@ -207,19 +222,8 @@ def optimize_agent_prompts(
         deterministic_proposer=deterministic_proposer,
     )
 
-    # Handle reflection model
-    reflection_lm: LanguageModel | str | None = None
-    if reflection_model is not None:
-        if isinstance(reflection_model, str):
-            # Parse model string (e.g., 'openai:gpt-4o')
-            reflection_lm = reflection_model
-        else:
-            # It's a Model instance
-            # We'd need to wrap it for GEPA's interface
-            # For v1, we'll require string format
-            raise ValueError(
-                "Model instances not yet supported for reflection_model. Please use a string like 'openai:gpt-4o'"
-            )
+    if reflection_lm is None:
+        reflection_lm = DefaultLanguageModel(reflection_model)
 
     # Adjust module_selector based on number of components if needed
     # If only one component and module_selector is still default, use 'all'
