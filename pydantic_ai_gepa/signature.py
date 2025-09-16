@@ -118,9 +118,13 @@ class Signature(BaseModel, metaclass=SignatureMeta):
         if candidate is None:
             return default
 
-        # Build the full component name
+        # Build the full component name with class name to handle nested models
         class_name = self.__class__.__name__
-        full_key = f'signature:{class_name}:{component_key}'
+        if component_key == 'instructions':
+            full_key = f'signature:{class_name}:instructions'
+        else:
+            # For field descriptions
+            full_key = f'signature:{class_name}:{component_key}'
 
         return candidate.get(full_key, default)
 
@@ -134,7 +138,7 @@ class Signature(BaseModel, metaclass=SignatureMeta):
         components: dict[str, str] = {}
         class_name = cls.__name__
 
-        # Add the instructions component
+        # Add the instructions component with class name
         components[f'signature:{class_name}:instructions'] = cls.__doc__ or ''
 
         # Add field description components

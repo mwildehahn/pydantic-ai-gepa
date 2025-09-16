@@ -1,16 +1,16 @@
-"""GEPA adapter for pydantic-ai agents."""
+"""GEPA adapter for pydantic-ai agents with single signature optimization."""
 
 from __future__ import annotations
 
 import random
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter, ProposalFn
 
-from .components import apply_candidate_to_agent_and_signatures
-from .signature import Signature
+from .components import apply_candidate_to_agent
+from .signature import Signature, apply_candidate_to_signature
 from .types import DataInst, RolloutOutput, Trajectory
 
 if TYPE_CHECKING:
@@ -19,10 +19,12 @@ if TYPE_CHECKING:
 
 
 class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
-    """GEPA adapter for pydantic-ai agents.
+    """GEPA adapter for optimizing a single pydantic-ai agent with an optional signature.
 
     This adapter connects pydantic-ai agents to the GEPA optimization engine,
-    enabling prompt optimization through evaluation and reflection.
+    enabling prompt optimization through evaluation and reflection. It focuses on
+    optimizing a single agent's instructions and system prompts, optionally with
+    a single Signature class for structured input formatting.
     """
 
     def __init__(
@@ -30,7 +32,7 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         agent: AbstractAgent[Any, Any],
         metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],
         *,
-        signatures: Sequence[type[Signature]] | None = None,
+        signature_class: type[Signature] | None = None,
         deterministic_proposer: ProposalFn | None = None,
     ):
         """Initialize the adapter.
@@ -39,13 +41,14 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             agent: The pydantic-ai agent to optimize.
             metric: A function that computes (score, feedback) for a data instance
                    and its output. Higher scores are better.
-            signatures: Optional list of Signature classes whose prompts will be optimized.
+            signature_class: Optional single Signature class whose instructions and field
+                            descriptions will be optimized alongside the agent's prompts.
             deterministic_proposer: Optional deterministic proposer for testing.
                                    If provided, this will be used as propose_new_texts.
         """
         self.agent = agent
         self.metric = metric
-        self.signatures = signatures or []
+        self.signature_class = signature_class
         self.propose_new_texts = deterministic_proposer
 
     def evaluate(
@@ -68,8 +71,8 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         scores: list[float] = []
         trajectories: list[Trajectory] | None = [] if capture_traces else None
 
-        # Apply the candidate to the agent and signatures
-        with apply_candidate_to_agent_and_signatures(candidate, agent=self.agent, signatures=self.signatures):
+        # Apply the candidate to the agent and optionally the signature
+        with self._apply_candidate(candidate):
             for data_inst in batch:
                 result = self.process_data_instance(data_inst, capture_traces)
 
@@ -80,6 +83,28 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
                     trajectories.append(result['trajectory'])
 
         return EvaluationBatch(outputs=outputs, scores=scores, trajectories=trajectories)
+
+    def _apply_candidate(self, candidate: dict[str, str]):
+        """Context manager to apply candidate to both agent and signature.
+
+        Args:
+            candidate: The candidate mapping component names to text.
+
+        Returns:
+            Context manager that applies the candidate.
+        """
+        from contextlib import ExitStack
+
+        stack = ExitStack()
+
+        # Apply to agent
+        stack.enter_context(apply_candidate_to_agent(self.agent, candidate))
+
+        # Apply to signature if provided
+        if self.signature_class:
+            stack.enter_context(apply_candidate_to_signature(self.signature_class, candidate))
+
+        return stack
 
     def process_data_instance(self, data_inst: DataInst, capture_traces: bool = False) -> dict[str, Any]:
         """Process a single data instance and return results.
@@ -241,6 +266,5 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
                 sampled.extend(middle[:remaining])
             reflection_records = sampled
 
-        # For v1, we provide the same dataset to all components
-        # In v2, we could do component-specific attribution
+        # Provide the same dataset to all components being updated
         return {comp: reflection_records for comp in components_to_update}

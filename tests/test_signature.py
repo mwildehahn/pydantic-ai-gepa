@@ -5,6 +5,10 @@ from __future__ import annotations
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 from pydantic_ai_gepa import Signature
+from pydantic_ai_gepa.components import extract_seed_candidate_with_signature
+
+from pydantic_ai import Agent
+from pydantic_ai.models.test import TestModel
 
 
 class Email(BaseModel):
@@ -145,25 +149,21 @@ def test_signature_without_explicit_field_description():
     )
 
 
-def test_multiple_signatures():
-    """Test working with multiple signature classes."""
-    from pydantic_ai_gepa.components import extract_seed_candidate_with_signatures
-
-    class SummarySignature(Signature):
-        """Summarize the given text."""
-
-        text: str = Field(description='Text to summarize')
-        max_length: int = Field(description='Maximum summary length')
-
-    # Extract components from multiple signatures
-    candidate = extract_seed_candidate_with_signatures(signatures=[EmailAnalysis, SummarySignature])
+def test_extract_seed_candidate_with_signature():
+    """Test extracting initial components from an agent and a signature."""
+    agent = Agent(
+        TestModel(),
+        instructions='Be helpful and professional.',
+        system_prompt=['System prompt 1', 'System prompt 2'],
+    )
+    candidate = extract_seed_candidate_with_signature(agent=agent, signature_class=EmailAnalysis)
     assert candidate == snapshot(
         {
+            'instructions': 'Be helpful and professional.',
+            'system_prompt:0': 'System prompt 1',
+            'system_prompt:1': 'System prompt 2',
             'signature:EmailAnalysis:instructions': 'Analyze emails for key information and sentiment.',
             'signature:EmailAnalysis:emails:desc': 'List of email messages to analyze. Look for sentiment and key topics.',
             'signature:EmailAnalysis:context:desc': 'Additional context about the email thread or conversation.',
-            'signature:SummarySignature:instructions': 'Summarize the given text.',
-            'signature:SummarySignature:text:desc': 'Text to summarize',
-            'signature:SummarySignature:max_length:desc': 'Maximum summary length',
         }
     )

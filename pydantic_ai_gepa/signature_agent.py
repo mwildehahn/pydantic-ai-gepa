@@ -16,7 +16,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import AgentDepsT, DeferredToolResults
 from pydantic_ai.toolsets import AbstractToolset
 
-from .components import apply_candidate_to_agent_and_signatures
+from .components import apply_candidate_to_agent_and_signature
 from .signature import Signature
 
 if TYPE_CHECKING:
@@ -180,8 +180,10 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         # Apply candidate to agent and signatures if provided
         effective_candidate = candidate or self.default_candidate
         if effective_candidate:
-            with apply_candidate_to_agent_and_signatures(
-                effective_candidate, agent=self.wrapped, signatures=[signature.__class__]
+            with apply_candidate_to_agent_and_signature(
+                effective_candidate,
+                agent=self.wrapped,
+                signature_class=signature.__class__,
             ):
                 return await self.wrapped.run(
                     user_prompt,
@@ -297,8 +299,10 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         # Apply candidate to agent and signatures if provided
         effective_candidate = candidate or self.default_candidate
         if effective_candidate:
-            with apply_candidate_to_agent_and_signatures(
-                effective_candidate, agent=self.wrapped, signatures=[signature.__class__]
+            with apply_candidate_to_agent_and_signature(
+                effective_candidate,
+                agent=self.wrapped,
+                signature_class=signature.__class__,
             ):
                 return self.wrapped.run_sync(
                     user_prompt,
@@ -415,8 +419,10 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         # Apply candidate to agent and signatures if provided
         effective_candidate = candidate or self.default_candidate
         if effective_candidate:
-            with apply_candidate_to_agent_and_signatures(
-                effective_candidate, agent=self.wrapped, signatures=[signature.__class__]
+            with apply_candidate_to_agent_and_signature(
+                effective_candidate,
+                agent=self.wrapped,
+                signature_class=signature.__class__,
             ):
                 async with self.wrapped.run_stream(
                     user_prompt,

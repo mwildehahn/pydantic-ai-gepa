@@ -6,7 +6,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
-from .signature import Signature, apply_candidate_to_signature, extract_signature_components
+from .signature import Signature, apply_candidate_to_signature
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -126,75 +126,59 @@ def validate_components(agent: AbstractAgent[Any, Any], components: Sequence[str
     return list(components)
 
 
-def extract_seed_candidate_with_signatures(
-    agent: AbstractAgent[Any, Any] | None = None,
-    signatures: Sequence[type[Signature]] | None = None,
+def extract_seed_candidate_with_signature(
+    agent: AbstractAgent[Any, Any],
+    signature_class: type[Signature] | None = None,
 ) -> dict[str, str]:
-    """Extract initial prompts from an agent and/or signatures as a GEPA candidate.
+    """Extract initial prompts from an agent and optionally a signature as a GEPA candidate.
 
     Args:
-        agent: Optional agent to extract prompts from.
-        signatures: Optional list of Signature classes to extract from.
+        agent: The agent to extract prompts from.
+        signature_class: Optional single Signature class to extract from.
 
     Returns:
         Combined dictionary of all components and their initial text.
     """
     candidate: dict[str, str] = {}
 
-    # Extract from agent if provided
-    if agent is not None:
-        candidate.update(extract_seed_candidate(agent))
+    # Extract from agent
+    candidate.update(extract_seed_candidate(agent))
 
-    # Extract from signatures if provided
-    if signatures:
-        candidate.update(extract_signature_components(signatures))
+    # Extract from signature if provided
+    if signature_class:
+        # Use the signature's own extraction method to ensure consistency
+        candidate.update(signature_class.get_gepa_components())
 
     return candidate
 
 
 @contextmanager
-def apply_candidate_to_agent_and_signatures(
+def apply_candidate_to_agent_and_signature(
     candidate: dict[str, str],
-    agent: AbstractAgent[Any, Any] | None = None,
-    signatures: Sequence[type[Signature]] | None = None,
+    agent: AbstractAgent[Any, Any],
+    signature_class: type[Signature] | None = None,
 ) -> Iterator[None]:
-    """Apply a GEPA candidate to both an agent and signatures.
+    """Apply a GEPA candidate to an agent and optionally a signature.
 
-    This context manager temporarily applies the candidate to both the agent
-    (via override_prompts) and any signature classes.
+    This context manager temporarily applies the candidate to the agent
+    (via override_prompts) and optionally to a signature class.
 
     Args:
         candidate: The candidate mapping component names to text.
-        agent: Optional agent to apply prompts to.
-        signatures: Optional list of Signature classes to apply to.
+        agent: The agent to apply prompts to.
+        signature_class: Optional single Signature class to apply to.
 
     Yields:
         None while the candidate is applied.
     """
-    # Collect context managers
-    contexts: list[Any] = []
+    from contextlib import ExitStack
 
-    # Apply to agent if provided
-    if agent is not None:
-        contexts.append(apply_candidate_to_agent(agent, candidate))
+    with ExitStack() as stack:
+        # Apply to agent
+        stack.enter_context(apply_candidate_to_agent(agent, candidate))
 
-    # Apply to each signature if provided
-    if signatures:
-        for sig_class in signatures:
-            contexts.append(apply_candidate_to_signature(sig_class, candidate))
+        # Apply to signature if provided
+        if signature_class:
+            stack.enter_context(apply_candidate_to_signature(signature_class, candidate))
 
-    # Use nested context managers
-    if not contexts:
         yield
-        return
-
-    # Enter all contexts
-    for ctx in contexts:
-        ctx.__enter__()
-
-    try:
-        yield
-    finally:
-        # Exit all contexts in reverse order
-        for ctx in reversed(contexts):
-            ctx.__exit__(None, None, None)

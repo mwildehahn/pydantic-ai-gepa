@@ -7,7 +7,7 @@ from typing import Any
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 from pydantic_ai_gepa import DataInst, PydanticAIGEPAAdapter, Signature
-from pydantic_ai_gepa.components import extract_seed_candidate_with_signatures
+from pydantic_ai_gepa.components import extract_seed_candidate_with_signature
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
@@ -73,10 +73,10 @@ def test_signature_to_prompt_parts():
     )
 
     # Convert to prompt parts
-    prompt_parts = sig.to_prompt_parts()
+    user_content = sig.to_user_content()
 
-    assert len(prompt_parts) == 1
-    content = prompt_parts[0].content
+    assert len(user_content) == 1
+    content = user_content[0]
     assert content == snapshot("""\
 Analyze customer support emails and generate appropriate responses.
 
@@ -130,8 +130,8 @@ def test_signature_with_optimized_candidate():
     }
 
     # Convert with optimized prompts
-    prompt_parts = sig.to_prompt_parts(candidate=optimized_candidate)
-    content = prompt_parts[0].content
+    user_content = sig.to_user_content(candidate=optimized_candidate)
+    content = user_content[0]
     assert content == snapshot("""\
 You are an expert support agent. Identify critical issues immediately.
 
@@ -155,7 +155,14 @@ Company Policies: Standard policies apply.\
 def test_extract_signature_components():
     """Test extracting GEPA components from a signature."""
     components = EmailSupportSignature.get_gepa_components()
-    assert components == snapshot({'signature:EmailSupportSignature:instructions':'Analyze customer support emails and generate appropriate responses.','signature:EmailSupportSignature:emails:desc':'Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.','signature:EmailSupportSignature:previous_interactions:desc':'Summary of previous interactions with this customer, if available.','signature:EmailSupportSignature:company_policies:desc':'Relevant company policies and guidelines for customer support.'})
+    assert components == snapshot(
+        {
+            'signature:EmailSupportSignature:instructions': 'Analyze customer support emails and generate appropriate responses.',
+            'signature:EmailSupportSignature:emails:desc': 'Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.',
+            'signature:EmailSupportSignature:previous_interactions:desc': 'Summary of previous interactions with this customer, if available.',
+            'signature:EmailSupportSignature:company_policies:desc': 'Relevant company policies and guidelines for customer support.',
+        }
+    )
 
 
 def test_signature_with_agent():
@@ -187,8 +194,8 @@ def test_signature_with_agent():
     )
 
     # Convert to prompt and run agent
-    prompt_parts = sig.to_prompt_parts()
-    prompt_content = prompt_parts[0].content
+    user_content = sig.to_user_content()
+    prompt_content = user_content[0]
     assert prompt_content == snapshot("""\
 Analyze customer support emails and generate appropriate responses.
 
@@ -205,9 +212,16 @@ Relevant company policies and guidelines for customer support.
 Company Policies: Escalate all critical issues immediately.\
 """)
 
-    result = agent.run_sync(prompt_content)
+    result = agent.run_sync(user_content)
     response = result.output
-    assert response == snapshot(SupportResponse (priority ='high',category ='technical',suggested_response ='I can help you with the login issue.',needs_escalation =True ))
+    assert response == snapshot(
+        SupportResponse(
+            priority='high',
+            category='technical',
+            suggested_response='I can help you with the login issue.',
+            needs_escalation=True,
+        )
+    )
 
 
 def test_gepa_adapter_with_signatures():
@@ -226,10 +240,10 @@ def test_gepa_adapter_with_signatures():
     adapter = PydanticAIGEPAAdapter(
         agent=agent,
         metric=support_metric,
-        signatures=[EmailSupportSignature],
+        signature_class=EmailSupportSignature,
     )
 
-    assert adapter.signatures == [EmailSupportSignature]
+    assert adapter.signature_class == EmailSupportSignature
     assert adapter.agent == agent
     assert adapter.metric == support_metric
 
@@ -244,13 +258,23 @@ def test_extract_seed_candidate_with_signatures():
     )
 
     # Extract components from both agent and signature
-    candidate = extract_seed_candidate_with_signatures(
+    candidate = extract_seed_candidate_with_signature(
         agent=agent,
-        signatures=[EmailSupportSignature],
+        signature_class=EmailSupportSignature,
     )
 
     # Should have components from both agent and signature
-    assert candidate == snapshot({'instructions':'Be helpful and professional.','system_prompt:0':'System prompt 1','system_prompt:1':'System prompt 2','signature:EmailSupportSignature:instructions':'Analyze customer support emails and generate appropriate responses.','signature:EmailSupportSignature:emails:desc':'Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.','signature:EmailSupportSignature:previous_interactions:desc':'Summary of previous interactions with this customer, if available.','signature:EmailSupportSignature:company_policies:desc':'Relevant company policies and guidelines for customer support.'})
+    assert candidate == snapshot(
+        {
+            'instructions': 'Be helpful and professional.',
+            'system_prompt:0': 'System prompt 1',
+            'system_prompt:1': 'System prompt 2',
+            'signature:EmailSupportSignature:instructions': 'Analyze customer support emails and generate appropriate responses.',
+            'signature:EmailSupportSignature:emails:desc': 'Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.',
+            'signature:EmailSupportSignature:previous_interactions:desc': 'Summary of previous interactions with this customer, if available.',
+            'signature:EmailSupportSignature:company_policies:desc': 'Relevant company policies and guidelines for customer support.',
+        }
+    )
 
 
 def test_signature_with_none_field():
@@ -267,8 +291,8 @@ def test_signature_with_none_field():
         company_policies='Default policies',
     )
 
-    prompt_parts = sig.to_prompt_parts()
-    content = prompt_parts[0].content
+    user_content = sig.to_user_content()
+    content = user_content[0]
     assert content == snapshot("""\
 Analyze customer support emails and generate appropriate responses.
 
@@ -286,20 +310,6 @@ Company Policies: Default policies\
 """)
 
 
-def test_multiple_signatures():
-    """Test working with multiple signature classes."""
-
-    class QuickResponseSignature(Signature):
-        """Generate quick responses to common questions."""
-
-        question: str = Field(description='The customer question')
-        context: str = Field(description='Additional context')
-
-    # Extract components from multiple signatures
-    candidate = extract_seed_candidate_with_signatures(signatures=[EmailSupportSignature, QuickResponseSignature])
-    assert candidate == snapshot({'signature:EmailSupportSignature:instructions':'Analyze customer support emails and generate appropriate responses.','signature:EmailSupportSignature:emails:desc':'Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.','signature:EmailSupportSignature:previous_interactions:desc':'Summary of previous interactions with this customer, if available.','signature:EmailSupportSignature:company_policies:desc':'Relevant company policies and guidelines for customer support.','signature:QuickResponseSignature:instructions':'Generate quick responses to common questions.','signature:QuickResponseSignature:question:desc':'The customer question','signature:QuickResponseSignature:context:desc':'Additional context'})
-
-
 def test_signature_field_without_description():
     """Test that fields without explicit descriptions get default ones."""
 
@@ -312,4 +322,10 @@ def test_signature_field_without_description():
         config: dict[str, Any] = Field(description='Configuration settings')
 
     components = MinimalSignature.get_gepa_components()
-    assert components == snapshot({'signature:MinimalSignature:instructions':'A minimal signature.','signature:MinimalSignature:input_text:desc':'The input_text input','signature:MinimalSignature:config:desc':'Configuration settings'})
+    assert components == snapshot(
+        {
+            'signature:MinimalSignature:instructions': 'A minimal signature.',
+            'signature:MinimalSignature:input_text:desc': 'The input_text input',
+            'signature:MinimalSignature:config:desc': 'Configuration settings',
+        }
+    )
