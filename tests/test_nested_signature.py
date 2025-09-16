@@ -102,7 +102,7 @@ Query: Where is my order?
 
 Customer's billing address
 
-Each <address> element contains:
+Each <Address> element contains:
 - <street>: Street address
 - <city>: City name
 - <zip_code>: ZIP or postal code
@@ -131,7 +131,7 @@ Query: Where is my order?
 
 Customer's billing address
 
-Each <address> element contains:
+Each <Address> element contains:
 - <street>: Street address
 - <city>: City name
 - <zip_code>: ZIP or postal code

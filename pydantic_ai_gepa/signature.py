@@ -101,7 +101,7 @@ class Signature(BaseModel, metaclass=SignatureMeta):
                 # Use XML formatting for complex structures
                 # For lists of models, use the lowercase model name as item_tag
                 if isinstance(field_value, list) and field_value and isinstance(field_value[0], BaseModel):
-                    item_tag = field_value[0].__class__.__name__.lower()
+                    item_tag = field_value[0].__class__.__name__
                 else:
                     item_tag = 'item' if isinstance(field_value, list) else 'value'
 
@@ -189,7 +189,7 @@ class Signature(BaseModel, metaclass=SignatureMeta):
             return ''
 
         # Make the connection to XML elements explicit with lowercase tag names
-        lines = [f'{indent}Each <{model_class.__name__.lower()}> element contains:']
+        lines = [f'{indent}Each <{model_class.__name__}> element contains:']
 
         # Process each field and recursively handle nested models
         lines.extend(Signature._format_fields_recursive(model_class, indent, visited))

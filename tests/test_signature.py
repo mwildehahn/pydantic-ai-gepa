@@ -47,7 +47,7 @@ Analyze emails for key information and sentiment.
 
 List of email messages to analyze. Look for sentiment and key topics.
 
-Each <email> element contains:
+Each <Email> element contains:
 - <subject>: The subject field
 - <contents>: The contents field
 
@@ -102,7 +102,7 @@ Extract actionable insights from customer emails.
 
 Customer emails requiring detailed analysis.
 
-Each <email> element contains:
+Each <Email> element contains:
 - <subject>: The subject field
 - <contents>: The contents field
 
