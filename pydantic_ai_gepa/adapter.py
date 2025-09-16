@@ -40,7 +40,8 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         Args:
             agent: The pydantic-ai agent to optimize.
             metric: A function that computes (score, feedback) for a data instance
-                   and its output. Higher scores are better.
+                   and its output. Higher scores are better. The feedback string
+                   (second element) is optional but recommended for better optimization.
             signature_class: Optional single Signature class whose instructions and field
                             descriptions will be optimized alongside the agent's prompts.
             deterministic_proposer: Optional deterministic proposer for testing.
@@ -124,8 +125,12 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
                 output = self._run_simple(data_inst)
                 trajectory = None
 
-            # Compute score using the metric
-            score, _ = self.metric(data_inst, output)
+            # Compute score using the metric and capture optional feedback
+            score, metric_feedback = self.metric(data_inst, output)
+
+            # Attach metric-provided feedback to the trajectory if captured
+            if trajectory is not None:
+                trajectory.metric_feedback = metric_feedback
 
             result: dict[str, Any] = {
                 'output': output,
@@ -175,6 +180,7 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
                 final_output=final_output,
                 error=None,
                 usage=asdict(result.usage()),  # Convert RunUsage to dict
+                data_inst=instance,
             )
             output = RolloutOutput.from_success(final_output)
 
@@ -234,17 +240,21 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             if output.error_message:
                 record['error_message'] = output.error_message
 
-            # Generate feedback based on score
-            if score >= 0.8:
-                feedback = 'Good response'
-            elif score >= 0.5:
-                feedback = 'Adequate response, could be improved'
-            else:
-                feedback = f'Poor response (score: {score:.2f})'
-                if output.error_message:
-                    feedback += f' - Error: {output.error_message}'
+            # Use metric feedback if available, otherwise use a simple fallback
+            feedback_text = trajectory.metric_feedback
 
-            record['feedback'] = feedback
+            if not feedback_text:
+                # Simple fallback when metric doesn't provide feedback
+                if score >= 0.8:
+                    feedback_text = 'Good response'
+                elif score >= 0.5:
+                    feedback_text = 'Adequate response, could be improved'
+                else:
+                    feedback_text = f'Poor response (score: {score:.2f})'
+                    if output.error_message:
+                        feedback_text += f' - Error: {output.error_message}'
+
+            record['feedback'] = feedback_text
             reflection_records.append(record)
 
         # Sample records if too many (keep it manageable for reflection)

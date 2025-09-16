@@ -32,6 +32,8 @@ class Trajectory:
     final_output: Any
     error: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
+    data_inst: DataInst | None = None
+    metric_feedback: str | None = None
 
     def _extract_user_content(self, part: UserPromptPart) -> str:
         """Extract text content from a UserPromptPart."""

@@ -157,11 +157,14 @@ def optimize_agent_prompts(
         agent: The pydantic-ai agent to optimize.
         trainset: Training dataset (pydantic-evals Dataset or list of DataInst).
         metric: Function that computes (score, feedback) for each instance.
+                The feedback (second element of tuple) is optional but recommended.
+                If provided, it will be used to guide the optimization process.
         valset: Optional validation dataset. If not provided, trainset is used.
         signature_class: Optional Signature class whose instructions and field descriptions
             should be optimized alongside the agent's prompts.
 
         # Reflection-based configuration
+        reflection_lm: LanguageModel to use for reflection (proposing new prompts).
         reflection_model: Model to use for reflection (proposing new prompts).
                          Can be a Model instance or a string like 'openai:gpt-4o'.
         candidate_selection_strategy: Strategy for selecting candidates ('pareto' or 'current_best').

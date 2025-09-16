@@ -112,7 +112,7 @@ def test_make_reflective_dataset():
                     'error': None,
                     'score': 0.8,
                     'success': True,
-                    'feedback': 'Good response',
+                    'feedback': 'Good',
                 }
             ]
         }
