@@ -101,6 +101,12 @@ The customer's question or issue
 Query: Where is my order?
 
 Customer's billing address
+
+Each <address> element contains:
+- <street>: Street address
+- <city>: City name
+- <zip_code>: ZIP or postal code
+
 <billing_address>
   <street>123 Main St</street>
   <city>Springfield</city>
@@ -124,6 +130,12 @@ The customer's question or issue
 Query: Where is my order?
 
 Customer's billing address
+
+Each <address> element contains:
+- <street>: Street address
+- <city>: City name
+- <zip_code>: ZIP or postal code
+
 <billing_address>
   <street>123 Main St</street>
   <city>Springfield</city>

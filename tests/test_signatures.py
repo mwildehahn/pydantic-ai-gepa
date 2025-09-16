@@ -13,16 +13,26 @@ from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
 
+class EmailSender(BaseModel):
+    """An email sender."""
+
+    name: str = Field(description='The name of the sender.')
+    email: str = Field(description='The email address of the sender.')
+
+
+class EmailHeader(BaseModel):
+    """An email header."""
+
+    subject: str = Field(description='The subject of the email. Pay specific attention to this.')
+    sender: EmailSender
+
+
 # Define data models
 class Email(BaseModel):
     """An email message."""
 
-    subject: str
+    header: EmailHeader = Field(description='The header of the email.')
     contents: str
-    sender: str
-
-    def __str__(self) -> str:
-        return f'From: {self.sender}\nSubject: {self.subject}\n\n{self.contents}'
 
 
 class SupportResponse(BaseModel):
@@ -54,13 +64,23 @@ def test_signature_to_prompt_parts():
     # Create test data
     emails = [
         Email(
-            sender='john@example.com',
-            subject='Login not working',
+            header=EmailHeader(
+                sender=EmailSender(
+                    name='John Doe',
+                    email='john@example.com',
+                ),
+                subject='Login not working',
+            ),
             contents="I've been trying to log in for the past hour but keep getting an error. This is urgent!",
         ),
         Email(
-            sender='john@example.com',
-            subject='Re: Login not working',
+            header=EmailHeader(
+                sender=EmailSender(
+                    name='John Doe',
+                    email='john@example.com',
+                ),
+                subject='Re: Login not working',
+            ),
             contents='I tried resetting my password but the reset email never arrived.',
         ),
     ]
@@ -81,16 +101,35 @@ def test_signature_to_prompt_parts():
 Analyze customer support emails and generate appropriate responses.
 
 Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.
+
+Each <email> element contains:
+- <header>: The header of the email.
+  - <subject>: The subject of the email. Pay specific attention to this.
+  - <sender>: The sender field
+    - <name>: The name of the sender.
+    - <email>: The email address of the sender.
+- <contents>: The contents field
+
 <emails>
   <Email>
-    <subject>Login not working</subject>
+    <header>
+      <subject>Login not working</subject>
+      <sender>
+        <name>John Doe</name>
+        <email>john@example.com</email>
+      </sender>
+    </header>
     <contents>I've been trying to log in for the past hour but keep getting an error. This is urgent!</contents>
-    <sender>john@example.com</sender>
   </Email>
   <Email>
-    <subject>Re: Login not working</subject>
+    <header>
+      <subject>Re: Login not working</subject>
+      <sender>
+        <name>John Doe</name>
+        <email>john@example.com</email>
+      </sender>
+    </header>
     <contents>I tried resetting my password but the reset email never arrived.</contents>
-    <sender>john@example.com</sender>
   </Email>
 </emails>
 
@@ -108,8 +147,13 @@ def test_signature_with_optimized_candidate():
     sig = EmailSupportSignature(
         emails=[
             Email(
-                sender='test@example.com',
-                subject='Test Issue',
+                header=EmailHeader(
+                    sender=EmailSender(
+                        name='Test User',
+                        email='test@example.com',
+                    ),
+                    subject='Test Issue',
+                ),
                 contents='This is a test email.',
             )
         ],
@@ -136,11 +180,25 @@ def test_signature_with_optimized_candidate():
 You are an expert support agent. Identify critical issues immediately.
 
 URGENT: Customer emails showing frustration. Extract key problems.
+
+Each <email> element contains:
+- <header>: The header of the email.
+  - <subject>: The subject of the email. Pay specific attention to this.
+  - <sender>: The sender field
+    - <name>: The name of the sender.
+    - <email>: The email address of the sender.
+- <contents>: The contents field
+
 <emails>
   <Email>
-    <subject>Test Issue</subject>
+    <header>
+      <subject>Test Issue</subject>
+      <sender>
+        <name>Test User</name>
+        <email>test@example.com</email>
+      </sender>
+    </header>
     <contents>This is a test email.</contents>
-    <sender>test@example.com</sender>
   </Email>
 </emails>
 
@@ -184,8 +242,13 @@ def test_signature_with_agent():
     sig = EmailSupportSignature(
         emails=[
             Email(
-                sender='user@example.com',
-                subject='Critical Issue',
+                header=EmailHeader(
+                    sender=EmailSender(
+                        name='Test User',
+                        email='user@example.com',
+                    ),
+                    subject='Critical Issue',
+                ),
                 contents='System is down!',
             )
         ],
@@ -200,11 +263,25 @@ def test_signature_with_agent():
 Analyze customer support emails and generate appropriate responses.
 
 Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.
+
+Each <email> element contains:
+- <header>: The header of the email.
+  - <subject>: The subject of the email. Pay specific attention to this.
+  - <sender>: The sender field
+    - <name>: The name of the sender.
+    - <email>: The email address of the sender.
+- <contents>: The contents field
+
 <emails>
   <Email>
-    <subject>Critical Issue</subject>
+    <header>
+      <subject>Critical Issue</subject>
+      <sender>
+        <name>Test User</name>
+        <email>user@example.com</email>
+      </sender>
+    </header>
     <contents>System is down!</contents>
-    <sender>user@example.com</sender>
   </Email>
 </emails>
 
@@ -282,8 +359,13 @@ def test_signature_with_none_field():
     sig = EmailSupportSignature(
         emails=[
             Email(
-                sender='test@example.com',
-                subject='Test',
+                header=EmailHeader(
+                    sender=EmailSender(
+                        name='Test User',
+                        email='test@example.com',
+                    ),
+                    subject='Test',
+                ),
                 contents='Test content',
             )
         ],
@@ -297,11 +379,25 @@ def test_signature_with_none_field():
 Analyze customer support emails and generate appropriate responses.
 
 Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.
+
+Each <email> element contains:
+- <header>: The header of the email.
+  - <subject>: The subject of the email. Pay specific attention to this.
+  - <sender>: The sender field
+    - <name>: The name of the sender.
+    - <email>: The email address of the sender.
+- <contents>: The contents field
+
 <emails>
   <Email>
-    <subject>Test</subject>
+    <header>
+      <subject>Test</subject>
+      <sender>
+        <name>Test User</name>
+        <email>test@example.com</email>
+      </sender>
+    </header>
     <contents>Test content</contents>
-    <sender>test@example.com</sender>
   </Email>
 </emails>
 

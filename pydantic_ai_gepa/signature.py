@@ -88,11 +88,27 @@ class Signature(BaseModel, metaclass=SignatureMeta):
 
             # Decide how to format the field value
             if isinstance(field_value, (list, dict, BaseModel)) or (isinstance(field_value, BaseModel)):
+                # Check if this is a Pydantic model or list of models
+                model_type = self._get_model_type(field_value)
+                if model_type:
+                    # Add schema description before the XML data
+                    schema_desc = self._format_model_schema(model_type)
+                    if schema_desc:
+                        content_parts.append('')  # Add spacing
+                        content_parts.append(schema_desc)
+                        content_parts.append('')  # Add spacing
+
                 # Use XML formatting for complex structures
+                # For lists of models, use the lowercase model name as item_tag
+                if isinstance(field_value, list) and field_value and isinstance(field_value[0], BaseModel):
+                    item_tag = field_value[0].__class__.__name__.lower()
+                else:
+                    item_tag = 'item' if isinstance(field_value, list) else 'value'
+
                 formatted_value = format_as_xml(
                     field_value,
                     root_tag=field_name,
-                    item_tag='item' if isinstance(field_value, list) else 'value',
+                    item_tag=item_tag,
                     indent='  ',
                 )
                 content_parts.append(formatted_value)
@@ -127,6 +143,136 @@ class Signature(BaseModel, metaclass=SignatureMeta):
             full_key = f'signature:{class_name}:{component_key}'
 
         return candidate.get(full_key, default)
+
+    @staticmethod
+    def _extract_model_schema(model_class: type[BaseModel]) -> dict[str, str]:
+        """Extract field descriptions from a Pydantic model.
+
+        Args:
+            model_class: The Pydantic model class to extract schema from.
+
+        Returns:
+            A dictionary mapping field names to their descriptions.
+        """
+        schema: dict[str, str] = {}
+        for field_name, field_info in model_class.model_fields.items():
+            description = field_info.description
+            if description:
+                schema[field_name] = description
+            else:
+                # Default description if none provided
+                schema[field_name] = f'The {field_name} field'
+        return schema
+
+    @staticmethod
+    def _format_model_schema(model_class: type[BaseModel], indent: str = '', visited: set[type] | None = None) -> str:
+        """Format a Pydantic model's schema as a readable description.
+
+        Args:
+            model_class: The Pydantic model class to format.
+            indent: Indentation string for formatting.
+            visited: Set of already visited model classes to avoid infinite recursion.
+
+        Returns:
+            A formatted string describing the model's fields.
+        """
+        if visited is None:
+            visited = set()
+
+        # Avoid infinite recursion for self-referential models
+        if model_class in visited:
+            return ''
+        visited.add(model_class)
+
+        schema = Signature._extract_model_schema(model_class)
+        if not schema:
+            return ''
+
+        # Make the connection to XML elements explicit with lowercase tag names
+        lines = [f'{indent}Each <{model_class.__name__.lower()}> element contains:']
+
+        # Process each field and recursively handle nested models
+        lines.extend(Signature._format_fields_recursive(model_class, indent, visited))
+
+        return '\n'.join(lines)
+
+    @staticmethod
+    def _format_fields_recursive(
+        model_class: type[BaseModel], indent: str = '', visited: set[type] | None = None, base_indent: str = ''
+    ) -> list[str]:
+        """Recursively format fields of a model, handling nested models inline.
+
+        Args:
+            model_class: The Pydantic model class to format fields for.
+            indent: Current indentation level for the field list.
+            visited: Set of already visited model classes to avoid infinite recursion.
+            base_indent: Base indentation for nested fields (accumulates with depth).
+
+        Returns:
+            List of formatted field lines.
+        """
+        if visited is None:
+            visited = set()
+
+        lines: list[str] = []
+        schema = Signature._extract_model_schema(model_class)
+
+        for field_name, description in schema.items():
+            lines.append(f'{indent}- <{field_name}>: {description}')
+
+            # Check if this field is a nested Pydantic model
+            field_info = model_class.model_fields.get(field_name)
+            if field_info:
+                # Get the actual type, handling Optional and List types
+                field_type = field_info.annotation
+                origin = getattr(field_type, '__origin__', None)
+
+                nested_model_type = None
+                # Handle Optional[Model] or List[Model]
+                if origin is not None:
+                    args = getattr(field_type, '__args__', ())
+                    if args:
+                        # For Optional, Union, List, etc., get the first argument
+                        inner_type = args[0]
+                        # Check if it's a BaseModel subclass
+                        if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
+                            nested_model_type = inner_type
+                # Handle direct Model type
+                elif isinstance(field_type, type) and issubclass(field_type, BaseModel):
+                    nested_model_type = field_type
+
+                # If we found a nested model, recursively format its fields
+                if nested_model_type and nested_model_type not in visited:
+                    visited_copy = visited.copy()
+                    visited_copy.add(nested_model_type)
+                    nested_lines = Signature._format_fields_recursive(
+                        nested_model_type,
+                        indent + '  ',  # Increase indentation for nested fields
+                        visited_copy,
+                        base_indent + '  ',
+                    )
+                    lines.extend(nested_lines)
+
+        return lines
+
+    @staticmethod
+    def _get_model_type(field_value: Any) -> type[BaseModel] | None:
+        """Get the Pydantic model type from a field value.
+
+        Args:
+            field_value: The field value to check.
+
+        Returns:
+            The Pydantic model class if applicable, None otherwise.
+        """
+        if isinstance(field_value, BaseModel):
+            return field_value.__class__
+        elif isinstance(field_value, list) and field_value:
+            # Check if it's a list of Pydantic models
+            first_item = field_value[0]  # type: ignore[no-any-return]
+            if isinstance(first_item, BaseModel):
+                return first_item.__class__
+        return None
 
     @classmethod
     def get_gepa_components(cls) -> dict[str, str]:
