@@ -4,25 +4,30 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 import gepa.api
 from gepa.core.result import GEPAResult
 from gepa.logging.logger import LoggerProtocol
 from gepa.proposer.reflective_mutation.base import LanguageModel, ReflectionComponentSelector
+from pydantic import BaseModel, ConfigDict, Field
 
 from .adapter import PydanticAIGEPAAdapter
-from .components import apply_candidate_to_agent, extract_seed_candidate, validate_components
+from .components import (
+    apply_candidate_to_agent,
+    apply_candidate_to_agent_and_signature,
+    extract_seed_candidate_with_signature,
+)
 from .types import DataInst, RolloutOutput
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
     from pydantic_ai.models import Model
 
+    from .signature import Signature
 
-@dataclass
-class GepaOptimizationResult:
+
+class GepaOptimizationResult(BaseModel):
     """Result from GEPA optimization."""
 
     best_candidate: dict[str, str]
@@ -43,8 +48,10 @@ class GepaOptimizationResult:
     num_metric_calls: int
     """Total number of metric evaluations performed."""
 
-    raw_result: GEPAResult[RolloutOutput] | None = None
+    raw_result: GEPAResult[RolloutOutput] | None = Field(default=None, exclude=True, repr=False)
     """The raw GEPA optimization result (for advanced users)."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     @contextmanager
     def apply_best(self, agent: AbstractAgent[Any, Any]) -> Iterator[None]:
@@ -69,6 +76,25 @@ class GepaOptimizationResult:
             return (self.best_score - self.original_score) / self.original_score
         return None
 
+    @contextmanager
+    def apply_best_to(
+        self,
+        *,
+        agent: AbstractAgent[Any, Any],
+        signature_class: type[Signature] | None = None,
+    ) -> Iterator[None]:
+        """Apply the best candidate to an agent and optional signature.
+
+        Args:
+            agent: The agent to apply the best candidate to.
+            signature_class: Optional Signature class to also apply the candidate to.
+
+        Yields:
+            None while the context is active.
+        """
+        with apply_candidate_to_agent_and_signature(self.best_candidate, agent=agent, signature_class=signature_class):
+            yield
+
 
 def optimize_agent_prompts(
     agent: AbstractAgent[Any, Any],
@@ -76,7 +102,7 @@ def optimize_agent_prompts(
     *,
     metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],
     valset: Sequence[DataInst] | None = None,
-    components: Sequence[str] = ('instructions',),
+    signature_class: type[Signature] | None = None,
     # Reflection-based configuration
     reflection_model: Model | str | None = None,
     candidate_selection_strategy: str = 'pareto',
@@ -107,7 +133,7 @@ def optimize_agent_prompts(
     # Testing support
     deterministic_proposer: Any | None = None,
 ) -> GepaOptimizationResult:
-    """Optimize agent prompts using GEPA.
+    """Optimize agent (and optional signature) prompts using GEPA.
 
     This is the main entry point for prompt optimization. It takes a pydantic-ai
     agent and a dataset, and returns optimized prompts.
@@ -117,7 +143,8 @@ def optimize_agent_prompts(
         trainset: Training dataset (pydantic-evals Dataset or list of DataInst).
         metric: Function that computes (score, feedback) for each instance.
         valset: Optional validation dataset. If not provided, trainset is used.
-        components: Component names to optimize (default: just 'instructions').
+        signature_class: Optional Signature class whose instructions and field descriptions
+            should be optimized alongside the agent's prompts.
 
         # Reflection-based configuration
         reflection_model: Model to use for reflection (proposing new prompts).
@@ -169,17 +196,14 @@ def optimize_agent_prompts(
         # Use trainset as valset
         val_instances = train_instances
 
-    # Validate components
-    components = validate_components(agent, components)
-
-    # Extract seed candidate - but filter to only requested components
-    full_candidate = extract_seed_candidate(agent)
-    seed_candidate = {k: v for k, v in full_candidate.items() if k in components}
+    # Extract seed candidate from agent and optional signature
+    seed_candidate = extract_seed_candidate_with_signature(agent=agent, signature_class=signature_class)
 
     # Create adapter
     adapter = PydanticAIGEPAAdapter(
         agent=agent,
         metric=metric,
+        signature_class=signature_class,
         deterministic_proposer=deterministic_proposer,
     )
 
@@ -197,9 +221,9 @@ def optimize_agent_prompts(
                 "Model instances not yet supported for reflection_model. Please use a string like 'openai:gpt-4o'"
             )
 
-    # Adjust module_selector based on components if needed
+    # Adjust module_selector based on number of components if needed
     # If only one component and module_selector is still default, use 'all'
-    if module_selector == 'round_robin' and len(components) == 1:
+    if module_selector == 'round_robin' and len(seed_candidate) == 1:
         module_selector = 'all'
 
     # Run optimization
@@ -208,6 +232,8 @@ def optimize_agent_prompts(
         seed_candidate=seed_candidate,
         trainset=train_instances,
         valset=val_instances,
+        # Budget
+        max_metric_calls=max_metric_calls,
         # Reflection-based configuration
         reflection_lm=reflection_lm,
         candidate_selection_strategy=candidate_selection_strategy,
