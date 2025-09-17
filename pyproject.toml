@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "gepa>=0.0.12",
-    "pydantic-ai @ git+https://github.com/mwildehahn/pydantic-ai.git@615a87461b9d7129c6a3cc762b5670f62b8d1366",
+    "pydantic-ai @ git+https://github.com/mwildehahn/pydantic-ai.git@dde6dae870077025d5fff840370179ff98df2e5e",
 ]
 
 [dependency-groups]
