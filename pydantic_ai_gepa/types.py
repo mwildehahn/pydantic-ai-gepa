@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Generic, TypeVar
 
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
+from pydantic import BaseModel
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    UserPromptPart,
+)
 
 from .signature import Signature
+
+# Type variable for the signature type
+SignatureT = TypeVar("SignatureT", bound=Signature)
+
+# Type variable for the output type in RolloutOutput
+OutputT = TypeVar("OutputT")
 
 
 @dataclass
@@ -24,19 +37,19 @@ class DataInstWithPrompt:
 
 
 @dataclass
-class DataInstWithSignature:
+class DataInstWithSignature(Generic[SignatureT]):
     """A single data instance for optimization.
 
     Each instance represents a single case from a pydantic-evals Dataset.
     """
 
-    signature: Signature
+    signature: SignatureT
     message_history: list[ModelMessage] | None
     metadata: dict[str, Any]
     case_id: str  # Unique identifier for tracking
 
 
-DataInst = DataInstWithPrompt | DataInstWithSignature
+DataInst = DataInstWithPrompt | DataInstWithSignature[Any]
 
 
 @dataclass
@@ -62,9 +75,9 @@ class Trajectory:
             for content_item in part.content:
                 if isinstance(content_item, str):
                     return content_item
-            return 'Multi-modal content'
+            return "Multi-modal content"
         else:
-            return 'No content'
+            return "No content"
 
     def _extract_user_message(self) -> str | None:
         """Extract the first user message from the trajectory."""
@@ -91,27 +104,43 @@ class Trajectory:
         user_msg = self._extract_user_message()
         assistant_msg = self._extract_assistant_message()
 
+        # Format the final output appropriately
+        if assistant_msg:
+            response = assistant_msg
+        elif self.final_output is not None:
+            # Check if it's a Pydantic model and serialize to JSON
+            if isinstance(self.final_output, BaseModel):
+                response = self.final_output.model_dump_json()
+            else:
+                response = str(self.final_output)
+        else:
+            response = "No output"
+
         return {
-            'user_prompt': user_msg or 'No user message',
-            'assistant_response': assistant_msg or str(self.final_output),
-            'error': self.error,
+            "user_prompt": user_msg or "No user message",
+            "assistant_response": response,
+            "error": self.error,
         }
 
 
 @dataclass
-class RolloutOutput:
-    """Output from a single agent execution."""
+class RolloutOutput(Generic[OutputT]):
+    """Output from a single agent execution.
 
-    result: Any
+    Generic type parameter OutputT specifies the expected type of the result
+    when the execution is successful.
+    """
+
+    result: OutputT | None
     success: bool
     error_message: str | None = None
 
     @classmethod
-    def from_success(cls, result: Any) -> RolloutOutput:
+    def from_success(cls, result: OutputT) -> RolloutOutput[OutputT]:
         """Create from successful execution."""
         return cls(result=result, success=True)
 
     @classmethod
-    def from_error(cls, error: Exception) -> RolloutOutput:
+    def from_error(cls, error: Exception) -> RolloutOutput[OutputT]:
         """Create from failed execution."""
         return cls(result=None, success=False, error_message=str(error))

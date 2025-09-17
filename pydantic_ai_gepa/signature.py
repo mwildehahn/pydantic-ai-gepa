@@ -22,26 +22,7 @@ class SignatureSuffix:
     """
 
 
-class SignatureMeta(type(BaseModel)):
-    """Metaclass for Signature classes to handle field processing."""
-
-    def __new__(mcs, name: str, bases: tuple[type, ...], namespace: dict[str, Any], **kwargs: Any) -> type:
-        # Process the class
-        cls = super().__new__(mcs, name, bases, namespace, **kwargs)
-        return cls
-
-    @property
-    def instructions(cls) -> str:
-        """Get the instructions/docstring for this signature."""
-        return cls.__doc__ or ''
-
-    @instructions.setter
-    def instructions(cls, value: str) -> None:
-        """Set the instructions/docstring for this signature."""
-        cls.__doc__ = value
-
-
-class Signature(BaseModel, metaclass=SignatureMeta):
+class Signature(BaseModel):
     """Base class for defining input signatures that can be optimized by GEPA.
 
     Subclass this to define your input schema:
@@ -69,7 +50,9 @@ class Signature(BaseModel, metaclass=SignatureMeta):
             System instructions string to be added to the agent's instructions.
         """
         # Get the effective instructions and field descriptions
-        instructions = self._get_effective_text('instructions', self.__class__.__doc__ or '', candidate)
+        instructions = self._get_effective_text(
+            "instructions", self.__class__.__doc__ or "", candidate
+        )
 
         # Build the system instructions
         instruction_parts: list[str] = []
@@ -78,26 +61,32 @@ class Signature(BaseModel, metaclass=SignatureMeta):
         # Add signature-level instructions as plain text if present
         if instructions:
             instruction_parts.append(instructions)
-            instruction_parts.append('')  # Empty line for spacing
+            instruction_parts.append("")  # Empty line for spacing
 
         # Add field descriptions and schemas
         for field_name, field_info in self.__class__.model_fields.items():
             # Check if this is a SignatureSuffix field
             if self._is_suffix_field(field_info):
                 # For suffix fields, get the default value from field definition
-                default_suffix = field_info.default if field_info.default is not None else ''
-                suffix_text = self._get_effective_text(field_name, str(default_suffix), candidate)
+                default_suffix = (
+                    field_info.default if field_info.default is not None else ""
+                )
+                suffix_text = self._get_effective_text(
+                    field_name, str(default_suffix), candidate
+                )
                 if suffix_text:
                     suffix_parts.append(suffix_text)
                 continue
 
             # Get the effective description for this field
-            default_desc = field_info.description or f'The {field_name} input'
-            field_desc = self._get_effective_text(f'{field_name}:desc', default_desc, candidate)
+            default_desc = field_info.description or f"The {field_name} input"
+            field_desc = self._get_effective_text(
+                f"{field_name}:desc", default_desc, candidate
+            )
 
             # Add field description
             if field_desc:
-                instruction_parts.append(f'<{field_name}>: {field_desc}')
+                instruction_parts.append(f"<{field_name}>: {field_desc}")
 
             # Check if the field type is a Pydantic model or list of models
             # We want to include schema info even if the current value is None
@@ -107,18 +96,20 @@ class Signature(BaseModel, metaclass=SignatureMeta):
                 # Add schema description for the model type
                 schema_desc = self._format_model_schema(model_type)
                 if schema_desc:
-                    instruction_parts.append('')  # Add spacing before schema
+                    instruction_parts.append("")  # Add spacing before schema
                     instruction_parts.append(schema_desc)
-                    instruction_parts.append('')  # Add spacing after schema
+                    instruction_parts.append("")  # Add spacing after schema
 
         # Add suffix parts at the end (after a blank line if there's other content)
         if suffix_parts:
-            if instruction_parts and instruction_parts[-1] != '':  # Add spacing if there's content above
-                instruction_parts.append('')
+            if (
+                instruction_parts and instruction_parts[-1] != ""
+            ):  # Add spacing if there's content above
+                instruction_parts.append("")
             instruction_parts.extend(suffix_parts)
 
         # Join all parts into a single instructions string, removing trailing empty lines
-        return '\n'.join(instruction_parts).rstrip()
+        return "\n".join(instruction_parts).rstrip()
 
     def to_user_content(self) -> list[UserContent]:
         """Convert this signature instance to UserContent objects for pydantic-ai.
@@ -150,47 +141,56 @@ class Signature(BaseModel, metaclass=SignatureMeta):
             if isinstance(field_value, (list, dict, BaseModel)):
                 # Use XML formatting for complex structures
                 # For lists of models, use the model name as item_tag
-                if isinstance(field_value, list) and field_value and isinstance(field_value[0], BaseModel):
+                if (
+                    isinstance(field_value, list)
+                    and field_value
+                    and isinstance(field_value[0], BaseModel)
+                ):
                     item_tag = field_value[0].__class__.__name__
                 else:
-                    item_tag = 'item' if isinstance(field_value, list) else 'value'
+                    item_tag = "item" if isinstance(field_value, list) else "value"
 
                 formatted_value = format_as_xml(
                     field_value,
                     root_tag=field_name,
                     item_tag=item_tag,
-                    indent='  ',
+                    indent="  ",
                 )
                 content_parts.append(formatted_value)
             else:
                 # For simple values, wrap in XML tags for consistency
-                if isinstance(field_value, str) and '\n' in field_value:
+                if isinstance(field_value, str) and "\n" in field_value:
                     # Multi-line strings get wrapped with proper indentation
-                    content_parts.append(f'<{field_name}>')
+                    content_parts.append(f"<{field_name}>")
                     content_parts.append(field_value)
-                    content_parts.append(f'</{field_name}>')
+                    content_parts.append(f"</{field_name}>")
                 else:
                     # Single-line values
-                    content_parts.append(f'<{field_name}>{field_value}</{field_name}>')
+                    content_parts.append(f"<{field_name}>{field_value}</{field_name}>")
 
-            content_parts.append('')  # Empty line between fields
+            content_parts.append("")  # Empty line between fields
 
         # Join all parts into a single prompt, removing trailing empty lines
-        full_prompt = '\n'.join(content_parts).rstrip()
+        full_prompt = "\n".join(content_parts).rstrip()
         return [full_prompt] if full_prompt else []
 
-    def _get_effective_text(self, component_key: str, default: str, candidate: dict[str, str] | None) -> str:
+    def _get_effective_text(
+        self,
+        component_key: str,
+        default: str,
+        candidate: dict[str, str] | None,
+    ) -> str:
         """Get the effective text for a component, using candidate if available."""
         if candidate is None:
             return default
 
         # Build the full component name with class name to handle nested models
         class_name = self.__class__.__name__
-        if component_key == 'instructions':
-            full_key = f'signature:{class_name}:instructions'
+        if component_key == "instructions":
+            full_key = f"signature:{class_name}:instructions"
         else:
             # For field descriptions
-            full_key = f'signature:{class_name}:{component_key}'
+            full_key = f"signature:{class_name}:{component_key}"
 
         return candidate.get(full_key, default)
 
@@ -205,10 +205,11 @@ class Signature(BaseModel, metaclass=SignatureMeta):
             True if the field is annotated with SignatureSuffix
         """
         # Pydantic stores the metadata from Annotated types in field_info.metadata
-        if hasattr(field_info, 'metadata') and field_info.metadata:
+        if hasattr(field_info, "metadata") and field_info.metadata:
             # Check if SignatureSuffix is in the metadata
             return SignatureSuffix in field_info.metadata or any(
-                isinstance(m, type) and issubclass(m, SignatureSuffix) for m in field_info.metadata
+                isinstance(m, type) and issubclass(m, SignatureSuffix)
+                for m in field_info.metadata
             )
 
         return False
@@ -230,11 +231,13 @@ class Signature(BaseModel, metaclass=SignatureMeta):
                 schema[field_name] = description
             else:
                 # Default description if none provided
-                schema[field_name] = f'The {field_name} field'
+                schema[field_name] = f"The {field_name} field"
         return schema
 
     @staticmethod
-    def _format_model_schema(model_class: type[BaseModel], indent: str = '', visited: set[type] | None = None) -> str:
+    def _format_model_schema(
+        model_class: type[BaseModel], indent: str = "", visited: set[type] | None = None
+    ) -> str:
         """Format a Pydantic model's schema as a readable description.
 
         Args:
@@ -250,24 +253,27 @@ class Signature(BaseModel, metaclass=SignatureMeta):
 
         # Avoid infinite recursion for self-referential models
         if model_class in visited:
-            return ''
+            return ""
         visited.add(model_class)
 
         schema = Signature._extract_model_schema(model_class)
         if not schema:
-            return ''
+            return ""
 
         # Make the connection to XML elements explicit with lowercase tag names
-        lines = [f'{indent}Each <{model_class.__name__}> element contains:']
+        lines = [f"{indent}Each <{model_class.__name__}> element contains:"]
 
         # Process each field and recursively handle nested models
         lines.extend(Signature._format_fields_recursive(model_class, indent, visited))
 
-        return '\n'.join(lines)
+        return "\n".join(lines)
 
     @staticmethod
     def _format_fields_recursive(
-        model_class: type[BaseModel], indent: str = '', visited: set[type] | None = None, base_indent: str = ''
+        model_class: type[BaseModel],
+        indent: str = "",
+        visited: set[type] | None = None,
+        base_indent: str = "",
     ) -> list[str]:
         """Recursively format fields of a model, handling nested models inline.
 
@@ -287,24 +293,26 @@ class Signature(BaseModel, metaclass=SignatureMeta):
         schema = Signature._extract_model_schema(model_class)
 
         for field_name, description in schema.items():
-            lines.append(f'{indent}- <{field_name}>: {description}')
+            lines.append(f"{indent}- <{field_name}>: {description}")
 
             # Check if this field is a nested Pydantic model
             field_info = model_class.model_fields.get(field_name)
             if field_info:
                 # Get the actual type, handling Optional and List types
                 field_type = field_info.annotation
-                origin = getattr(field_type, '__origin__', None)
+                origin = getattr(field_type, "__origin__", None)
 
                 nested_model_type = None
                 # Handle Optional[Model] or List[Model]
                 if origin is not None:
-                    args = getattr(field_type, '__args__', ())
+                    args = getattr(field_type, "__args__", ())
                     if args:
                         # For Optional, Union, List, etc., get the first argument
                         inner_type = args[0]
                         # Check if it's a BaseModel subclass
-                        if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
+                        if isinstance(inner_type, type) and issubclass(
+                            inner_type, BaseModel
+                        ):
                             nested_model_type = inner_type
                 # Handle direct Model type
                 elif isinstance(field_type, type) and issubclass(field_type, BaseModel):
@@ -316,9 +324,9 @@ class Signature(BaseModel, metaclass=SignatureMeta):
                     visited_copy.add(nested_model_type)
                     nested_lines = Signature._format_fields_recursive(
                         nested_model_type,
-                        indent + '  ',  # Increase indentation for nested fields
+                        indent + "  ",  # Increase indentation for nested fields
                         visited_copy,
-                        base_indent + '  ',
+                        base_indent + "  ",
                     )
                     lines.extend(nested_lines)
 
@@ -385,13 +393,13 @@ class Signature(BaseModel, metaclass=SignatureMeta):
         class_name = cls.__name__
 
         # Add the instructions component with class name
-        components[f'signature:{class_name}:instructions'] = cls.__doc__ or ''
+        components[f"signature:{class_name}:instructions"] = cls.__doc__ or ""
 
         # Add field description components
         for field_name, field_info in cls.model_fields.items():
             # Use pydantic's description field
-            desc = field_info.description or f'The {field_name} input'
-            components[f'signature:{class_name}:{field_name}:desc'] = desc
+            desc = field_info.description or f"The {field_name} input"
+            components[f"signature:{class_name}:{field_name}:desc"] = desc
 
         return components
 
@@ -407,20 +415,22 @@ class Signature(BaseModel, metaclass=SignatureMeta):
         class_name = cls.__name__
 
         # Update instructions if present in candidate
-        instructions_key = f'signature:{class_name}:instructions'
+        instructions_key = f"signature:{class_name}:instructions"
         if instructions_key in candidate:
             cls.__doc__ = candidate[instructions_key]
 
         # Update field descriptions
         for field_name, field_info in cls.model_fields.items():
-            desc_key = f'signature:{class_name}:{field_name}:desc'
+            desc_key = f"signature:{class_name}:{field_name}:desc"
             if desc_key in candidate:
                 # Update the pydantic description field
                 field_info.description = candidate[desc_key]
 
 
 @contextmanager
-def apply_candidate_to_signature(signature_class: type[Signature], candidate: dict[str, str]) -> Iterator[None]:
+def apply_candidate_to_signature(
+    signature_class: type[Signature], candidate: dict[str, str]
+) -> Iterator[None]:
     """Context manager to temporarily apply a GEPA candidate to a signature.
 
     Args:
@@ -435,7 +445,7 @@ def apply_candidate_to_signature(signature_class: type[Signature], candidate: di
     original_descs: dict[str, str] = {}
 
     for field_name, field_info in signature_class.model_fields.items():
-        original_descs[field_name] = field_info.description or ''
+        original_descs[field_name] = field_info.description or ""
 
     try:
         # Apply the candidate
@@ -445,10 +455,12 @@ def apply_candidate_to_signature(signature_class: type[Signature], candidate: di
         # Restore original state
         signature_class.__doc__ = original_instructions
         for field_name, field_info in signature_class.model_fields.items():
-            field_info.description = original_descs.get(field_name, '')
+            field_info.description = original_descs.get(field_name, "")
 
 
-def extract_signature_components(signatures: Sequence[type[Signature]]) -> dict[str, str]:
+def extract_signature_components(
+    signatures: Sequence[type[Signature]],
+) -> dict[str, str]:
     """Extract all GEPA components from multiple signature classes.
 
     Args:

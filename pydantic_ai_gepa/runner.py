@@ -4,24 +4,31 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 
 import gepa.api
 from gepa.core.result import GEPAResult
 from gepa.logging.logger import LoggerProtocol
-from gepa.proposer.reflective_mutation.base import LanguageModel, ReflectionComponentSelector
+from gepa.proposer.reflective_mutation.base import (
+    LanguageModel,
+    ReflectionComponentSelector,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
 from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
+from .cache import CacheManager
 from .components import (
     apply_candidate_to_agent,
     apply_candidate_to_agent_and_signature,
     extract_seed_candidate_with_signature,
 )
 from .types import DataInst, RolloutOutput
+
+# Type variable for the DataInst type
+DataInstT = TypeVar("DataInstT", bound=DataInst)
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -51,7 +58,9 @@ class GepaOptimizationResult(BaseModel):
     num_metric_calls: int
     """Total number of metric evaluations performed."""
 
-    raw_result: GEPAResult[RolloutOutput] | None = Field(default=None, exclude=True, repr=False)
+    raw_result: GEPAResult[RolloutOutput[Any]] | None = Field(
+        default=None, exclude=True, repr=False
+    )
     """The raw GEPA optimization result (for advanced users)."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -95,7 +104,9 @@ class GepaOptimizationResult(BaseModel):
         Yields:
             None while the context is active.
         """
-        with apply_candidate_to_agent_and_signature(self.best_candidate, agent=agent, signature_class=signature_class):
+        with apply_candidate_to_agent_and_signature(
+            self.best_candidate, agent=agent, signature_class=signature_class
+        ):
             yield
 
 
@@ -112,25 +123,29 @@ class DefaultLanguageModel:
 
 def optimize_agent_prompts(
     agent: AbstractAgent[Any, Any],
-    trainset: Sequence[DataInst],
+    trainset: Sequence[DataInstT],
     *,
-    metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],
-    valset: Sequence[DataInst] | None = None,
+    metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
+    valset: Sequence[DataInstT] | None = None,
     signature_class: type[Signature] | None = None,
     # Reflection-based configuration
     reflection_lm: LanguageModel | None = None,
     reflection_model: Model | KnownModelName | str | None = None,
-    candidate_selection_strategy: str = 'pareto',
+    candidate_selection_strategy: str = "pareto",
     skip_perfect_score: bool = True,
     reflection_minibatch_size: int = 3,
     perfect_score: int = 1,
     # Component selection configuration
-    module_selector: ReflectionComponentSelector | str = 'round_robin',
+    module_selector: ReflectionComponentSelector | str = "round_robin",
     # Merge-based configuration
     use_merge: bool = False,
     max_merge_invocations: int = 5,
     # Budget
     max_metric_calls: int = 200,
+    # Caching configuration
+    enable_cache: bool = False,
+    cache_dir: str | None = None,
+    cache_verbose: bool = False,
     # Logging
     logger: LoggerProtocol | None = None,
     run_dir: str | None = None,
@@ -185,6 +200,11 @@ def optimize_agent_prompts(
         # Budget
         max_metric_calls: Maximum number of metric evaluations (budget).
 
+        # Caching configuration
+        enable_cache: Whether to enable caching of metric results for resumable runs.
+        cache_dir: Directory to store cache files. If None, uses '.gepa_cache' in current directory.
+        cache_verbose: Whether to log cache hits and misses.
+
         # Logging
         logger: Logger instance for tracking progress.
         run_dir: Directory to save results to.
@@ -222,7 +242,19 @@ def optimize_agent_prompts(
         val_instances = train_instances
 
     # Extract seed candidate from agent and optional signature
-    seed_candidate = extract_seed_candidate_with_signature(agent=agent, signature_class=signature_class)
+    seed_candidate = extract_seed_candidate_with_signature(
+        agent=agent,
+        signature_class=signature_class,
+    )
+
+    # Create cache manager if caching is enabled
+    cache_manager = None
+    if enable_cache:
+        cache_manager = CacheManager(
+            cache_dir=cache_dir,
+            enabled=True,
+            verbose=cache_verbose,
+        )
 
     # Create adapter
     adapter = PydanticAIGEPAAdapter(
@@ -231,6 +263,7 @@ def optimize_agent_prompts(
         signature_class=signature_class,
         reflection_sampler=reflection_sampler,
         reflection_model=reflection_model,
+        cache_manager=cache_manager,
     )
 
     if reflection_lm is None:
@@ -238,11 +271,11 @@ def optimize_agent_prompts(
 
     # Adjust module_selector based on number of components if needed
     # If only one component and module_selector is still default, use 'all'
-    if module_selector == 'round_robin' and len(seed_candidate) == 1:
-        module_selector = 'all'
+    if module_selector == "round_robin" and len(seed_candidate) == 1:
+        module_selector = "all"
 
     # Run optimization
-    raw_result: GEPAResult[RolloutOutput] = gepa.api.optimize(  # type: ignore[misc]
+    raw_result: GEPAResult[RolloutOutput[Any]] = gepa.api.optimize(  # type: ignore[misc]
         adapter=adapter,
         seed_candidate=seed_candidate,
         trainset=train_instances,
@@ -278,7 +311,11 @@ def optimize_agent_prompts(
 
     # Extract results
     best_candidate = raw_result.best_candidate
-    best_score = raw_result.val_aggregate_scores[raw_result.best_idx] if raw_result.val_aggregate_scores else 0.0
+    best_score = (
+        raw_result.val_aggregate_scores[raw_result.best_idx]
+        if raw_result.val_aggregate_scores
+        else 0.0
+    )
 
     # Get original score if available (assuming the first candidate is the seed)
     original_score = None
@@ -293,7 +330,7 @@ def optimize_agent_prompts(
                     original_score = raw_result.val_aggregate_scores[i]
                     break
 
-    return GepaOptimizationResult(
+    result = GepaOptimizationResult(
         best_candidate=best_candidate,
         best_score=best_score,
         original_candidate=seed_candidate,
@@ -302,3 +339,11 @@ def optimize_agent_prompts(
         num_metric_calls=raw_result.total_metric_calls or 0,
         raw_result=raw_result,
     )
+
+    # Log cache stats if caching was enabled
+    if cache_manager and cache_verbose:
+        stats = cache_manager.get_cache_stats()
+        if logger:
+            logger.log(f"Cache stats: {stats}")
+
+    return result

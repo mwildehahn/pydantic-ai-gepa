@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 
@@ -14,7 +14,11 @@ from .components import apply_candidate_to_agent
 from .reflection import propose_new_texts
 from .signature import Signature, apply_candidate_to_signature
 from .signature_agent import SignatureAgent
+from .cache import CacheManager
 from .types import DataInst, DataInstWithPrompt, RolloutOutput, Trajectory
+
+# Type variable for the DataInst type
+DataInstT = TypeVar("DataInstT", bound=DataInst)
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -24,7 +28,9 @@ if TYPE_CHECKING:
 class ReflectionSampler(Protocol):
     """Protocol for sampling reflection records."""
 
-    def __call__(self, records: list[dict[str, Any]], max_records: int) -> list[dict[str, Any]]:
+    def __call__(
+        self, records: list[dict[str, Any]], max_records: int
+    ) -> list[dict[str, Any]]:
         """Sample records for reflection.
 
         Args:
@@ -37,7 +43,9 @@ class ReflectionSampler(Protocol):
         ...
 
 
-class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
+class PydanticAIGEPAAdapter(
+    Generic[DataInstT], GEPAAdapter[DataInstT, Trajectory, RolloutOutput[Any]]
+):
     """GEPA adapter for optimizing a single pydantic-ai agent with an optional signature.
 
     This adapter connects pydantic-ai agents to the GEPA optimization engine,
@@ -49,11 +57,12 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
     def __init__(
         self,
         agent: AbstractAgent[Any, Any],
-        metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],
+        metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
         *,
         signature_class: type[Signature] | None = None,
         reflection_sampler: ReflectionSampler | None = None,
         reflection_model: Model | KnownModelName | str | None = None,
+        cache_manager: CacheManager | None = None,
     ):
         """Initialize the adapter.
 
@@ -74,13 +83,15 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         self.signature_class = signature_class
         self.reflection_sampler = reflection_sampler
         self.reflection_model = reflection_model
+        self.cache_manager = cache_manager
+        self._current_candidate: dict[str, str] | None = None
 
     def evaluate(
         self,
-        batch: list[DataInst],
+        batch: list[DataInstT],
         candidate: dict[str, str],
         capture_traces: bool = False,
-    ) -> EvaluationBatch[Trajectory, RolloutOutput]:
+    ) -> EvaluationBatch[Trajectory, RolloutOutput[Any]]:
         """Evaluate the candidate on a batch of data instances.
 
         Args:
@@ -91,22 +102,30 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         Returns:
             EvaluationBatch with outputs, scores, and optionally trajectories.
         """
-        outputs: list[RolloutOutput] = []
+        outputs: list[RolloutOutput[Any]] = []
         scores: list[float] = []
         trajectories: list[Trajectory] | None = [] if capture_traces else None
+
+        # Store current candidate for caching purposes
+        self._current_candidate = candidate
 
         # Apply the candidate to the agent and optionally the signature
         with self._apply_candidate(candidate):
             for data_inst in batch:
                 result = self.process_data_instance(data_inst, capture_traces)
 
-                outputs.append(result['output'])
-                scores.append(result['score'])
+                outputs.append(result["output"])
+                scores.append(result["score"])
 
-                if trajectories is not None and 'trajectory' in result:
-                    trajectories.append(result['trajectory'])
+                if trajectories is not None and "trajectory" in result:
+                    trajectories.append(result["trajectory"])
 
-        return EvaluationBatch(outputs=outputs, scores=scores, trajectories=trajectories)
+        # Clear current candidate
+        self._current_candidate = None
+
+        return EvaluationBatch(
+            outputs=outputs, scores=scores, trajectories=trajectories
+        )
 
     def _apply_candidate(self, candidate: dict[str, str]):
         """Context manager to apply candidate to both agent and signature.
@@ -126,11 +145,15 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
 
         # Apply to signature if provided
         if self.signature_class:
-            stack.enter_context(apply_candidate_to_signature(self.signature_class, candidate))
+            stack.enter_context(
+                apply_candidate_to_signature(self.signature_class, candidate)
+            )
 
         return stack
 
-    def process_data_instance(self, data_inst: DataInst, capture_traces: bool = False) -> dict[str, Any]:
+    def process_data_instance(
+        self, data_inst: DataInstT, capture_traces: bool = False
+    ) -> dict[str, Any]:
         """Process a single data instance and return results.
 
         Args:
@@ -141,44 +164,96 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             Dictionary containing 'output', 'score', and optionally 'trajectory'.
         """
         try:
-            # Run the agent
-            if capture_traces:
-                trajectory, output = self._run_with_trace(data_inst)
+            # Check cache first for agent run (if we have a current candidate)
+            if self.cache_manager and self._current_candidate:
+                cached_agent_result = self.cache_manager.get_cached_agent_run(
+                    data_inst, self._current_candidate, capture_traces
+                )
+
+                if cached_agent_result is not None:
+                    trajectory, output = cached_agent_result
+                else:
+                    # Run the agent and cache the result
+                    if capture_traces:
+                        trajectory, output = self._run_with_trace(data_inst)
+                    else:
+                        output = self._run_simple(data_inst)
+                        trajectory = None
+
+                    # Cache the agent run result
+                    self.cache_manager.cache_agent_run(
+                        data_inst,
+                        self._current_candidate,
+                        trajectory,
+                        output,
+                        capture_traces,
+                    )
             else:
-                output = self._run_simple(data_inst)
-                trajectory = None
+                # No caching, run normally
+                if capture_traces:
+                    trajectory, output = self._run_with_trace(data_inst)
+                else:
+                    output = self._run_simple(data_inst)
+                    trajectory = None
 
             # Compute score using the metric and capture optional feedback
-            score, metric_feedback = self.metric(data_inst, output)
+            # Use caching if available and we have a current candidate
+            if self.cache_manager and self._current_candidate:
+                # Check cache first
+                cached_result = self.cache_manager.get_cached_metric_result(
+                    data_inst, output, self._current_candidate
+                )
+
+                if cached_result is not None:
+                    score, metric_feedback = cached_result
+                else:
+                    # Call metric and cache result
+                    score, metric_feedback = self.metric(data_inst, output)
+                    self.cache_manager.cache_metric_result(
+                        data_inst,
+                        output,
+                        self._current_candidate,
+                        score,
+                        metric_feedback,
+                    )
+            else:
+                # No caching, call metric directly
+                score, metric_feedback = self.metric(data_inst, output)
 
             # Attach metric-provided feedback to the trajectory if captured
             if trajectory is not None:
                 trajectory.metric_feedback = metric_feedback
 
             result: dict[str, Any] = {
-                'output': output,
-                'score': score,
+                "output": output,
+                "score": score,
             }
             if trajectory is not None:
-                result['trajectory'] = trajectory
+                result["trajectory"] = trajectory
 
             return result
 
         except Exception as e:
             # Handle errors gracefully
             output = RolloutOutput.from_error(e)
-            trajectory = Trajectory(messages=[], final_output=None, error=str(e)) if capture_traces else None
+            trajectory = (
+                Trajectory(messages=[], final_output=None, error=str(e))
+                if capture_traces
+                else None
+            )
 
             error_result: dict[str, Any] = {
-                'output': output,
-                'score': 0.0,  # Failed execution gets score 0
+                "output": output,
+                "score": 0.0,  # Failed execution gets score 0
             }
             if trajectory is not None:
-                error_result['trajectory'] = trajectory
+                error_result["trajectory"] = trajectory
 
             return error_result
 
-    def _run_with_trace(self, instance: DataInst) -> tuple[Trajectory, RolloutOutput]:
+    def _run_with_trace(
+        self, instance: DataInstT
+    ) -> tuple[Trajectory, RolloutOutput[Any]]:
         """Run the agent and capture the trajectory.
 
         Args:
@@ -221,7 +296,7 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             output = RolloutOutput.from_error(e)
             return trajectory, output
 
-    def _run_simple(self, instance: DataInst) -> RolloutOutput:
+    def _run_simple(self, instance: DataInstT) -> RolloutOutput[Any]:
         """Run the agent without capturing traces.
 
         Args:
@@ -250,7 +325,7 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
     def make_reflective_dataset(
         self,
         candidate: dict[str, str],
-        eval_batch: EvaluationBatch[Trajectory, RolloutOutput],
+        eval_batch: EvaluationBatch[Trajectory, RolloutOutput[Any]],
         components_to_update: list[str],
     ) -> dict[str, list[dict[str, Any]]]:
         """Build a reflective dataset for instruction refinement.
@@ -269,14 +344,16 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
 
         # Build reflection records from trajectories
         reflection_records: list[dict[str, Any]] = []
-        for trajectory, output, score in zip(eval_batch.trajectories, eval_batch.outputs, eval_batch.scores):
+        for trajectory, output, score in zip(
+            eval_batch.trajectories, eval_batch.outputs, eval_batch.scores
+        ):
             record: dict[str, Any] = trajectory.to_reflective_record()
 
             # Add score and success information
-            record['score'] = score
-            record['success'] = output.success
+            record["score"] = score
+            record["success"] = output.success
             if output.error_message:
-                record['error_message'] = output.error_message
+                record["error_message"] = output.error_message
 
             # Use metric feedback if available, otherwise use a simple fallback
             feedback_text = trajectory.metric_feedback
@@ -284,22 +361,24 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             if not feedback_text:
                 # Simple fallback when metric doesn't provide feedback
                 if score >= 0.8:
-                    feedback_text = 'Good response'
+                    feedback_text = "Good response"
                 elif score >= 0.5:
-                    feedback_text = 'Adequate response, could be improved'
+                    feedback_text = "Adequate response, could be improved"
                 else:
-                    feedback_text = f'Poor response (score: {score:.2f})'
+                    feedback_text = f"Poor response (score: {score:.2f})"
                     if output.error_message:
-                        feedback_text += f' - Error: {output.error_message}'
+                        feedback_text += f" - Error: {output.error_message}"
 
-            record['feedback'] = feedback_text
+            record["feedback"] = feedback_text
             reflection_records.append(record)
 
         # Apply sampling if a sampler is configured
         if self.reflection_sampler and reflection_records:
             # Let the sampler determine its own max_records internally
             # For backward compatibility, we can use a reasonable default
-            reflection_records = self.reflection_sampler(reflection_records, max_records=10)
+            reflection_records = self.reflection_sampler(
+                reflection_records, max_records=10
+            )
 
         # For pydantic-ai, all components work together, so they all need
         # the same reflection data to understand the full context
@@ -311,4 +390,9 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         reflective_dataset: dict[str, list[dict[str, Any]]],
         components_to_update: list[str],
     ) -> dict[str, str]:
-        return propose_new_texts(candidate, reflective_dataset, components_to_update, self.reflection_model)
+        return propose_new_texts(
+            candidate,
+            reflective_dataset,
+            components_to_update,
+            self.reflection_model,
+        )

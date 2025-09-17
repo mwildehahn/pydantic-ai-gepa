@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
+from .cache import CacheManager, create_cached_metric
 from .runner import GepaOptimizationResult, optimize_agent_prompts
 from .signature import Signature
 from .signature_agent import SignatureAgent
-from .types import DataInst, RolloutOutput, Trajectory
+from .types import DataInst, RolloutOutput, Trajectory, OutputT
 
 __all__ = [
-    'optimize_agent_prompts',
-    'GepaOptimizationResult',
-    'PydanticAIGEPAAdapter',
-    'ReflectionSampler',
-    'DataInst',
-    'Trajectory',
-    'RolloutOutput',
-    'Signature',
-    'SignatureAgent',
+    "optimize_agent_prompts",
+    "GepaOptimizationResult",
+    "PydanticAIGEPAAdapter",
+    "ReflectionSampler",
+    "CacheManager",
+    "create_cached_metric",
+    "DataInst",
+    "Trajectory",
+    "RolloutOutput",
+    "OutputT",
+    "Signature",
+    "SignatureAgent",
 ]
 
-__version__ = '0.1.0'
+__version__ = "0.1.0"

@@ -15,7 +15,8 @@ from typing import TYPE_CHECKING, Any, overload
 from typing_extensions import Never
 
 from pydantic_ai import messages as _messages, models, usage as _usage
-from pydantic_ai.agent import AgentRunResult, EventStreamHandler, RunOutputDataT, WrapperAgent
+from pydantic_ai.agent import AgentRunResult, EventStreamHandler, WrapperAgent
+from pydantic_ai.agent.abstract import RunOutputDataT
 from pydantic_ai.output import OutputDataT, OutputSpec
 from pydantic_ai.result import StreamedRunResult
 from pydantic_ai.settings import ModelSettings
@@ -237,11 +238,17 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         # Add system instructions as an additional system prompt if present
         if system_instructions:
             # We use system_prompts to add the signature instructions
-            context_managers.append(self.wrapped.override_prompts(system_prompts=(system_instructions,)))
+            context_managers.append(
+                self.wrapped.override_prompts(system_prompts=(system_instructions,))
+            )
 
         # Apply all context managers
         if context_managers:
-            with context_managers[0] if len(context_managers) == 1 else _nested_context_managers(*context_managers):
+            with (
+                context_managers[0]
+                if len(context_managers) == 1
+                else _nested_context_managers(*context_managers)
+            ):
                 return await self.wrapped.run(
                     user_prompt,
                     output_type=output_type,
@@ -371,11 +378,17 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         # Add system instructions as an additional system prompt if present
         if system_instructions:
-            context_managers.append(self.wrapped.override_prompts(system_prompts=(system_instructions,)))
+            context_managers.append(
+                self.wrapped.override_prompts(system_prompts=(system_instructions,))
+            )
 
         # Apply all context managers
         if context_managers:
-            with context_managers[0] if len(context_managers) == 1 else _nested_context_managers(*context_managers):
+            with (
+                context_managers[0]
+                if len(context_managers) == 1
+                else _nested_context_managers(*context_managers)
+            ):
                 return self.wrapped.run_sync(
                     user_prompt,
                     output_type=output_type,
@@ -506,11 +519,17 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         # Add system instructions as an additional system prompt if present
         if system_instructions:
-            context_managers.append(self.wrapped.override_prompts(system_prompts=(system_instructions,)))
+            context_managers.append(
+                self.wrapped.override_prompts(system_prompts=(system_instructions,))
+            )
 
         # Apply all context managers
         if context_managers:
-            with context_managers[0] if len(context_managers) == 1 else _nested_context_managers(*context_managers):
+            with (
+                context_managers[0]
+                if len(context_managers) == 1
+                else _nested_context_managers(*context_managers)
+            ):
                 async with self.wrapped.run_stream(
                     user_prompt,
                     output_type=output_type,
@@ -547,7 +566,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 yield stream
 
     @contextmanager
-    def with_candidate(self, candidate: dict[str, str]) -> Iterator[SignatureAgent[AgentDepsT, OutputDataT]]:
+    def with_candidate(
+        self, candidate: dict[str, str]
+    ) -> Iterator[SignatureAgent[AgentDepsT, OutputDataT]]:
         """Context manager to temporarily use a GEPA candidate.
 
         Args:

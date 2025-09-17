@@ -22,13 +22,13 @@ class ReflectionInput(Signature):
     """
 
     prompt_components: dict[str, str] = Field(
-        description='Current prompt components being used by the agent. Provides full context of all components even when updating only specific ones.'
+        description="Current prompt components being used by the agent. Provides full context of all components even when updating only specific ones."
     )
     reflection_dataset: dict[str, list[dict[str, Any]]] = Field(
-        description='Performance data showing agent inputs, outputs, scores, and feedback for each component. Analyze these to understand what works and what needs improvement.'
+        description="Performance data showing agent inputs, outputs, scores, and feedback for each component. Analyze these to understand what works and what needs improvement."
     )
     components_to_update: list[str] = Field(
-        description='Specific components to optimize in this iteration. Only modify these components in your response while keeping others unchanged.'
+        description="Specific components to optimize in this iteration. Only modify these components in your response while keeping others unchanged."
     )
 
 
@@ -41,8 +41,8 @@ class ProposalOutput(BaseModel):
     - Maintain clarity and specificity while improving effectiveness
     """
 
-    prompt_components: dict[str, str] = Field(
-        description='Complete set of prompt components with optimized versions for components_to_update. Include ALL components from the input, modifying only those specified for update.'
+    updated_components: dict[str, str] = Field(
+        description="A dictionary of updated prompt components. Only include the components that were specified for update."
     )
 
 
@@ -78,5 +78,11 @@ def propose_new_texts(
         reflection_dataset=reflective_dataset,
         components_to_update=components_to_update,
     )
+    import ipdb
+
+    ipdb.set_trace()
     result = signature_agent.run_signature_sync(signature, model=reflection_model)
-    return result.output.prompt_components
+    import ipdb
+
+    ipdb.set_trace()
+    return result.output.updated_components

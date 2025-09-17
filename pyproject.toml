@@ -15,4 +15,5 @@ dev = [
     "pytest-cov>=5.0.0",
     "inline-snapshot>=0.29.0",
     "pytest-asyncio>=1.2.0",
+    "ipdb>=0.13.13",
 ]
