@@ -63,8 +63,10 @@ def test_signature_agent_basic():
         """\
 Ask a question about geography.
 
-<question>: The geography question to ask
-<region>: Specific region to focus on, if applicable\
+Inputs
+
+- `question` (str): The geography question to ask
+- `region` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
 """
     )
     assert request.instructions == snapshot("You're an expert in geography.")
@@ -105,8 +107,10 @@ def test_signature_agent_with_default_candidate():
         """\
 Ask a question about geography.
 
-<question>: The geography question to ask
-<region>: Specific region to focus on, if applicable\
+Inputs
+
+- `question` (str): The geography question to ask
+- `region` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
 """
     )
     assert request.instructions == snapshot('You are a world-class geography expert with deep knowledge.')
@@ -149,8 +153,10 @@ def test_signature_agent_with_override_candidate():
         """\
 Focus on European capitals.
 
-<question>: The capital city question
-<region>: Specific region to focus on, if applicable\
+Inputs
+
+- `question` (str): The capital city question
+- `region` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
 """
     )
     assert request.instructions == snapshot('Be concise and accurate.')
@@ -192,8 +198,10 @@ def test_signature_agent_context_manager():
             """\
 Ask a question about geography.
 
-<question>: The geography question to ask
-<region>: Specific region to focus on, if applicable\
+Inputs
+
+- `question` (str): The geography question to ask
+- `region` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
 """
         )
         assert request.instructions == snapshot('Be precise about European capitals.')
@@ -273,9 +281,9 @@ def test_prompt_generation_from_signature():
     user_content = sig.to_user_content()
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
-<question>What are the major rivers in Africa?</question>
+Question: What are the major rivers in Africa?
 
-<region>Sub-Saharan Africa</region>\
+Region: Sub-Saharan Africa\
 """)
 
 
@@ -294,14 +302,16 @@ def test_prompt_generation_with_candidate():
     assert system_instructions == snapshot("""\
 Focus on major waterways and their importance.
 
-<question>: Geographic inquiry:
-<region>: Area of focus:\
+Inputs
+
+- `question` (str): Geographic inquiry:
+- `region` (UnionType[str, NoneType]): Area of focus:\
 """)
 
     user_content = sig.to_user_content()
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
-<question>What are the major rivers in Africa?</question>
+Question: What are the major rivers in Africa?
 
-<region>Sub-Saharan Africa</region>\
+Region: Sub-Saharan Africa\
 """)

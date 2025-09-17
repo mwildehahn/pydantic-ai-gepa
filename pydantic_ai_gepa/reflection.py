@@ -32,6 +32,11 @@ class ReflectionInput(Signature):
     )
 
 
+class UpdatedComponent(BaseModel):
+    component_name: str
+    optimized_value: str
+
+
 class ProposalOutput(BaseModel):
     """Optimized prompt components based on performance analysis.
 
@@ -41,8 +46,8 @@ class ProposalOutput(BaseModel):
     - Maintain clarity and specificity while improving effectiveness
     """
 
-    updated_components: dict[str, str] = Field(
-        description="A dictionary of updated prompt components. Only include the components that were specified for update."
+    updated_components: list[UpdatedComponent] = Field(
+        description="A list of updated prompt components. Only include the components that were specified for update."
     )
 
 
@@ -78,11 +83,8 @@ def propose_new_texts(
         reflection_dataset=reflective_dataset,
         components_to_update=components_to_update,
     )
-    import ipdb
-
-    ipdb.set_trace()
     result = signature_agent.run_signature_sync(signature, model=reflection_model)
-    import ipdb
-
-    ipdb.set_trace()
-    return result.output.updated_components
+    return {
+        component.component_name: component.optimized_value
+        for component in result.output.updated_components
+    }

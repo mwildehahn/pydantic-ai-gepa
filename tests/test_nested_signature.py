@@ -94,15 +94,18 @@ def test_to_user_content_with_nested_models():
     assert content == snapshot(
         [
             """\
-<customer_name>John Doe</customer_name>
+Customer Name: John Doe
 
-<query>Where is my order?</query>
+Query: Where is my order?
 
-<billing_address>
-  <street>123 Main St</street>
-  <city>Springfield</city>
-  <zip_code>12345</zip_code>
-</billing_address>\
+Billing Address (JSON)
+```json
+{
+  "street": "123 Main St",
+  "city": "Springfield",
+  "zip_code": "12345"
+}
+```\
 """
         ]
     )
@@ -116,16 +119,19 @@ def test_to_user_content_with_nested_models():
     assert system_instructions == snapshot("""\
 Help the customer quickly
 
-<customer_name>: OPTIMIZED: Customer full legal name
-<query>: The customer's question or issue
-<billing_address>: Customer's billing address
+Inputs
+
+- `customer_name` (str): OPTIMIZED: Customer full legal name
+- `query` (str): The customer's question or issue
+- `billing_address` (Address): Customer's billing address
+- `shipping_address` (UnionType[Address, NoneType]): Optional shipping address
+
+Schemas
 
 Each <Address> element contains:
 - <street>: Street address
 - <city>: City name
 - <zip_code>: ZIP or postal code
-
-<shipping_address>: Optional shipping address
 
 Each <Address> element contains:
 - <street>: Street address
@@ -137,15 +143,18 @@ Each <Address> element contains:
     assert content_optimized == snapshot(
         [
             """\
-<customer_name>John Doe</customer_name>
+Customer Name: John Doe
 
-<query>Where is my order?</query>
+Query: Where is my order?
 
-<billing_address>
-  <street>123 Main St</street>
-  <city>Springfield</city>
-  <zip_code>12345</zip_code>
-</billing_address>\
+Billing Address (JSON)
+```json
+{
+  "street": "123 Main St",
+  "city": "Springfield",
+  "zip_code": "12345"
+}
+```\
 """
         ]
     )

@@ -224,7 +224,7 @@ def test_optimize_agent_prompts_with_caching():
         )
 
         reflection_output = ProposalOutput(
-            prompt_components={"instructions": "Updated"}
+            updated_components={"instructions": "Updated"}
         )
         reflection_model = TestModel(
             custom_output_args=reflection_output.model_dump(mode="python")

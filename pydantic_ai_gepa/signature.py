@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+import json
 from typing import Any, get_args, get_origin
 
 from pydantic import BaseModel
@@ -55,13 +56,14 @@ class Signature(BaseModel):
         )
 
         # Build the system instructions
-        instruction_parts: list[str] = []
+        instruction_sections: list[str] = []
         suffix_parts: list[str] = []  # Collect suffix fields to append at the end
+        input_lines: list[str] = []
+        schema_descriptions: list[str] = []
 
         # Add signature-level instructions as plain text if present
         if instructions:
-            instruction_parts.append(instructions)
-            instruction_parts.append("")  # Empty line for spacing
+            instruction_sections.append(instructions.strip())
 
         # Add field descriptions and schemas
         for field_name, field_info in self.__class__.model_fields.items():
@@ -84,9 +86,10 @@ class Signature(BaseModel):
                 f"{field_name}:desc", default_desc, candidate
             )
 
-            # Add field description
+            # Add field description in inputs list
             if field_desc:
-                instruction_parts.append(f"<{field_name}>: {field_desc}")
+                type_name = self._get_type_name(field_info.annotation)
+                input_lines.append(f"- `{field_name}` ({type_name}): {field_desc}")
 
             # Check if the field type is a Pydantic model or list of models
             # We want to include schema info even if the current value is None
@@ -96,20 +99,27 @@ class Signature(BaseModel):
                 # Add schema description for the model type
                 schema_desc = self._format_model_schema(model_type)
                 if schema_desc:
-                    instruction_parts.append("")  # Add spacing before schema
-                    instruction_parts.append(schema_desc)
-                    instruction_parts.append("")  # Add spacing after schema
+                    schema_descriptions.append(schema_desc)
 
-        # Add suffix parts at the end (after a blank line if there's other content)
+        if input_lines:
+            instruction_sections.append("Inputs")
+            instruction_sections.append("\n".join(input_lines))
+
+        if schema_descriptions:
+            instruction_sections.append("Schemas")
+            instruction_sections.append("\n\n".join(schema_descriptions))
+
+        # Add suffix parts at the end as additional guidance
         if suffix_parts:
-            if (
-                instruction_parts and instruction_parts[-1] != ""
-            ):  # Add spacing if there's content above
-                instruction_parts.append("")
-            instruction_parts.extend(suffix_parts)
+            suffix_text = "\n".join(part.strip() for part in suffix_parts if part)
+            if suffix_text:
+                instruction_sections.append(suffix_text)
 
-        # Join all parts into a single instructions string, removing trailing empty lines
-        return "\n".join(instruction_parts).rstrip()
+        # Join all sections into a single instructions string
+        instruction_text = "\n\n".join(
+            section.strip() for section in instruction_sections if section.strip()
+        )
+        return instruction_text
 
     def to_user_content(self) -> list[UserContent]:
         """Convert this signature instance to UserContent objects for pydantic-ai.
@@ -123,7 +133,7 @@ class Signature(BaseModel):
         Returns:
             List of UserContent objects containing just the user data.
         """
-        content_parts: list[str] = []
+        content_sections: list[str] = []
 
         # Add each field's value without descriptions
         for field_name, field_info in self.__class__.model_fields.items():
@@ -137,41 +147,20 @@ class Signature(BaseModel):
             if self._is_suffix_field(field_info):
                 continue
 
-            # Format the field value
-            if isinstance(field_value, (list, dict, BaseModel)):
-                # Use XML formatting for complex structures
-                # For lists of models, use the model name as item_tag
-                if (
-                    isinstance(field_value, list)
-                    and field_value
-                    and isinstance(field_value[0], BaseModel)
-                ):
-                    item_tag = field_value[0].__class__.__name__
-                else:
-                    item_tag = "item" if isinstance(field_value, list) else "value"
+            format_label, formatted_value = self._format_field_value(
+                field_name, field_value
+            )
 
-                formatted_value = format_as_xml(
-                    field_value,
-                    root_tag=field_name,
-                    item_tag=item_tag,
-                    indent="  ",
-                )
-                content_parts.append(formatted_value)
-            else:
-                # For simple values, wrap in XML tags for consistency
-                if isinstance(field_value, str) and "\n" in field_value:
-                    # Multi-line strings get wrapped with proper indentation
-                    content_parts.append(f"<{field_name}>")
-                    content_parts.append(field_value)
-                    content_parts.append(f"</{field_name}>")
-                else:
-                    # Single-line values
-                    content_parts.append(f"<{field_name}>{field_value}</{field_name}>")
+            if formatted_value is None:
+                continue
+            label = self._format_field_label(field_name)
+            content_sections.append(
+                self._render_field_section(label, format_label, formatted_value)
+            )
 
-            content_parts.append("")  # Empty line between fields
-
-        # Join all parts into a single prompt, removing trailing empty lines
-        full_prompt = "\n".join(content_parts).rstrip()
+        full_prompt = "\n\n".join(
+            section.strip() for section in content_sections if section.strip()
+        )
         return [full_prompt] if full_prompt else []
 
     def _get_effective_text(
@@ -193,6 +182,155 @@ class Signature(BaseModel):
             full_key = f"signature:{class_name}:{component_key}"
 
         return candidate.get(full_key, default)
+
+    @staticmethod
+    def _get_type_name(annotation: Any) -> str:
+        """Produce a readable representation of a field annotation."""
+
+        if annotation is None:
+            return "Any"
+
+        origin = get_origin(annotation)
+        args = get_args(annotation)
+
+        if origin is None:
+            if isinstance(annotation, type):
+                if issubclass(annotation, BaseModel):
+                    return annotation.__name__
+                return annotation.__name__
+            return str(annotation)
+
+        origin_name = getattr(origin, "__name__", str(origin))
+        if not args:
+            return origin_name
+
+        arg_names = ", ".join(Signature._get_type_name(arg) for arg in args)
+        return f"{origin_name}[{arg_names}]"
+
+    def _format_field_value(
+        self, field_name: str, field_value: Any
+    ) -> tuple[str, str | None]:
+        """Format a field value for inclusion in user content."""
+
+        # Lists of BaseModels retain the existing XML formatting for readability
+        if self._is_list_of_models(field_value):
+            item_class = field_value[0].__class__
+            formatted = format_as_xml(
+                field_value,
+                root_tag=field_name,
+                item_tag=item_class.__name__,
+                indent="  ",
+            )
+            return "xml", formatted
+
+        # Single BaseModel values get JSON for structure
+        if isinstance(field_value, BaseModel):
+            return (
+                "json",
+                json.dumps(field_value.model_dump(), indent=2, ensure_ascii=False),
+            )
+
+        # Dictionaries: default to pretty JSON for consistency
+        if isinstance(field_value, dict):
+            return "json", json.dumps(field_value, indent=2, ensure_ascii=False)
+
+        # Lists: use bullet list if all elements are simple scalars
+        if isinstance(field_value, list):
+            if not field_value:
+                return "json", "[]"
+
+            if all(self._is_simple_scalar(item) for item in field_value):
+                lines = "\n".join(f"- {item}" for item in field_value)
+                return "list", lines
+
+            if all(isinstance(item, BaseModel) for item in field_value):
+                # Already handled above, but keep for safety
+                item_class = field_value[0].__class__
+                formatted = format_as_xml(
+                    field_value,
+                    root_tag=field_name,
+                    item_tag=item_class.__name__,
+                    indent="  ",
+                )
+                return "xml", formatted
+
+            return "json", json.dumps(field_value, indent=2, ensure_ascii=False)
+
+        # Strings get wrapped in fenced blocks if multiline
+        if isinstance(field_value, str):
+            if "\n" in field_value:
+                return "text", field_value
+            return "text", field_value
+
+        # Numbers and booleans fall back to plain text
+        if isinstance(field_value, (int, float, bool)):
+            return "text", str(field_value)
+
+        # Fallback to JSON serialization when possible
+        try:
+            return "json", json.dumps(field_value, indent=2, ensure_ascii=False)
+        except TypeError:
+            return "text", str(field_value)
+
+    @staticmethod
+    def _render_field_section(
+        field_label: str, format_label: str, formatted_value: str
+    ) -> str:
+        """Render a field section with format metadata and fenced content when needed."""
+
+        fence = Signature._choose_fence(format_label)
+
+        if format_label == "text" and "\n" not in formatted_value:
+            return f"{field_label}: {formatted_value}"
+
+        suffix = (
+            "" if format_label in {"text", "", "list"} else f" ({format_label.upper()})"
+        )
+        heading = f"{field_label}{suffix}"
+
+        if fence:
+            return (
+                f"{heading}\n"
+                f"{fence}{format_label if format_label not in {'text', ''} else ''}\n"
+                f"{formatted_value}\n{fence}"
+            )
+
+        return f"{heading}\n{formatted_value}"
+
+    @staticmethod
+    def _choose_fence(format_label: str) -> str:
+        """Choose an appropriate code fence delimiter based on the format label."""
+
+        if format_label in {"json", "jsonl", "yaml", "xml"}:
+            return "```"
+        if format_label in {"text", "list"}:
+            return ""
+        return "```"
+
+    @staticmethod
+    def _is_list_of_models(value: Any) -> bool:
+        """Check whether a value is a list of BaseModel instances."""
+
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(isinstance(item, BaseModel) for item in value)
+        )
+
+    @staticmethod
+    def _is_simple_scalar(value: Any) -> bool:
+        """Return True if the value is a simple scalar type suitable for bullet lists."""
+
+        return isinstance(value, (str, int, float, bool)) or value is None
+
+    @staticmethod
+    def _format_field_label(field_name: str) -> str:
+        """Convert a field name into a human-friendly label."""
+
+        parts = field_name.replace("_", " ").strip().split()
+        if not parts:
+            return field_name
+        return " ".join(part.capitalize() for part in parts)
 
     @staticmethod
     def _is_suffix_field(field_info: Any) -> bool:

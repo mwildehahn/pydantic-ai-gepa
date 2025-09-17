@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import pickle
 from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar
+
+import cloudpickle
 
 from .types import (
     DataInst,
@@ -164,7 +165,7 @@ class CacheManager:
         if cache_file.exists():
             try:
                 with open(cache_file, "rb") as f:
-                    cached_result = pickle.load(f)
+                    cached_result = cloudpickle.load(f)
 
                 if self.verbose:
                     logger.info(
@@ -206,7 +207,7 @@ class CacheManager:
 
         try:
             with open(cache_file, "wb") as f:
-                pickle.dump((score, feedback), f)
+                cloudpickle.dump((score, feedback), f)
 
             if self.verbose:
                 logger.debug(
@@ -257,7 +258,7 @@ class CacheManager:
         if cache_file.exists():
             try:
                 with open(cache_file, "rb") as f:
-                    cached_result = pickle.load(f)
+                    cached_result = cloudpickle.load(f)
 
                 if self.verbose:
                     logger.info(f"Cache hit for agent run on case {data_inst.case_id}")
@@ -299,7 +300,7 @@ class CacheManager:
 
         try:
             with open(cache_file, "wb") as f:
-                pickle.dump((trajectory, output), f)
+                cloudpickle.dump((trajectory, output), f)
 
             if self.verbose:
                 logger.debug(f"Cached agent run for case {data_inst.case_id}")

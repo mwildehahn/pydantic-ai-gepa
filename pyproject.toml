@@ -5,6 +5,7 @@ description = "GEPA optimization integration for pydantic-ai"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "cloudpickle>=3.0.0",
     "gepa>=0.0.12",
     "pydantic-ai @ git+https://github.com/mwildehahn/pydantic-ai.git@dde6dae870077025d5fff840370179ff98df2e5e",
 ]

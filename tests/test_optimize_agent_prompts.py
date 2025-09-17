@@ -100,7 +100,9 @@ def test_optimize_agent_prompts_minimal_flow():
         score = 1.0 if predicted == expected else 0.0
         return score, ("Correct" if score == 1.0 else "Incorrect")
 
-    reflection_output = ProposalOutput(prompt_components={"instructions": "Optimized"})
+    reflection_output = ProposalOutput(
+        updated_components={"instructions": "Optimized"}
+    )
     reflection_model = TestModel(
         custom_output_args=reflection_output.model_dump(mode="python")
     )
@@ -196,7 +198,9 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
         score = 1.0 if predicted == expected else 0.0
         return score, ("Correct" if score == 1.0 else "Incorrect")
 
-    reflection_output = ProposalOutput(prompt_components={"instructions": "Optimized"})
+    reflection_output = ProposalOutput(
+        updated_components={"instructions": "Optimized"}
+    )
     reflection_model = TestModel(
         custom_output_args=reflection_output.model_dump(mode="python")
     )

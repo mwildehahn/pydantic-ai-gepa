@@ -98,6 +98,8 @@ def test_signature_to_prompt_parts():
     assert len(user_content) == 1
     content = user_content[0]
     assert content == snapshot("""\
+Emails (XML)
+```xml
 <emails>
   <Email>
     <header>
@@ -120,10 +122,11 @@ def test_signature_to_prompt_parts():
     <contents>I tried resetting my password but the reset email never arrived.</contents>
   </Email>
 </emails>
+```
 
-<previous_interactions>Customer contacted us last week about slow performance issues.</previous_interactions>
+Previous Interactions: Customer contacted us last week about slow performance issues.
 
-<company_policies>Respond to urgent issues within 2 hours. Escalate authentication problems to tech team.</company_policies>\
+Company Policies: Respond to urgent issues within 2 hours. Escalate authentication problems to tech team.\
 """)
 
 
@@ -165,7 +168,13 @@ def test_signature_with_optimized_candidate():
     assert system_instructions == snapshot("""\
 You are an expert support agent. Identify critical issues immediately.
 
-<emails>: URGENT: Customer emails showing frustration. Extract key problems.
+Inputs
+
+- `emails` (list[Email]): URGENT: Customer emails showing frustration. Extract key problems.
+- `previous_interactions` (UnionType[str, NoneType]): Historical context - look for patterns.
+- `company_policies` (str): Critical policies that must be followed.
+
+Schemas
 
 Each <Email> element contains:
 - <header>: The header of the email.
@@ -173,14 +182,13 @@ Each <Email> element contains:
   - <sender>: The sender field
     - <name>: The name of the sender.
     - <address>: The email address of the sender.
-- <contents>: The contents field
-
-<previous_interactions>: Historical context - look for patterns.
-<company_policies>: Critical policies that must be followed.\
+- <contents>: The contents field\
 """)
 
     content = user_content[0]
     assert content == snapshot("""\
+Emails (XML)
+```xml
 <emails>
   <Email>
     <header>
@@ -193,10 +201,11 @@ Each <Email> element contains:
     <contents>This is a test email.</contents>
   </Email>
 </emails>
+```
 
-<previous_interactions>No previous interactions.</previous_interactions>
+Previous Interactions: No previous interactions.
 
-<company_policies>Standard policies apply.</company_policies>\
+Company Policies: Standard policies apply.\
 """)
 
 
@@ -250,6 +259,8 @@ def test_signature_with_agent():
     user_content = sig.to_user_content()
     prompt_content = user_content[0]
     assert prompt_content == snapshot("""\
+Emails (XML)
+```xml
 <emails>
   <Email>
     <header>
@@ -262,8 +273,9 @@ def test_signature_with_agent():
     <contents>System is down!</contents>
   </Email>
 </emails>
+```
 
-<company_policies>Escalate all critical issues immediately.</company_policies>\
+Company Policies: Escalate all critical issues immediately.\
 """)
 
     result = agent.run_sync(user_content)
@@ -353,6 +365,8 @@ def test_signature_with_none_field():
     user_content = sig.to_user_content()
     content = user_content[0]
     assert content == snapshot("""\
+Emails (XML)
+```xml
 <emails>
   <Email>
     <header>
@@ -365,8 +379,9 @@ def test_signature_with_none_field():
     <contents>Test content</contents>
   </Email>
 </emails>
+```
 
-<company_policies>Default policies</company_policies>\
+Company Policies: Default policies\
 """)
 
 

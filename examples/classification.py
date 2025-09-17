@@ -1,8 +1,12 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 from pydantic_evals import Case, Dataset
+import json
+from datetime import datetime
+from pathlib import Path
 
 from pydantic_ai import Agent
+from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_ai_gepa.signature import Signature
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInstWithSignature, RolloutOutput
@@ -361,14 +365,23 @@ def metric(
 
 
 if __name__ == "__main__":
+    reflection_model = OpenAIResponsesModel(
+        model_name="gpt-5",
+        settings=OpenAIResponsesModelSettings(
+            openai_reasoning_effort="medium",
+            openai_reasoning_summary="detailed",
+            openai_text_verbosity="medium",
+        ),
+    )
+
     result = optimize_agent_prompts(
         agent=signature_agent,
-        trainset=signature_dataset[:5],
-        valset=signature_dataset[5:10],
+        trainset=signature_dataset[:15],
+        valset=signature_dataset[15:],
         metric=metric,
         signature_class=ClassificationInput,
-        reflection_model="openai:gpt-5",
-        max_metric_calls=20,  # Increased significantly for highly ambiguous cases
+        reflection_model=reflection_model,
+        max_metric_calls=250,  # Increased significantly for highly ambiguous cases
         display_progress_bar=True,
         track_best_outputs=True,
         enable_cache=True,
@@ -376,7 +389,20 @@ if __name__ == "__main__":
         cache_verbose=True,
     )
 
-    import ipdb
+    # Serialize the result to a JSON file with datetime suffix
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = Path("optimization_results")
+    output_dir.mkdir(exist_ok=True)
 
-    ipdb.set_trace()
-    print(result)
+    output_file = output_dir / f"classification_optimization_{timestamp}.json"
+
+    # Convert the Pydantic model to a dictionary and save as JSON
+    result_dict = result.model_dump()
+
+    with open(output_file, "w") as f:
+        json.dump(result_dict, f, indent=2)
+
+    print(f"\n✅ Optimization result saved to: {output_file}")
+    print(f"   Best score: {result.best_score:.4f}")
+    print(f"   Iterations: {result.num_iterations}")
+    print(f"   Metric calls: {result.num_metric_calls}")
