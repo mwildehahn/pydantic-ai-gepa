@@ -175,11 +175,7 @@ class Signature(BaseModel):
 
         # Build the full component name with class name to handle nested models
         class_name = self.__class__.__name__
-        if component_key == "instructions":
-            full_key = f"signature:{class_name}:instructions"
-        else:
-            # For field descriptions
-            full_key = f"signature:{class_name}:{component_key}"
+        full_key = f"signature:{class_name}:{component_key}"
 
         return candidate.get(full_key, default)
 
