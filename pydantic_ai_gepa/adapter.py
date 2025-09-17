@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import random
 from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Protocol
 
-from gepa.core.adapter import EvaluationBatch, GEPAAdapter, ProposalFn
+from gepa.core.adapter import EvaluationBatch, GEPAAdapter
+
+from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
+from .reflection import propose_new_texts
 from .signature import Signature, apply_candidate_to_signature
 from .types import DataInst, RolloutOutput, Trajectory
 
@@ -49,8 +51,8 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         metric: Callable[[DataInst, RolloutOutput], tuple[float, str | None]],
         *,
         signature_class: type[Signature] | None = None,
-        deterministic_proposer: ProposalFn | None = None,
         reflection_sampler: ReflectionSampler | None = None,
+        reflection_model: Model | KnownModelName | str | None = None,
     ):
         """Initialize the adapter.
 
@@ -61,17 +63,16 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
                    (second element) is optional but recommended for better optimization.
             signature_class: Optional single Signature class whose instructions and field
                             descriptions will be optimized alongside the agent's prompts.
-            deterministic_proposer: Optional deterministic proposer for testing.
-                                   If provided, this will be used as propose_new_texts.
             reflection_sampler: Optional sampler for reflection records. If provided,
                                it will be called to sample records when needed. If None,
                                all reflection records are kept without sampling.
+            reflection_model: The model to use for reflection.
         """
         self.agent = agent
         self.metric = metric
         self.signature_class = signature_class
-        self.propose_new_texts = deterministic_proposer
         self.reflection_sampler = reflection_sampler
+        self.reflection_model = reflection_model
 
     def evaluate(
         self,
@@ -284,5 +285,14 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             # For backward compatibility, we can use a reasonable default
             reflection_records = self.reflection_sampler(reflection_records, max_records=10)
 
-        # Provide the same dataset to all components being updated
+        # For pydantic-ai, all components work together, so they all need
+        # the same reflection data to understand the full context
         return {comp: reflection_records for comp in components_to_update}
+
+    def propose_new_texts(  # type: ignore[override]
+        self,
+        candidate: dict[str, str],
+        reflective_dataset: dict[str, list[dict[str, Any]]],
+        components_to_update: list[str],
+    ) -> dict[str, str]:
+        return propose_new_texts(candidate, reflective_dataset, components_to_update, self.reflection_model)

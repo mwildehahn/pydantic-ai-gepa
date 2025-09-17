@@ -91,54 +91,61 @@ def test_to_user_content_with_nested_models():
 
     # Convert to user content
     content = query.to_user_content()
-    assert content == snapshot(["""\
-Process customer inquiries with full context.
+    assert content == snapshot(
+        [
+            """\
+<customer_name>John Doe</customer_name>
 
-OPTIMIZED: Customer full legal name
-Customer Name: John Doe
-
-The customer's question or issue
-Query: Where is my order?
-
-Customer's billing address
-
-Each <Address> element contains:
-- <street>: Street address
-- <city>: City name
-- <zip_code>: ZIP or postal code
+<query>Where is my order?</query>
 
 <billing_address>
   <street>123 Main St</street>
   <city>Springfield</city>
   <zip_code>12345</zip_code>
 </billing_address>\
-"""])
+"""
+        ]
+    )
 
     # Test with optimized candidate
     candidate = {
         'signature:CustomerQuery:instructions': 'Help the customer quickly',
     }
 
-    content_optimized = query.to_user_content(candidate=candidate)
-    assert content_optimized == snapshot(["""\
+    system_instructions = query.to_system_instructions(candidate=candidate)
+    assert system_instructions == snapshot("""\
 Help the customer quickly
 
-OPTIMIZED: Customer full legal name
-Customer Name: John Doe
-
-The customer's question or issue
-Query: Where is my order?
-
-Customer's billing address
+<customer_name>: OPTIMIZED: Customer full legal name
+<query>: The customer's question or issue
+<billing_address>: Customer's billing address
 
 Each <Address> element contains:
 - <street>: Street address
 - <city>: City name
 - <zip_code>: ZIP or postal code
 
+<shipping_address>: Optional shipping address
+
+Each <Address> element contains:
+- <street>: Street address
+- <city>: City name
+- <zip_code>: ZIP or postal code\
+""")
+
+    content_optimized = query.to_user_content()
+    assert content_optimized == snapshot(
+        [
+            """\
+<customer_name>John Doe</customer_name>
+
+<query>Where is my order?</query>
+
 <billing_address>
   <street>123 Main St</street>
   <city>Springfield</city>
   <zip_code>12345</zip_code>
 </billing_address>\
-"""])
+"""
+        ]
+    )

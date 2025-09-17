@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai_gepa import Signature, SignatureAgent
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.messages import ModelRequest, SystemPromptPart
 from pydantic_ai.models.test import TestModel
 
 
@@ -58,19 +58,14 @@ def test_signature_agent_basic():
     assert result.output.sources == ['Common knowledge']
     request = result.all_messages()[0]
     assert isinstance(request, ModelRequest)
-    assert isinstance(request.parts[0], UserPromptPart)
+    assert isinstance(request.parts[0], SystemPromptPart)
     assert request.parts[0].content == snapshot(
-        [
-            """\
+        """\
 Ask a question about geography.
 
-The geography question to ask
-Question: What's the capital of France?
-
-Specific region to focus on, if applicable
-Region: Western Europe\
+<question>: The geography question to ask
+<region>: Specific region to focus on, if applicable\
 """
-        ]
     )
     assert request.instructions == snapshot("You're an expert in geography.")
 
@@ -105,19 +100,14 @@ def test_signature_agent_with_default_candidate():
     assert result.output.sources == ['Atlas', 'Encyclopedia']
     request = result.all_messages()[0]
     assert isinstance(request, ModelRequest)
-    assert isinstance(request.parts[0], UserPromptPart)
+    assert isinstance(request.parts[0], SystemPromptPart)
     assert request.parts[0].content == snapshot(
-        [
-            """\
+        """\
 Ask a question about geography.
 
-The geography question to ask
-Question: What's the capital of Germany?
-
-Specific region to focus on, if applicable
-Region: Central Europe\
+<question>: The geography question to ask
+<region>: Specific region to focus on, if applicable\
 """
-        ]
     )
     assert request.instructions == snapshot('You are a world-class geography expert with deep knowledge.')
 
@@ -154,19 +144,14 @@ def test_signature_agent_with_override_candidate():
     assert result.output.confidence == 'high'
     request = result.all_messages()[0]
     assert isinstance(request, ModelRequest)
-    assert isinstance(request.parts[0], UserPromptPart)
+    assert isinstance(request.parts[0], SystemPromptPart)
     assert request.parts[0].content == snapshot(
-        [
-            """\
+        """\
 Focus on European capitals.
 
-The capital city question
-Question: What's the capital of Italy?
-
-Specific region to focus on, if applicable
-Region: Southern Europe\
+<question>: The capital city question
+<region>: Specific region to focus on, if applicable\
 """
-        ]
     )
     assert request.instructions == snapshot('Be concise and accurate.')
 
@@ -202,16 +187,14 @@ def test_signature_agent_context_manager():
         assert result.output.confidence == 'high'
         request = result.all_messages()[0]
         assert isinstance(request, ModelRequest)
-        assert isinstance(request.parts[0], UserPromptPart)
+        assert isinstance(request.parts[0], SystemPromptPart)
         assert request.parts[0].content == snapshot(
-            [
-                """\
+            """\
 Ask a question about geography.
 
-The geography question to ask
-Question: What's the capital of Spain?\
+<question>: The geography question to ask
+<region>: Specific region to focus on, if applicable\
 """
-            ]
         )
         assert request.instructions == snapshot('Be precise about European capitals.')
 
@@ -290,13 +273,9 @@ def test_prompt_generation_from_signature():
     user_content = sig.to_user_content()
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
-Ask a question about geography.
+<question>What are the major rivers in Africa?</question>
 
-The geography question to ask
-Question: What are the major rivers in Africa?
-
-Specific region to focus on, if applicable
-Region: Sub-Saharan Africa\
+<region>Sub-Saharan Africa</region>\
 """)
 
 
@@ -311,14 +290,18 @@ def test_prompt_generation_with_candidate():
         'signature:GeographyQuery:region:desc': 'Area of focus:',
     }
 
-    user_content_optimized = sig.to_user_content(candidate=candidate)
-    assert len(user_content_optimized) == 1
-    assert user_content_optimized[0] == snapshot("""\
+    system_instructions = sig.to_system_instructions(candidate=candidate)
+    assert system_instructions == snapshot("""\
 Focus on major waterways and their importance.
 
-Geographic inquiry:
-Question: What are the major rivers in Africa?
+<question>: Geographic inquiry:
+<region>: Area of focus:\
+""")
 
-Area of focus:
-Region: Sub-Saharan Africa\
+    user_content = sig.to_user_content()
+    assert len(user_content) == 1
+    assert user_content[0] == snapshot("""\
+<question>What are the major rivers in Africa?</question>
+
+<region>Sub-Saharan Africa</region>\
 """)
