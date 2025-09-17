@@ -1,16 +1,22 @@
-from typing import Literal
-from pydantic import BaseModel, Field
-from pydantic_evals import Case, Dataset
 import json
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
+import logfire
+from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
+from pydantic_evals import Case, Dataset
+
+from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent_prompts
 from pydantic_ai_gepa.signature import Signature
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInstWithSignature, RolloutOutput
-from pydantic_ai_gepa.runner import optimize_agent_prompts
+
+logfire.configure()
+logfire.instrument_pydantic_ai()
+logfire.instrument_httpx(capture_all=True)
 
 
 # Create a basic signature for the classification task
@@ -335,8 +341,6 @@ def metric(
     data_inst: DataInstWithSignature[ClassificationInput],
     output: RolloutOutput[ClassificationOutput],
 ) -> tuple[float, str | None]:
-    print(data_inst)
-    print(output)
     if (
         output.success
         and output.result
@@ -365,6 +369,15 @@ def metric(
 
 
 if __name__ == "__main__":
+    output_dir = Path("optimization_results")
+    output_dir.mkdir(exist_ok=True)
+
+    seed_file = Path(output_dir) / Path(
+        "classification_optimization_20250917_020511.json"
+    )
+    with open(seed_file, "r") as f:
+        seed_result = GepaOptimizationResult.model_validate_json(f.read())
+
     reflection_model = OpenAIResponsesModel(
         model_name="gpt-5",
         settings=OpenAIResponsesModelSettings(
@@ -376,6 +389,7 @@ if __name__ == "__main__":
 
     result = optimize_agent_prompts(
         agent=signature_agent,
+        seed_candidate=seed_result.best_candidate,
         trainset=signature_dataset[:15],
         valset=signature_dataset[15:],
         metric=metric,
@@ -391,8 +405,6 @@ if __name__ == "__main__":
 
     # Serialize the result to a JSON file with datetime suffix
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_dir = Path("optimization_results")
-    output_dir.mkdir(exist_ok=True)
 
     output_file = output_dir / f"classification_optimization_{timestamp}.json"
 

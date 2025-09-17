@@ -98,8 +98,6 @@ def test_signature_to_prompt_parts():
     assert len(user_content) == 1
     content = user_content[0]
     assert content == snapshot("""\
-Emails (XML)
-```xml
 <emails>
   <Email>
     <header>
@@ -122,11 +120,10 @@ Emails (XML)
     <contents>I tried resetting my password but the reset email never arrived.</contents>
   </Email>
 </emails>
-```
 
-Previous Interactions: Customer contacted us last week about slow performance issues.
+<previous_interactions>Customer contacted us last week about slow performance issues.</previous_interactions>
 
-Company Policies: Respond to urgent issues within 2 hours. Escalate authentication problems to tech team.\
+<company_policies>Respond to urgent issues within 2 hours. Escalate authentication problems to tech team.</company_policies>\
 """)
 
 
@@ -170,9 +167,9 @@ You are an expert support agent. Identify critical issues immediately.
 
 Inputs
 
-- `emails` (list[Email]): URGENT: Customer emails showing frustration. Extract key problems.
-- `previous_interactions` (UnionType[str, NoneType]): Historical context - look for patterns.
-- `company_policies` (str): Critical policies that must be followed.
+- `<emails>` (list[Email]): URGENT: Customer emails showing frustration. Extract key problems.
+- `<previous_interactions>` (UnionType[str, NoneType]): Historical context - look for patterns.
+- `<company_policies>` (str): Critical policies that must be followed.
 
 Schemas
 
@@ -187,8 +184,6 @@ Each <Email> element contains:
 
     content = user_content[0]
     assert content == snapshot("""\
-Emails (XML)
-```xml
 <emails>
   <Email>
     <header>
@@ -201,11 +196,10 @@ Emails (XML)
     <contents>This is a test email.</contents>
   </Email>
 </emails>
-```
 
-Previous Interactions: No previous interactions.
+<previous_interactions>No previous interactions.</previous_interactions>
 
-Company Policies: Standard policies apply.\
+<company_policies>Standard policies apply.</company_policies>\
 """)
 
 
@@ -259,8 +253,6 @@ def test_signature_with_agent():
     user_content = sig.to_user_content()
     prompt_content = user_content[0]
     assert prompt_content == snapshot("""\
-Emails (XML)
-```xml
 <emails>
   <Email>
     <header>
@@ -273,9 +265,8 @@ Emails (XML)
     <contents>System is down!</contents>
   </Email>
 </emails>
-```
 
-Company Policies: Escalate all critical issues immediately.\
+<company_policies>Escalate all critical issues immediately.</company_policies>\
 """)
 
     result = agent.run_sync(user_content)
@@ -365,8 +356,6 @@ def test_signature_with_none_field():
     user_content = sig.to_user_content()
     content = user_content[0]
     assert content == snapshot("""\
-Emails (XML)
-```xml
 <emails>
   <Email>
     <header>
@@ -379,9 +368,8 @@ Emails (XML)
     <contents>Test content</contents>
   </Email>
 </emails>
-```
 
-Company Policies: Default policies\
+<company_policies>Default policies</company_policies>\
 """)
 
 

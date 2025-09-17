@@ -89,7 +89,7 @@ class Signature(BaseModel):
             # Add field description in inputs list
             if field_desc:
                 type_name = self._get_type_name(field_info.annotation)
-                input_lines.append(f"- `{field_name}` ({type_name}): {field_desc}")
+                input_lines.append(f"- `<{field_name}>` ({type_name}): {field_desc}")
 
             # Check if the field type is a Pydantic model or list of models
             # We want to include schema info even if the current value is None
@@ -147,16 +147,9 @@ class Signature(BaseModel):
             if self._is_suffix_field(field_info):
                 continue
 
-            format_label, formatted_value = self._format_field_value(
-                field_name, field_value
-            )
-
-            if formatted_value is None:
-                continue
-            label = self._format_field_label(field_name)
-            content_sections.append(
-                self._render_field_section(label, format_label, formatted_value)
-            )
+            formatted_value = self._format_field_value_xml(field_name, field_value)
+            if formatted_value:
+                content_sections.append(formatted_value)
 
         full_prompt = "\n\n".join(
             section.strip() for section in content_sections if section.strip()
@@ -206,6 +199,42 @@ class Signature(BaseModel):
 
         arg_names = ", ".join(Signature._get_type_name(arg) for arg in args)
         return f"{origin_name}[{arg_names}]"
+
+    def _format_field_value_xml(self, field_name: str, field_value: Any) -> str | None:
+        """Format a field value using XML tags for inclusion in user content.
+
+        Args:
+            field_name: The name of the field (becomes the XML tag)
+            field_value: The value to format
+
+        Returns:
+            XML-formatted string or None if the value should be skipped
+        """
+        # Handle None
+        if field_value is None:
+            return None
+
+        # Lists of BaseModels - use specific item tag
+        if self._is_list_of_models(field_value):
+            if not field_value:
+                return f"<{field_name}></{field_name}>"
+
+            item_class = field_value[0].__class__
+            return format_as_xml(
+                field_value,
+                root_tag=field_name,
+                item_tag=item_class.__name__,
+                indent="  ",
+            )
+
+        # Always use format_as_xml for consistency
+        # This handles BaseModels, dicts, lists, and scalars uniformly
+        return format_as_xml(
+            field_value,
+            root_tag=field_name,
+            item_tag="item",  # Used for lists
+            indent="  ",
+        )
 
     def _format_field_value(
         self, field_name: str, field_value: Any
@@ -542,7 +571,7 @@ class Signature(BaseModel):
         return components
 
     @classmethod
-    def apply_candidate(cls, candidate: dict[str, str]) -> None:
+    def apply_candidate(cls, candidate: dict[str, str] | None) -> None:
         """Apply a GEPA candidate to this signature class.
 
         This modifies the class in-place with the optimized text.
@@ -551,6 +580,8 @@ class Signature(BaseModel):
             candidate: GEPA candidate with optimized text for components.
         """
         class_name = cls.__name__
+        if candidate is None:
+            return
 
         # Update instructions if present in candidate
         instructions_key = f"signature:{class_name}:instructions"
@@ -567,7 +598,8 @@ class Signature(BaseModel):
 
 @contextmanager
 def apply_candidate_to_signature(
-    signature_class: type[Signature], candidate: dict[str, str]
+    signature_class: type[Signature],
+    candidate: dict[str, str] | None,
 ) -> Iterator[None]:
     """Context manager to temporarily apply a GEPA candidate to a signature.
 

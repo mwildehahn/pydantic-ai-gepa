@@ -3,26 +3,20 @@
 from __future__ import annotations
 
 import tempfile
-from pathlib import Path
-from unittest.mock import Mock
 
-import pytest
-from pydantic import BaseModel
+from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
+from pydantic_ai.models.test import TestModel
 
 from pydantic_ai_gepa.cache import CacheManager, create_cached_metric
+from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
 from pydantic_ai_gepa.runner import optimize_agent_prompts
 from pydantic_ai_gepa.signature import Signature
-from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import (
     DataInstWithPrompt,
     DataInstWithSignature,
     RolloutOutput,
 )
-
-from pydantic_ai import Agent
-from pydantic_ai.models.test import TestModel
-from pydantic_ai_gepa.reflection import ProposalOutput
 
 
 def test_cache_manager_basic():
@@ -224,7 +218,11 @@ def test_optimize_agent_prompts_with_caching():
         )
 
         reflection_output = ProposalOutput(
-            updated_components={"instructions": "Updated"}
+            updated_components=[
+                UpdatedComponent(
+                    component_name="instructions", optimized_value="Updated"
+                )
+            ]
         )
         reflection_model = TestModel(
             custom_output_args=reflection_output.model_dump(mode="python")
@@ -339,6 +337,7 @@ def test_cache_agent_runs():
         assert result is not None
         cached_trajectory, cached_output = result
         assert cached_output.result == "Agent result"
+        assert cached_trajectory is not None
         assert cached_trajectory.final_output == "Agent result"
 
         # Different capture_traces value should miss

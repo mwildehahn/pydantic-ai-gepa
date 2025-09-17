@@ -34,21 +34,23 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     # Extract instructions
     # Note: In v1, we extract the literal instructions only, not the dynamic ones
     # The dynamic instructions from functions will be disabled during optimization
-    if hasattr(target_agent, '_instructions') and target_agent._instructions:  # type: ignore[attr-defined]
-        candidate['instructions'] = target_agent._instructions  # type: ignore[attr-defined]
+    if hasattr(target_agent, "_instructions") and target_agent._instructions:  # type: ignore[attr-defined]
+        candidate["instructions"] = target_agent._instructions  # type: ignore[attr-defined]
     else:
-        candidate['instructions'] = ''
+        candidate["instructions"] = ""
 
     # Extract static system prompts
-    if hasattr(target_agent, '_system_prompts'):
+    if hasattr(target_agent, "_system_prompts"):
         for i, prompt in enumerate(target_agent._system_prompts):  # type: ignore[attr-defined]
-            candidate[f'system_prompt:{i}'] = prompt
+            candidate[f"system_prompt:{i}"] = prompt
 
     return candidate
 
 
 @contextmanager
-def apply_candidate_to_agent(agent: AbstractAgent[Any, Any], candidate: dict[str, str]) -> Iterator[None]:
+def apply_candidate_to_agent(
+    agent: AbstractAgent[Any, Any], candidate: dict[str, str] | None
+) -> Iterator[None]:
     """Apply a GEPA candidate to an agent via override_prompts.
 
     This returns a context manager that temporarily applies the candidate
@@ -62,25 +64,30 @@ def apply_candidate_to_agent(agent: AbstractAgent[Any, Any], candidate: dict[str
         A context manager for the temporary override.
     """
     # Extract instructions from candidate
-    instructions = candidate.get('instructions', None)
+    instructions = candidate.get("instructions", None) if candidate else None
 
     # Extract system prompts from candidate
     system_prompts: list[str] = []
-    i = 0
-    while f'system_prompt:{i}' in candidate:
-        system_prompts.append(candidate[f'system_prompt:{i}'])
-        i += 1
+    if candidate:
+        i = 0
+        while f"system_prompt:{i}" in candidate:
+            system_prompts.append(candidate[f"system_prompt:{i}"])
+            i += 1
 
     # Apply via override_prompts
     # Only pass non-empty values
     kwargs: dict[str, Any] = {}
     if instructions is not None:
-        kwargs['instructions'] = instructions
+        kwargs["instructions"] = instructions
     if system_prompts:
-        kwargs['system_prompts'] = system_prompts
+        kwargs["system_prompts"] = system_prompts
+
+    target_agent = agent
+    if isinstance(agent, WrapperAgent):
+        target_agent = agent.wrapped
 
     if kwargs:
-        with agent.override_prompts(**kwargs):
+        with target_agent.override_prompts(**kwargs):
             yield
     else:
         # No overrides needed
@@ -99,17 +106,19 @@ def get_component_names(agent: AbstractAgent[Any, Any]) -> list[str]:
     components: list[str] = []
 
     # Instructions are always optimizable (even if empty)
-    components.append('instructions')
+    components.append("instructions")
 
     # Add system prompts
-    if hasattr(agent, '_system_prompts'):
+    if hasattr(agent, "_system_prompts"):
         for i in range(len(agent._system_prompts)):  # type: ignore[attr-defined]
-            components.append(f'system_prompt:{i}')
+            components.append(f"system_prompt:{i}")
 
     return components
 
 
-def validate_components(agent: AbstractAgent[Any, Any], components: Sequence[str]) -> list[str]:
+def validate_components(
+    agent: AbstractAgent[Any, Any], components: Sequence[str]
+) -> list[str]:
     """Validate that the requested components exist in the agent.
 
     Args:
@@ -127,7 +136,9 @@ def validate_components(agent: AbstractAgent[Any, Any], components: Sequence[str
 
     invalid = requested - available
     if invalid:
-        raise ValueError(f'Components {invalid} not found in agent. Available components: {sorted(available)}')
+        raise ValueError(
+            f"Components {invalid} not found in agent. Available components: {sorted(available)}"
+        )
 
     return list(components)
 
@@ -160,7 +171,7 @@ def extract_seed_candidate_with_signature(
 
 @contextmanager
 def apply_candidate_to_agent_and_signature(
-    candidate: dict[str, str],
+    candidate: dict[str, str] | None,
     agent: AbstractAgent[Any, Any],
     signature_class: type[Signature] | None = None,
 ) -> Iterator[None]:
@@ -185,6 +196,8 @@ def apply_candidate_to_agent_and_signature(
 
         # Apply to signature if provided
         if signature_class:
-            stack.enter_context(apply_candidate_to_signature(signature_class, candidate))
+            stack.enter_context(
+                apply_candidate_to_signature(signature_class, candidate)
+            )
 
         yield

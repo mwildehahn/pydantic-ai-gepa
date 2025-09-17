@@ -77,6 +77,7 @@ class PydanticAIGEPAAdapter(
                                it will be called to sample records when needed. If None,
                                all reflection records are kept without sampling.
             reflection_model: The model to use for reflection.
+            cache_manager: The cache manager to use for caching.
         """
         self.agent = agent
         self.metric = metric
@@ -84,7 +85,6 @@ class PydanticAIGEPAAdapter(
         self.reflection_sampler = reflection_sampler
         self.reflection_model = reflection_model
         self.cache_manager = cache_manager
-        self._current_candidate: dict[str, str] | None = None
 
     def evaluate(
         self,
@@ -106,13 +106,14 @@ class PydanticAIGEPAAdapter(
         scores: list[float] = []
         trajectories: list[Trajectory] | None = [] if capture_traces else None
 
-        # Store current candidate for caching purposes
-        self._current_candidate = candidate
-
         # Apply the candidate to the agent and optionally the signature
         with self._apply_candidate(candidate):
             for data_inst in batch:
-                result = self.process_data_instance(data_inst, capture_traces)
+                result = self.process_data_instance(
+                    data_inst,
+                    capture_traces,
+                    candidate,
+                )
 
                 outputs.append(result["output"])
                 scores.append(result["score"])
@@ -120,11 +121,10 @@ class PydanticAIGEPAAdapter(
                 if trajectories is not None and "trajectory" in result:
                     trajectories.append(result["trajectory"])
 
-        # Clear current candidate
-        self._current_candidate = None
-
         return EvaluationBatch(
-            outputs=outputs, scores=scores, trajectories=trajectories
+            outputs=outputs,
+            scores=scores,
+            trajectories=trajectories,
         )
 
     def _apply_candidate(self, candidate: dict[str, str]):
@@ -152,7 +152,10 @@ class PydanticAIGEPAAdapter(
         return stack
 
     def process_data_instance(
-        self, data_inst: DataInstT, capture_traces: bool = False
+        self,
+        data_inst: DataInstT,
+        capture_traces: bool = False,
+        candidate: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Process a single data instance and return results.
 
@@ -165,9 +168,11 @@ class PydanticAIGEPAAdapter(
         """
         try:
             # Check cache first for agent run (if we have a current candidate)
-            if self.cache_manager and self._current_candidate:
+            if self.cache_manager and candidate:
                 cached_agent_result = self.cache_manager.get_cached_agent_run(
-                    data_inst, self._current_candidate, capture_traces
+                    data_inst,
+                    candidate,
+                    capture_traces,
                 )
 
                 if cached_agent_result is not None:
@@ -183,7 +188,7 @@ class PydanticAIGEPAAdapter(
                     # Cache the agent run result
                     self.cache_manager.cache_agent_run(
                         data_inst,
-                        self._current_candidate,
+                        candidate,
                         trajectory,
                         output,
                         capture_traces,
@@ -198,10 +203,12 @@ class PydanticAIGEPAAdapter(
 
             # Compute score using the metric and capture optional feedback
             # Use caching if available and we have a current candidate
-            if self.cache_manager and self._current_candidate:
+            if self.cache_manager and candidate:
                 # Check cache first
                 cached_result = self.cache_manager.get_cached_metric_result(
-                    data_inst, output, self._current_candidate
+                    data_inst,
+                    output,
+                    candidate,
                 )
 
                 if cached_result is not None:
@@ -212,7 +219,7 @@ class PydanticAIGEPAAdapter(
                     self.cache_manager.cache_metric_result(
                         data_inst,
                         output,
-                        self._current_candidate,
+                        candidate,
                         score,
                         metric_feedback,
                     )
@@ -345,7 +352,9 @@ class PydanticAIGEPAAdapter(
         # Build reflection records from trajectories
         reflection_records: list[dict[str, Any]] = []
         for trajectory, output, score in zip(
-            eval_batch.trajectories, eval_batch.outputs, eval_batch.scores
+            eval_batch.trajectories,
+            eval_batch.outputs,
+            eval_batch.scores,
         ):
             record: dict[str, Any] = trajectory.to_reflective_record()
 

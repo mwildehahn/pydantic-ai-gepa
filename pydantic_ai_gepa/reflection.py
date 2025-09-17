@@ -14,8 +14,14 @@ class ReflectionInput(Signature):
 
     Your task is to:
     1. Review the reflection dataset showing how the agent performed with current prompts
-    2. Identify patterns in successes and failures
-    3. Propose specific improvements to the components listed in 'components_to_update'
+    2. Read all the assistant responses and the corresponding feedback
+    3. Identify patterns in successes and failures
+    4. Identify all niche and domain-specific factual information about the task and include it in
+       the instruction, as a lot of it may not be available to the assistant in the future
+    5. If the assistant utilized a generalizable strategy to solve the task, include that
+       strategy in the instruction as well
+    6. Propose specific improvements to the components listed in 'components_to_update'
+    7. If useful, include few shot examples of the task to help the assistant understand the task better
 
     Focus on making prompts clearer, more specific, and better aligned with successful outcomes.
     Extract domain knowledge from the examples to enhance the instructions.

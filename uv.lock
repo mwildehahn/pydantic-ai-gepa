@@ -1686,6 +1686,7 @@ dependencies = [
 dev = [
     { name = "inline-snapshot" },
     { name = "ipdb" },
+    { name = "logfire" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -1702,6 +1703,7 @@ requires-dist = [
 dev = [
     { name = "inline-snapshot", specifier = ">=0.29.0" },
     { name = "ipdb", specifier = ">=0.13.13" },
+    { name = "logfire", specifier = ">=4.7.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=1.2.0" },
     { name = "pytest-cov", specifier = ">=5.0.0" },

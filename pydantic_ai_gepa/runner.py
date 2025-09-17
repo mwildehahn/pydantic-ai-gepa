@@ -128,6 +128,7 @@ def optimize_agent_prompts(
     metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
     valset: Sequence[DataInstT] | None = None,
     signature_class: type[Signature] | None = None,
+    seed_candidate: dict[str, str] | None = None,
     # Reflection-based configuration
     reflection_lm: LanguageModel | None = None,
     reflection_model: Model | KnownModelName | str | None = None,
@@ -242,10 +243,17 @@ def optimize_agent_prompts(
         val_instances = train_instances
 
     # Extract seed candidate from agent and optional signature
-    seed_candidate = extract_seed_candidate_with_signature(
+    extracted_seed_candidate = extract_seed_candidate_with_signature(
         agent=agent,
         signature_class=signature_class,
     )
+    if seed_candidate is None:
+        seed_candidate = extracted_seed_candidate
+    else:
+        if sorted(extracted_seed_candidate.keys()) != sorted(seed_candidate.keys()):
+            raise ValueError(
+                "Seed candidate keys do not match extracted seed candidate keys"
+            )
 
     # Create cache manager if caching is enabled
     cache_manager = None
