@@ -9,10 +9,10 @@ This exercises a full (minimal) GEPA optimization flow with:
 from __future__ import annotations
 
 from pydantic_ai_gepa.components import Signature, extract_seed_candidate, extract_seed_candidate_with_signature
+from pydantic_ai_gepa.reflection import ProposalOutput
 from pydantic_ai_gepa.runner import optimize_agent_prompts
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInst, RolloutOutput
-from pydantic_ai_gepa.reflection import ProposalOutput
+from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, DataInstWithSignature, RolloutOutput
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
@@ -50,7 +50,7 @@ def test_optimize_agent_prompts_minimal_flow():
 
     # Convert the dataset to GEPA DataInst entries
     trainset: list[DataInst] = [
-        DataInst(
+        DataInstWithPrompt(
             user_prompt=UserPromptPart(
                 content=(
                     'Categorize the following input as one of: positive, negative, or neutral.\n'
@@ -136,12 +136,9 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
 
     # Convert the dataset to GEPA DataInst entries
     trainset: list[DataInst] = [
-        DataInst(
-            user_prompt=UserPromptPart(
-                content=(
-                    'Categorize the following input as one of: positive, negative, or neutral.\n'
-                    f'Input: {case.inputs["text"]}'
-                )
+        DataInstWithSignature(
+            signature=Input(
+                text=case.inputs['text'],
             ),
             message_history=None,
             metadata={'label': str(case.expected_output)},

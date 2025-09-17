@@ -13,7 +13,8 @@ from pydantic_ai.models import KnownModelName, Model
 from .components import apply_candidate_to_agent
 from .reflection import propose_new_texts
 from .signature import Signature, apply_candidate_to_signature
-from .types import DataInst, RolloutOutput, Trajectory
+from .signature_agent import SignatureAgent
+from .types import DataInst, DataInstWithPrompt, RolloutOutput, Trajectory
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -189,11 +190,19 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
         messages: list[ModelMessage] = []
 
         try:
-            # Run the agent and capture messages
-            result = self.agent.run_sync(
-                instance.user_prompt.content,
-                message_history=instance.message_history,
-            )
+            if isinstance(instance, DataInstWithPrompt):
+                # Run the agent and capture messages
+                result = self.agent.run_sync(
+                    instance.user_prompt.content,
+                    message_history=instance.message_history,
+                )
+            else:
+                assert isinstance(self.agent, SignatureAgent)
+                result = self.agent.run_signature_sync(
+                    instance.signature,
+                    message_history=instance.message_history,
+                )
+
             messages = result.new_messages()
             final_output = result.output
 
@@ -222,10 +231,17 @@ class PydanticAIGEPAAdapter(GEPAAdapter[DataInst, Trajectory, RolloutOutput]):
             The rollout output.
         """
         try:
-            result = self.agent.run_sync(
-                instance.user_prompt.content,
-                message_history=instance.message_history,
-            )
+            if isinstance(instance, DataInstWithPrompt):
+                result = self.agent.run_sync(
+                    instance.user_prompt.content,
+                    message_history=instance.message_history,
+                )
+            else:
+                assert isinstance(self.agent, SignatureAgent)
+                result = self.agent.run_signature_sync(
+                    instance.signature,
+                    message_history=instance.message_history,
+                )
 
             return RolloutOutput.from_success(result.output)
         except Exception as e:

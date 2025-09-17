@@ -6,7 +6,7 @@ from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
-from pydantic_ai_gepa.types import DataInst, RolloutOutput
+from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
@@ -57,7 +57,7 @@ def test_process_data_instance():
     adapter = PydanticAIGEPAAdapter(agent, metric)
 
     # Test without traces
-    data_inst = DataInst(
+    data_inst = DataInstWithPrompt(
         user_prompt=UserPromptPart(content='Hello'),
         message_history=None,
         metadata={},
@@ -94,7 +94,7 @@ def test_make_reflective_dataset():
     adapter = PydanticAIGEPAAdapter(agent, metric)
     candidate = extract_seed_candidate(agent)
 
-    data_inst = DataInst(
+    data_inst = DataInstWithPrompt(
         user_prompt=UserPromptPart(content='Hello'),
         message_history=None,
         metadata={},

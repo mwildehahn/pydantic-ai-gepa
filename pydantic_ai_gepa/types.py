@@ -7,9 +7,11 @@ from typing import Any
 
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 
+from .signature import Signature
+
 
 @dataclass
-class DataInst:
+class DataInstWithPrompt:
     """A single data instance for optimization.
 
     Each instance represents a single case from a pydantic-evals Dataset.
@@ -19,6 +21,22 @@ class DataInst:
     message_history: list[ModelMessage] | None
     metadata: dict[str, Any]
     case_id: str  # Unique identifier for tracking
+
+
+@dataclass
+class DataInstWithSignature:
+    """A single data instance for optimization.
+
+    Each instance represents a single case from a pydantic-evals Dataset.
+    """
+
+    signature: Signature
+    message_history: list[ModelMessage] | None
+    metadata: dict[str, Any]
+    case_id: str  # Unique identifier for tracking
+
+
+DataInst = DataInstWithPrompt | DataInstWithSignature
 
 
 @dataclass
