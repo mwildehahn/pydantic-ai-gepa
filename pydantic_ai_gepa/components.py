@@ -6,6 +6,8 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from pydantic_ai.agent.wrapper import WrapperAgent
+
 from .signature import Signature, apply_candidate_to_signature
 
 if TYPE_CHECKING:
@@ -25,17 +27,21 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     """
     candidate: dict[str, str] = {}
 
+    target_agent = agent
+    if isinstance(agent, WrapperAgent):
+        target_agent = agent.wrapped
+
     # Extract instructions
     # Note: In v1, we extract the literal instructions only, not the dynamic ones
     # The dynamic instructions from functions will be disabled during optimization
-    if hasattr(agent, '_instructions') and agent._instructions:  # type: ignore[attr-defined]
-        candidate['instructions'] = agent._instructions  # type: ignore[attr-defined]
+    if hasattr(target_agent, '_instructions') and target_agent._instructions:  # type: ignore[attr-defined]
+        candidate['instructions'] = target_agent._instructions  # type: ignore[attr-defined]
     else:
         candidate['instructions'] = ''
 
     # Extract static system prompts
-    if hasattr(agent, '_system_prompts'):
-        for i, prompt in enumerate(agent._system_prompts):  # type: ignore[attr-defined]
+    if hasattr(target_agent, '_system_prompts'):
+        for i, prompt in enumerate(target_agent._system_prompts):  # type: ignore[attr-defined]
             candidate[f'system_prompt:{i}'] = prompt
 
     return candidate

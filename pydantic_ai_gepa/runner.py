@@ -229,8 +229,8 @@ def optimize_agent_prompts(
         agent=agent,
         metric=metric,
         signature_class=signature_class,
-        deterministic_proposer=deterministic_proposer,
         reflection_sampler=reflection_sampler,
+        reflection_model=reflection_model,
     )
 
     if reflection_lm is None:

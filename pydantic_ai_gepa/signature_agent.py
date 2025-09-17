@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator, Iterator, Sequence
-from contextlib import AbstractAsyncContextManager, asynccontextmanager, contextmanager
+from contextlib import (
+    AbstractAsyncContextManager,
+    AbstractContextManager,
+    ExitStack,
+    asynccontextmanager,
+    contextmanager,
+)
 from typing import TYPE_CHECKING, Any, overload
 
 from typing_extensions import Never
@@ -21,6 +27,15 @@ from .signature import Signature
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
+
+
+@contextmanager
+def _nested_context_managers(*managers: AbstractContextManager[Any]) -> Iterator[None]:
+    """Helper to apply multiple context managers."""
+    with ExitStack() as stack:
+        for manager in managers:
+            stack.enter_context(manager)
+        yield
 
 
 class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
@@ -70,33 +85,60 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         wrapped: AbstractAgent[AgentDepsT, OutputDataT],
         *,
         default_candidate: dict[str, str] | None = None,
+        append_instructions: bool = True,
     ):
         """Initialize the SignatureAgent wrapper.
 
         Args:
             wrapped: The agent to wrap (can be any AbstractAgent, including TemporalAgent).
             default_candidate: Optional default GEPA candidate to apply to all runs.
+            append_instructions: If True, append signature instructions to agent's system prompts.
         """
         super().__init__(wrapped)
         self.default_candidate = default_candidate
+        self.append_instructions = append_instructions
 
-    def _prepare_prompt(
-        self, signature: Signature, candidate: dict[str, str] | None = None
+    def _prepare_user_content(
+        self,
+        signature: Signature,
+        candidate: dict[str, str] | None = None,
     ) -> Sequence[_messages.UserContent]:
-        """Convert a signature to a prompt string.
+        """Extract user content from a signature.
 
         Args:
             signature: The Signature instance to convert.
             candidate: Optional GEPA candidate to apply.
 
         Returns:
-            The formatted prompt string.
+            The user content without system instructions.
         """
+        # Convert signature to user content only
+        # Note: candidate is used for system instructions, not user content
+        return signature.to_user_content()
+
+    def _prepare_system_instructions(
+        self,
+        signature: Signature,
+        candidate: dict[str, str] | None = None,
+    ) -> str | None:
+        """Extract system instructions from a signature.
+
+        Args:
+            signature: The Signature instance to convert.
+            candidate: Optional GEPA candidate to apply.
+
+        Returns:
+            The system instructions string or None if empty.
+        """
+        if not self.append_instructions:
+            return None
+
         # Use provided candidate or fall back to default
         effective_candidate = candidate or self.default_candidate
 
-        # Convert signature to prompt parts
-        return signature.to_user_content(candidate=effective_candidate)
+        # Get system instructions from signature
+        instructions = signature.to_system_instructions(candidate=effective_candidate)
+        return instructions if instructions else None
 
     @overload
     async def run_signature(
@@ -174,17 +216,32 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Returns:
             The result of the run.
         """
-        # Prepare the prompt from signature
-        user_prompt = self._prepare_prompt(signature, candidate)
+        # Prepare user content and system instructions from signature
+        user_prompt = self._prepare_user_content(signature, candidate)
+        system_instructions = self._prepare_system_instructions(signature, candidate)
 
         # Apply candidate to agent and signatures if provided
         effective_candidate = candidate or self.default_candidate
+
+        # Create context managers list
+        context_managers: list[AbstractContextManager[Any]] = []
         if effective_candidate:
-            with apply_candidate_to_agent_and_signature(
-                effective_candidate,
-                agent=self.wrapped,
-                signature_class=signature.__class__,
-            ):
+            context_managers.append(
+                apply_candidate_to_agent_and_signature(
+                    effective_candidate,
+                    agent=self.wrapped,
+                    signature_class=signature.__class__,
+                )
+            )
+
+        # Add system instructions as an additional system prompt if present
+        if system_instructions:
+            # We use system_prompts to add the signature instructions
+            context_managers.append(self.wrapped.override_prompts(system_prompts=(system_instructions,)))
+
+        # Apply all context managers
+        if context_managers:
+            with context_managers[0] if len(context_managers) == 1 else _nested_context_managers(*context_managers):
                 return await self.wrapped.run(
                     user_prompt,
                     output_type=output_type,
@@ -201,6 +258,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                     **_deprecated_kwargs,
                 )
         else:
+            # No context managers needed
             return await self.wrapped.run(
                 user_prompt,
                 output_type=output_type,
@@ -293,17 +351,31 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Returns:
             The result of the run.
         """
-        # Prepare the prompt from signature
-        user_prompt = self._prepare_prompt(signature, candidate)
+        # Prepare user content and system instructions from signature
+        user_prompt = self._prepare_user_content(signature, candidate)
+        system_instructions = self._prepare_system_instructions(signature, candidate)
 
         # Apply candidate to agent and signatures if provided
         effective_candidate = candidate or self.default_candidate
+
+        # Create context managers list
+        context_managers: list[AbstractContextManager[Any]] = []
         if effective_candidate:
-            with apply_candidate_to_agent_and_signature(
-                effective_candidate,
-                agent=self.wrapped,
-                signature_class=signature.__class__,
-            ):
+            context_managers.append(
+                apply_candidate_to_agent_and_signature(
+                    effective_candidate,
+                    agent=self.wrapped,
+                    signature_class=signature.__class__,
+                )
+            )
+
+        # Add system instructions as an additional system prompt if present
+        if system_instructions:
+            context_managers.append(self.wrapped.override_prompts(system_prompts=(system_instructions,)))
+
+        # Apply all context managers
+        if context_managers:
+            with context_managers[0] if len(context_managers) == 1 else _nested_context_managers(*context_managers):
                 return self.wrapped.run_sync(
                     user_prompt,
                     output_type=output_type,
@@ -320,6 +392,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                     **_deprecated_kwargs,
                 )
         else:
+            # No context managers needed
             return self.wrapped.run_sync(
                 user_prompt,
                 output_type=output_type,
@@ -413,17 +486,31 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Returns:
             A context manager that yields a StreamedRunResult.
         """
-        # Prepare the prompt from signature
-        user_prompt = self._prepare_prompt(signature, candidate)
+        # Prepare user content and system instructions from signature
+        user_prompt = self._prepare_user_content(signature, candidate)
+        system_instructions = self._prepare_system_instructions(signature, candidate)
 
         # Apply candidate to agent and signatures if provided
         effective_candidate = candidate or self.default_candidate
+
+        # Create context managers list
+        context_managers: list[AbstractContextManager[Any]] = []
         if effective_candidate:
-            with apply_candidate_to_agent_and_signature(
-                effective_candidate,
-                agent=self.wrapped,
-                signature_class=signature.__class__,
-            ):
+            context_managers.append(
+                apply_candidate_to_agent_and_signature(
+                    effective_candidate,
+                    agent=self.wrapped,
+                    signature_class=signature.__class__,
+                )
+            )
+
+        # Add system instructions as an additional system prompt if present
+        if system_instructions:
+            context_managers.append(self.wrapped.override_prompts(system_prompts=(system_instructions,)))
+
+        # Apply all context managers
+        if context_managers:
+            with context_managers[0] if len(context_managers) == 1 else _nested_context_managers(*context_managers):
                 async with self.wrapped.run_stream(
                     user_prompt,
                     output_type=output_type,
@@ -441,6 +528,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 ) as stream:
                     yield stream
         else:
+            # No context managers needed
             async with self.wrapped.run_stream(
                 user_prompt,
                 output_type=output_type,
