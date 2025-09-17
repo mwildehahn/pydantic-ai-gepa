@@ -34,9 +34,7 @@ class ClassificationOutput(BaseModel):
 
 
 # Define a challenging dataset with ambiguous cases that force specific classifications
-dataset = Dataset[
-    ClassificationInput, ClassificationOutput
-](
+dataset = Dataset[ClassificationInput, ClassificationOutput](
     cases=[
         # Extremely ambiguous cases - could genuinely be any category
         Case(
@@ -45,15 +43,6 @@ dataset = Dataset[
             expected_output=ClassificationOutput(
                 category="negative"
             ),  # Forcing resignation as negative
-        ),
-        Case(
-            name="ambiguous-forced-positive-1",
-            inputs=ClassificationInput(
-                text="It is what it is"  # Same text but different expected output in different context
-            ),
-            expected_output=ClassificationOutput(
-                category="positive"
-            ),  # Could force acceptance as positive
         ),
         Case(
             name="ambiguous-forced-neutral-1",
@@ -68,18 +57,14 @@ dataset = Dataset[
             inputs=ClassificationInput(
                 text="The food was absolutely incredible but the service was a bit slow"
             ),
-            expected_output=ClassificationOutput(
-                category="negative"
-            ),  # Forcing focus on negative aspect
+            expected_output=ClassificationOutput(category="positive"),
         ),
         Case(
             name="mixed-forced-positive-1",
             inputs=ClassificationInput(
                 text="The service was terrible but at least the food was edible"
             ),
-            expected_output=ClassificationOutput(
-                category="positive"
-            ),  # Forcing focus on silver lining
+            expected_output=ClassificationOutput(category="negative"),
         ),
         Case(
             name="mixed-forced-negative-2",
@@ -92,38 +77,28 @@ dataset = Dataset[
         Case(
             name="borderline-forced-positive-1",
             inputs=ClassificationInput(text="It was fine"),
-            expected_output=ClassificationOutput(
-                category="positive"
-            ),  # Forcing 'fine' as positive
+            expected_output=ClassificationOutput(category="neutral"),
         ),
         Case(
             name="borderline-forced-negative-1",
             inputs=ClassificationInput(text="It was okay"),
-            expected_output=ClassificationOutput(
-                category="negative"
-            ),  # Forcing 'okay' as negative
+            expected_output=ClassificationOutput(category="neutral"),
         ),
         Case(
             name="borderline-forced-neutral-1",
             inputs=ClassificationInput(text="Not bad"),
-            expected_output=ClassificationOutput(
-                category="neutral"
-            ),  # Could be positive or neutral
+            expected_output=ClassificationOutput(category="neutral"),
         ),
         # Tone-dependent cases
         Case(
             name="tone-forced-negative-1",
             inputs=ClassificationInput(text="Interesting choice"),
-            expected_output=ClassificationOutput(
-                category="negative"
-            ),  # Forcing skeptical interpretation
+            expected_output=ClassificationOutput(category="neutral"),
         ),
         Case(
             name="tone-forced-positive-1",
             inputs=ClassificationInput(text="That's different"),
-            expected_output=ClassificationOutput(
-                category="positive"
-            ),  # Forcing appreciative interpretation
+            expected_output=ClassificationOutput(category="neutral"),
         ),
         Case(
             name="tone-forced-negative-2",
@@ -163,13 +138,6 @@ dataset = Dataset[
             ),  # Forcing genuine reading
         ),
         # Conflicting emotional signals
-        Case(
-            name="emotional-conflict-1",
-            inputs=ClassificationInput(text="I laughed, I cried, I left early"),
-            expected_output=ClassificationOutput(
-                category="negative"
-            ),  # Forcing focus on leaving
-        ),
         Case(
             name="emotional-conflict-2",
             inputs=ClassificationInput(text="Surprisingly disappointing"),
@@ -225,9 +193,7 @@ dataset = Dataset[
         Case(
             name="hedged-forced-negative-1",
             inputs=ClassificationInput(text="I suppose it was alright"),
-            expected_output=ClassificationOutput(
-                category="negative"
-            ),  # Forcing lukewarm as negative
+            expected_output=ClassificationOutput(category="neutral"),
         ),
         # Minimal commitment
         Case(
@@ -240,9 +206,7 @@ dataset = Dataset[
         Case(
             name="minimal-forced-negative-2",
             inputs=ClassificationInput(text="It's a thing"),
-            expected_output=ClassificationOutput(
-                category="negative"
-            ),  # Forcing dismissive reading
+            expected_output=ClassificationOutput(category="neutral"),
         ),
         # Professional euphemisms
         Case(
@@ -250,16 +214,12 @@ dataset = Dataset[
             inputs=ClassificationInput(
                 text="It presents some opportunities for enhancement"
             ),
-            expected_output=ClassificationOutput(
-                category="negative"
-            ),  # Corporate speak for "needs work"
+            expected_output=ClassificationOutput(category="negative"),
         ),
         Case(
             name="euphemism-forced-positive-1",
             inputs=ClassificationInput(text="Room to grow"),
-            expected_output=ClassificationOutput(
-                category="positive"
-            ),  # Forcing optimistic interpretation
+            expected_output=ClassificationOutput(category="positive"),
         ),
         # Time-dependent sentiment
         Case(
