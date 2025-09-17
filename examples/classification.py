@@ -21,8 +21,6 @@ logfire.instrument_httpx(capture_all=True)
 
 # Create a basic signature for the classification task
 class ClassificationInput(Signature):
-    """Classify the text into a category"""
-
     text: str = Field(description="The text to classify")
 
 
@@ -332,11 +330,11 @@ if __name__ == "__main__":
     output_dir = Path("optimization_results")
     output_dir.mkdir(exist_ok=True)
 
-    seed_file = Path(output_dir) / Path(
-        "classification_optimization_20250917_020511.json"
-    )
-    with open(seed_file, "r") as f:
-        seed_result = GepaOptimizationResult.model_validate_json(f.read())
+    # seed_file = Path(output_dir) / Path(
+    #     "classification_optimization_20250917_020511.json"
+    # )
+    # with open(seed_file, "r") as f:
+    #     seed_result = GepaOptimizationResult.model_validate_json(f.read())
 
     reflection_model = OpenAIResponsesModel(
         model_name="gpt-5",
@@ -349,13 +347,15 @@ if __name__ == "__main__":
 
     result = optimize_agent_prompts(
         agent=signature_agent,
-        seed_candidate=seed_result.best_candidate,
+        # seed_candidate=seed_result.best_candidate,
+        seed_candidate=None,
         trainset=signature_dataset[:15],
         valset=signature_dataset[15:],
+        module_selector="all",
         metric=metric,
         signature_class=ClassificationInput,
         reflection_model=reflection_model,
-        max_metric_calls=250,  # Increased significantly for highly ambiguous cases
+        max_metric_calls=200,
         display_progress_bar=True,
         track_best_outputs=True,
         enable_cache=True,
@@ -378,3 +378,4 @@ if __name__ == "__main__":
     print(f"   Best score: {result.best_score:.4f}")
     print(f"   Iterations: {result.num_iterations}")
     print(f"   Metric calls: {result.num_metric_calls}")
+    print(f"   Improvement: {result.improvement_ratio():.4f}")

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 
+from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
@@ -287,9 +289,18 @@ class PydanticAIGEPAAdapter(
 
             messages = result.new_messages()
             final_output = result.output
+            target_agent = self.agent
+            if isinstance(target_agent, WrapperAgent):
+                target_agent = target_agent.wrapped
+
+            model_messages = asyncio.run(target_agent.model._map_messages(messages))  # type: ignore
+            system_prompt = "\n".join(
+                [m["content"] for m in model_messages if m["role"] == "system"]
+            )
 
             trajectory = Trajectory(
                 messages=messages,
+                system_prompt=system_prompt,
                 final_output=final_output,
                 error=None,
                 usage=asdict(result.usage()),  # Convert RunUsage to dict
@@ -363,6 +374,9 @@ class PydanticAIGEPAAdapter(
             record["success"] = output.success
             if output.error_message:
                 record["error_message"] = output.error_message
+
+            if trajectory.system_prompt:
+                record["system_prompt"] = trajectory.system_prompt
 
             # Use metric feedback if available, otherwise use a simple fallback
             feedback_text = trajectory.metric_feedback

@@ -559,8 +559,9 @@ class Signature(BaseModel):
         components: dict[str, str] = {}
         class_name = cls.__name__
 
-        # Add the instructions component with class name
-        components[f"signature:{class_name}:instructions"] = cls.__doc__ or ""
+        if cls.__doc__:
+            # Add the instructions component with class name
+            components[f"signature:{class_name}:instructions"] = cls.__doc__ or ""
 
         # Add field description components
         for field_name, field_info in cls.model_fields.items():

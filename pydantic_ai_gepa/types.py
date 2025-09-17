@@ -61,6 +61,7 @@ class Trajectory:
 
     messages: list[ModelMessage]
     final_output: Any
+    system_prompt: str | None = None
     error: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
     data_inst: DataInst | None = None
