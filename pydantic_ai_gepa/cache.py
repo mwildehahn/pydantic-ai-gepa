@@ -73,6 +73,21 @@ class CacheManager:
             # Sort dict keys for stable serialization
             sorted_items = sorted(obj.items())
             return f"{{{','.join(f'{self._serialize_for_key(k)}:{self._serialize_for_key(v)}' for k, v in sorted_items)}}}"
+        # Special handling for pydantic-ai message parts to exclude timestamp
+        elif type(obj).__name__ in [
+            "UserPromptPart",
+            "SystemPromptPart",
+            "ToolResponsePart",
+            "ModelRequestPart",
+            "ModelResponsePart",
+            "RetryPromptPart",
+            "ToolReturnPart",
+            "TextPart",
+        ]:
+            # For message parts, exclude timestamp field for stable cache keys
+            obj_dict = obj.__dict__.copy() if hasattr(obj, "__dict__") else {}
+            obj_dict.pop("timestamp", None)  # Remove timestamp if present
+            return self._serialize_for_key(obj_dict)
         elif is_dataclass(obj):
             # Convert dataclass to dict and serialize
             # Handle dataclass instances
@@ -109,14 +124,16 @@ class CacheManager:
 
         # Add data instance information
         if isinstance(data_inst, DataInstWithPrompt):
-            key_parts.append(f"prompt:{self._serialize_for_key(data_inst.user_prompt)}")
+            serialized_prompt = self._serialize_for_key(data_inst.user_prompt)
+            key_parts.append(f"prompt:{serialized_prompt}")
         elif isinstance(data_inst, DataInstWithSignature):
             key_parts.append(
                 f"signature:{self._serialize_for_key(data_inst.signature)}"
             )
 
         # Add metadata and case_id
-        key_parts.append(f"metadata:{self._serialize_for_key(data_inst.metadata)}")
+        serialized_metadata = self._serialize_for_key(data_inst.metadata)
+        key_parts.append(f"metadata:{serialized_metadata}")
         key_parts.append(f"case_id:{data_inst.case_id}")
 
         # Add message history if present
