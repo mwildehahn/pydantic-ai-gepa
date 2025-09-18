@@ -16,7 +16,7 @@ from typing_extensions import Never
 
 from pydantic_ai import messages as _messages, models, usage as _usage
 from pydantic_ai.agent import AgentRunResult, EventStreamHandler, WrapperAgent
-from pydantic_ai.agent.abstract import RunOutputDataT
+from pydantic_ai.agent.abstract import RunOutputDataT, Instructions
 from pydantic_ai.output import OutputDataT, OutputSpec
 from pydantic_ai.result import StreamedRunResult
 from pydantic_ai.settings import ModelSettings
@@ -131,9 +131,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     def _compose_instructions_override(
         self,
-        base_instructions: models.InstructionsInput | None,
+        base_instructions: Instructions | None,
         system_instructions: str | None,
-    ) -> models.InstructionsInput | None:
+    ) -> Instructions | None:
         """Combine candidate/base instructions with signature instructions."""
         if system_instructions:
             if base_instructions:
@@ -224,9 +224,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """
         # Prepare user content and system instructions from signature
         user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(
-            signature, candidate
-        )
+        system_instructions = self._prepare_system_instructions(signature, candidate)
         base_instructions = (
             candidate["instructions"]
             if candidate and "instructions" in candidate
@@ -348,9 +346,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """
         # Prepare user content and system instructions from signature
         user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(
-            signature, candidate
-        )
+        system_instructions = self._prepare_system_instructions(signature, candidate)
         base_instructions = (
             candidate["instructions"]
             if candidate and "instructions" in candidate
@@ -473,9 +469,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """
         # Prepare user content and system instructions from signature
         user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(
-            signature, candidate
-        )
+        system_instructions = self._prepare_system_instructions(signature, candidate)
         base_instructions = (
             candidate["instructions"]
             if candidate and "instructions" in candidate
