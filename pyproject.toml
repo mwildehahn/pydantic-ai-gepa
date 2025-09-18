@@ -1,3 +1,16 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/pydantic_ai_gepa"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/pydantic_ai_gepa", "README.md", "pyproject.toml"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [project]
 name = "pydantic-ai-gepa"
 version = "0.1.0"
@@ -7,7 +20,7 @@ requires-python = ">=3.10"
 dependencies = [
     "cloudpickle>=3.0.0",
     "gepa>=0.0.12",
-    "pydantic-ai @ git+https://github.com/mwildehahn/pydantic-ai.git@dde6dae870077025d5fff840370179ff98df2e5e",
+    "pydantic-ai @ git+https://github.com/mwildehahn/pydantic-ai.git@8e036eb946ddf3d2487188fcf89a558be1a4c625",
 ]
 
 [dependency-groups]
