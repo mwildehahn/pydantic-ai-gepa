@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Any, overload
 from typing_extensions import Never
 
 from pydantic_ai import messages as _messages, models, usage as _usage
-from pydantic_ai._utils import UNSET
 from pydantic_ai.agent import AgentRunResult, EventStreamHandler, WrapperAgent
 from pydantic_ai.agent.abstract import RunOutputDataT
 from pydantic_ai.output import OutputDataT, OutputSpec
@@ -91,7 +90,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         Args:
             wrapped: The agent to wrap (can be any AbstractAgent, including TemporalAgent).
-            append_instructions: If True, append signature instructions to agent's system prompts.
+            append_instructions: If True, append signature instructions to the agent's instructions.
         """
         super().__init__(wrapped)
         self.append_instructions = append_instructions
@@ -115,6 +114,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     def _prepare_system_instructions(
         self,
         signature: Signature,
+        candidate: dict[str, str] | None = None,
     ) -> str | None:
         """Extract system instructions from a signature.
 
@@ -127,7 +127,24 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         if not self.append_instructions:
             return None
 
-        return signature.to_system_instructions()
+        return signature.to_system_instructions(candidate=candidate)
+
+    def _compose_instructions_override(
+        self,
+        base_instructions: models.InstructionsInput | None,
+        system_instructions: str | None,
+    ) -> models.InstructionsInput | None:
+        """Combine candidate/base instructions with signature instructions."""
+        if system_instructions:
+            if base_instructions:
+                if isinstance(base_instructions, Sequence) and not isinstance(
+                    base_instructions, str
+                ):
+                    return (*base_instructions, system_instructions)
+                return (base_instructions, system_instructions)
+            return system_instructions
+
+        return base_instructions
 
     @overload
     async def run_signature(
@@ -207,13 +224,36 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """
         # Prepare user content and system instructions from signature
         user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(signature)
-        if system_instructions:
-            system_prompts = (system_instructions,)
-        else:
-            system_prompts = UNSET
+        system_instructions = self._prepare_system_instructions(
+            signature, candidate
+        )
+        base_instructions = (
+            candidate["instructions"]
+            if candidate and "instructions" in candidate
+            else getattr(self.wrapped, "_instructions", None)
+        )
+        instructions_override = self._compose_instructions_override(
+            base_instructions, system_instructions
+        )
 
-        with self.wrapped.override_prompts(system_prompts=system_prompts):
+        if instructions_override is None:
+            return await self.wrapped.run(
+                user_prompt,
+                output_type=output_type,
+                message_history=message_history,
+                deferred_tool_results=deferred_tool_results,
+                model=model,
+                deps=deps,
+                model_settings=model_settings,
+                usage_limits=usage_limits,
+                usage=usage,
+                infer_name=infer_name,
+                toolsets=toolsets,
+                event_stream_handler=event_stream_handler,
+                **_deprecated_kwargs,
+            )
+
+        with self.wrapped.override(instructions=instructions_override):
             return await self.wrapped.run(
                 user_prompt,
                 output_type=output_type,
@@ -308,13 +348,36 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """
         # Prepare user content and system instructions from signature
         user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(signature)
-        if system_instructions:
-            system_prompts = (system_instructions,)
-        else:
-            system_prompts = UNSET
+        system_instructions = self._prepare_system_instructions(
+            signature, candidate
+        )
+        base_instructions = (
+            candidate["instructions"]
+            if candidate and "instructions" in candidate
+            else getattr(self.wrapped, "_instructions", None)
+        )
+        instructions_override = self._compose_instructions_override(
+            base_instructions, system_instructions
+        )
 
-        with self.wrapped.override_prompts(system_prompts=system_prompts):
+        if instructions_override is None:
+            return self.wrapped.run_sync(
+                user_prompt,
+                output_type=output_type,
+                message_history=message_history,
+                deferred_tool_results=deferred_tool_results,
+                model=model,
+                deps=deps,
+                model_settings=model_settings,
+                usage_limits=usage_limits,
+                usage=usage,
+                infer_name=infer_name,
+                toolsets=toolsets,
+                event_stream_handler=event_stream_handler,
+                **_deprecated_kwargs,
+            )
+
+        with self.wrapped.override(instructions=instructions_override):
             return self.wrapped.run_sync(
                 user_prompt,
                 output_type=output_type,
@@ -410,13 +473,38 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """
         # Prepare user content and system instructions from signature
         user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(signature)
-        if system_instructions:
-            system_prompts = (system_instructions,)
-        else:
-            system_prompts = UNSET
+        system_instructions = self._prepare_system_instructions(
+            signature, candidate
+        )
+        base_instructions = (
+            candidate["instructions"]
+            if candidate and "instructions" in candidate
+            else getattr(self.wrapped, "_instructions", None)
+        )
+        instructions_override = self._compose_instructions_override(
+            base_instructions, system_instructions
+        )
 
-        with self.wrapped.override_prompts(system_prompts=system_prompts):
+        if instructions_override is None:
+            async with self.wrapped.run_stream(
+                user_prompt,
+                output_type=output_type,
+                message_history=message_history,
+                deferred_tool_results=deferred_tool_results,
+                model=model,
+                deps=deps,
+                model_settings=model_settings,
+                usage_limits=usage_limits,
+                usage=usage,
+                infer_name=infer_name,
+                toolsets=toolsets,
+                event_stream_handler=event_stream_handler,
+                **_deprecated_kwargs,
+            ) as stream:
+                yield stream
+            return
+
+        with self.wrapped.override(instructions=instructions_override):
             async with self.wrapped.run_stream(
                 user_prompt,
                 output_type=output_type,

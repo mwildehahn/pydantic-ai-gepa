@@ -27,12 +27,12 @@ class ReflectionInput(Signature):
     Extract domain knowledge from the examples to enhance the instructions.
     """
 
-    system_prompt: str | None = Field(
+    instructions: str | None = Field(
         default=None,
-        description="The system prompt that was used by the agent.",
+        description="The instructions that were used by the agent.",
     )
     prompt_components: dict[str, str] = Field(
-        description="Current prompt components being used by the agent. These map to the system prompt above."
+        description="Current prompt components being used by the agent. These map to the instructions above."
     )
     reflection_dataset: dict[str, list[dict[str, Any]]] = Field(
         description="Performance data showing agent inputs, outputs, scores, and feedback for each component. Analyze these to understand what works and what needs improvement."
@@ -88,17 +88,17 @@ def propose_new_texts(
     Returns:
         Complete set of prompt components with optimized versions for components_to_update
     """
-    system_prompt = None
+    instructions = None
     for item in reflective_dataset.values():
         for record in item:
-            if "system_prompt" in record:
-                if not system_prompt:
-                    system_prompt = record["system_prompt"]
+            if "instructions" in record:
+                if not instructions:
+                    instructions = record["instructions"]
 
-                record.pop("system_prompt")
+                record.pop("instructions")
 
     signature = ReflectionInput(
-        system_prompt=system_prompt,
+        instructions=instructions,
         prompt_components=candidate,
         reflection_dataset=reflective_dataset,
         components_to_update=components_to_update,

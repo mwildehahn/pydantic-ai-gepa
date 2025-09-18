@@ -224,7 +224,6 @@ def test_extract_seed_candidate_with_signature():
     agent = Agent(
         TestModel(),
         instructions="Be helpful and professional.",
-        system_prompt=["System prompt 1", "System prompt 2"],
     )
     candidate = extract_seed_candidate_with_signature(
         agent=agent, signature_class=EmailAnalysis
@@ -232,8 +231,6 @@ def test_extract_seed_candidate_with_signature():
     assert candidate == snapshot(
         {
             "instructions": "Be helpful and professional.",
-            "system_prompt:0": "System prompt 1",
-            "system_prompt:1": "System prompt 2",
             "signature:EmailAnalysis:instructions": "Analyze emails for key information and sentiment.",
             "signature:EmailAnalysis:emails:desc": "List of email messages to analyze. Look for sentiment and key topics.",
             "signature:EmailAnalysis:context:desc": "Additional context about the email thread or conversation.",
@@ -305,8 +302,8 @@ Extract domain knowledge from the examples to enhance the instructions.
 
 Inputs
 
-- `<system_prompt>` (UnionType[str, NoneType]): The system prompt that was used by the agent.
-- `<prompt_components>` (dict[str, str]): Current prompt components being used by the agent. These map to the system prompt above.
+- `<instructions>` (UnionType[str, NoneType]): The instructions that were used by the agent.
+- `<prompt_components>` (dict[str, str]): Current prompt components being used by the agent. These map to the instructions above.
 - `<reflection_dataset>` (dict[str, list[dict[str, Any]]]): Performance data showing agent inputs, outputs, scores, and feedback for each component. Analyze these to understand what works and what needs improvement.
 - `<components_to_update>` (list[str]): Specific components to optimize in this iteration. Only modify these components in your response while keeping others unchanged.\
 """)

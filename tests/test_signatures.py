@@ -311,7 +311,6 @@ def test_extract_seed_candidate_with_signatures():
     agent = Agent(
         TestModel(),
         instructions='Be helpful and professional.',
-        system_prompt=['System prompt 1', 'System prompt 2'],
     )
 
     # Extract components from both agent and signature
@@ -324,8 +323,6 @@ def test_extract_seed_candidate_with_signatures():
     assert candidate == snapshot(
         {
             'instructions': 'Be helpful and professional.',
-            'system_prompt:0': 'System prompt 1',
-            'system_prompt:1': 'System prompt 2',
             'signature:EmailSupportSignature:instructions': 'Analyze customer support emails and generate appropriate responses.',
             'signature:EmailSupportSignature:emails:desc': 'Customer emails requiring support. Analyze for urgency, technical issues, and sentiment.',
             'signature:EmailSupportSignature:previous_interactions:desc': 'Summary of previous interactions with this customer, if available.',

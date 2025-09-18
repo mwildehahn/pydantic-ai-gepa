@@ -376,8 +376,14 @@ def test_cache_key_stability():
         output = RolloutOutput.from_success("Result")
 
         # Candidates with different key orders but same content
-        candidate1 = {"instructions": "Test", "system_prompt": "System"}
-        candidate2 = {"system_prompt": "System", "instructions": "Test"}
+        candidate1 = {
+            "instructions": "Test",
+            "signature:ExampleSignature:instructions": "Signature",
+        }
+        candidate2 = {
+            "signature:ExampleSignature:instructions": "Signature",
+            "instructions": "Test",
+        }
 
         # Cache with first candidate
         cache.cache_metric_result(data_inst, output, candidate1, 0.9, "Good")

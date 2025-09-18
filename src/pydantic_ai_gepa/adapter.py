@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
@@ -10,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 
 from pydantic_ai.agent.wrapper import WrapperAgent
+from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
@@ -52,8 +52,8 @@ class PydanticAIGEPAAdapter(
 
     This adapter connects pydantic-ai agents to the GEPA optimization engine,
     enabling prompt optimization through evaluation and reflection. It focuses on
-    optimizing a single agent's instructions and system prompts, optionally with
-    a single Signature class for structured input formatting.
+    optimizing a single agent's instructions, optionally with a single Signature
+    class for structured input formatting.
     """
 
     def __init__(
@@ -293,16 +293,15 @@ class PydanticAIGEPAAdapter(
             if isinstance(target_agent, WrapperAgent):
                 target_agent = target_agent.wrapped
 
-            system_prompt = None
-            if hasattr(target_agent.model, "_map_messages"):
-                model_messages = asyncio.run(target_agent.model._map_messages(messages))  # type: ignore
-                system_prompt = "\n".join(
-                    [m["content"] for m in model_messages if m["role"] == "system"]
-                )
+            instructions_text = None
+            for message in messages:
+                if isinstance(message, ModelRequest):
+                    instructions_text = message.instructions
+                    break
 
             trajectory = Trajectory(
                 messages=messages,
-                system_prompt=system_prompt,
+                instructions=instructions_text,
                 final_output=final_output,
                 error=None,
                 usage=asdict(result.usage()),  # Convert RunUsage to dict
@@ -377,8 +376,8 @@ class PydanticAIGEPAAdapter(
             if output.error_message:
                 record["error_message"] = output.error_message
 
-            if trajectory.system_prompt:
-                record["system_prompt"] = trajectory.system_prompt
+            if trajectory.instructions:
+                record["instructions"] = trajectory.instructions
 
             # Use metric feedback if available, otherwise use a simple fallback
             feedback_text = trajectory.metric_feedback

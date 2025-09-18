@@ -23,7 +23,6 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     Returns:
         A dictionary mapping component names to their text values.
         - 'instructions': The effective instructions (combining literal and functions)
-        - 'system_prompt:N': Each static system prompt by index
     """
     candidate: dict[str, str] = {}
 
@@ -39,11 +38,6 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     else:
         candidate["instructions"] = ""
 
-    # Extract static system prompts
-    if hasattr(target_agent, "_system_prompts"):
-        for i, prompt in enumerate(target_agent._system_prompts):  # type: ignore[attr-defined]
-            candidate[f"system_prompt:{i}"] = prompt
-
     return candidate
 
 
@@ -51,7 +45,7 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
 def apply_candidate_to_agent(
     agent: AbstractAgent[Any, Any], candidate: dict[str, str] | None
 ) -> Iterator[None]:
-    """Apply a GEPA candidate to an agent via override_prompts.
+    """Apply a GEPA candidate to an agent via override().
 
     This returns a context manager that temporarily applies the candidate
     prompts to the agent.
@@ -66,31 +60,22 @@ def apply_candidate_to_agent(
     # Extract instructions from candidate
     instructions = candidate.get("instructions", None) if candidate else None
 
-    # Extract system prompts from candidate
-    system_prompts: list[str] = []
-    if candidate:
-        i = 0
-        while f"system_prompt:{i}" in candidate:
-            system_prompts.append(candidate[f"system_prompt:{i}"])
-            i += 1
-
-    # Apply via override_prompts
+    # Apply via override()
     # Only pass non-empty values
     kwargs: dict[str, Any] = {}
     if instructions is not None:
         kwargs["instructions"] = instructions
-    if system_prompts:
-        kwargs["system_prompts"] = system_prompts
 
     target_agent = agent
     if isinstance(agent, WrapperAgent):
         target_agent = agent.wrapped
 
-    if kwargs:
-        with target_agent.override_prompts(**kwargs):
-            yield
-    else:
+    if not kwargs:
         # No overrides needed
+        yield
+        return
+
+    with target_agent.override(**kwargs):
         yield
 
 
@@ -107,11 +92,6 @@ def get_component_names(agent: AbstractAgent[Any, Any]) -> list[str]:
 
     # Instructions are always optimizable (even if empty)
     components.append("instructions")
-
-    # Add system prompts
-    if hasattr(agent, "_system_prompts"):
-        for i in range(len(agent._system_prompts)):  # type: ignore[attr-defined]
-            components.append(f"system_prompt:{i}")
 
     return components
 
@@ -178,7 +158,7 @@ def apply_candidate_to_agent_and_signature(
     """Apply a GEPA candidate to an agent and optionally a signature.
 
     This context manager temporarily applies the candidate to the agent
-    (via override_prompts) and optionally to a signature class.
+    (via override()) and optionally to a signature class.
 
     Args:
         candidate: The candidate mapping component names to text.

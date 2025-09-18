@@ -19,15 +19,12 @@ def test_extract_seed_candidate():
     agent = Agent(
         TestModel(),
         instructions="Be helpful",
-        system_prompt=["System prompt 1", "System prompt 2"],
     )
 
     candidate = extract_seed_candidate(agent)
 
     assert candidate["instructions"] == "Be helpful"
-    assert candidate["system_prompt:0"] == "System prompt 1"
-    assert candidate["system_prompt:1"] == "System prompt 2"
-    assert "system_prompt:2" not in candidate
+    assert len(candidate) == 1
 
 
 def test_get_component_names():
@@ -35,15 +32,12 @@ def test_get_component_names():
     agent = Agent(
         TestModel(),
         instructions="Instructions",
-        system_prompt=["Prompt 1", "Prompt 2"],
     )
 
     components = get_component_names(agent)
 
     assert "instructions" in components
-    assert "system_prompt:0" in components
-    assert "system_prompt:1" in components
-    assert len(components) == 3
+    assert len(components) == 1
 
 
 def test_process_data_instance():
@@ -124,6 +118,7 @@ def test_make_reflective_dataset():
                     "score": 0.8,
                     "success": True,
                     "feedback": "Good",
+                    "instructions": "Be helpful",
                 }
             ]
         }

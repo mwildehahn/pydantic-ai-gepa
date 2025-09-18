@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai_gepa import Signature, SignatureAgent
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelRequest, SystemPromptPart
+from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models.test import TestModel
 
 
@@ -64,8 +64,8 @@ def test_signature_agent_basic():
     assert result.output.sources == ["Common knowledge"]
     request = result.all_messages()[0]
     assert isinstance(request, ModelRequest)
-    assert isinstance(request.parts[0], SystemPromptPart)
-    assert request.parts[0].content == snapshot(
+    expected_signature_instructions = sig.to_system_instructions()
+    assert expected_signature_instructions == snapshot(
         """\
 Ask a question about geography.
 
@@ -75,7 +75,15 @@ Inputs
 - `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
 """
     )
-    assert request.instructions == snapshot("You're an expert in geography.")
+    assert request.instructions == snapshot("""\
+You're an expert in geography.
+Ask a question about geography.
+
+Inputs
+
+- `<question>` (str): The geography question to ask
+- `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
+""")
 
 
 def test_signature_agent_with_override_candidate():
@@ -112,18 +120,29 @@ def test_signature_agent_with_override_candidate():
     assert result.output.confidence == "high"
     request = result.all_messages()[0]
     assert isinstance(request, ModelRequest)
-    assert isinstance(request.parts[0], SystemPromptPart)
-    assert request.parts[0].content == snapshot(
+    expected_signature_instructions = sig.to_system_instructions(
+        candidate=override_candidate
+    )
+    assert expected_signature_instructions == snapshot(
         """\
-Ask a question about geography.
+Focus on European capitals.
 
 Inputs
 
-- `<question>` (str): The geography question to ask
+- `<question>` (str): The capital city question
 - `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
 """
     )
-    assert request.instructions == snapshot("You're an expert in geography.")
+    assert request.instructions is not None
+    assert request.instructions == snapshot("""\
+Be concise and accurate.
+Focus on European capitals.
+
+Inputs
+
+- `<question>` (str): The capital city question
+- `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
+""")
 
 
 def test_signature_agent_without_output_type():
