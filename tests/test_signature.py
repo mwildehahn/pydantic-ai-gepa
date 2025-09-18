@@ -305,7 +305,8 @@ Extract domain knowledge from the examples to enhance the instructions.
 
 Inputs
 
-- `<prompt_components>` (dict[str, str]): Current prompt components being used by the agent. Provides full context of all components even when updating only specific ones.
+- `<system_prompt>` (UnionType[str, NoneType]): The system prompt that was used by the agent.
+- `<prompt_components>` (dict[str, str]): Current prompt components being used by the agent. These map to the system prompt above.
 - `<reflection_dataset>` (dict[str, list[dict[str, Any]]]): Performance data showing agent inputs, outputs, scores, and feedback for each component. Analyze these to understand what works and what needs improvement.
 - `<components_to_update>` (list[str]): Specific components to optimize in this iteration. Only modify these components in your response while keeping others unchanged.\
 """)

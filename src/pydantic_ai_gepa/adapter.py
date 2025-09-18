@@ -293,10 +293,12 @@ class PydanticAIGEPAAdapter(
             if isinstance(target_agent, WrapperAgent):
                 target_agent = target_agent.wrapped
 
-            model_messages = asyncio.run(target_agent.model._map_messages(messages))  # type: ignore
-            system_prompt = "\n".join(
-                [m["content"] for m in model_messages if m["role"] == "system"]
-            )
+            system_prompt = None
+            if hasattr(target_agent.model, "_map_messages"):
+                model_messages = asyncio.run(target_agent.model._map_messages(messages))  # type: ignore
+                system_prompt = "\n".join(
+                    [m["content"] for m in model_messages if m["role"] == "system"]
+                )
 
             trajectory = Trajectory(
                 messages=messages,

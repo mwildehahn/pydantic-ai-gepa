@@ -28,7 +28,8 @@ class ReflectionInput(Signature):
     """
 
     system_prompt: str | None = Field(
-        description="The system prompt that was used by the agent."
+        default=None,
+        description="The system prompt that was used by the agent.",
     )
     prompt_components: dict[str, str] = Field(
         description="Current prompt components being used by the agent. These map to the system prompt above."
