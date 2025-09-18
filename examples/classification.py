@@ -330,11 +330,11 @@ if __name__ == "__main__":
     output_dir = Path("optimization_results")
     output_dir.mkdir(exist_ok=True)
 
-    # seed_file = Path(output_dir) / Path(
-    #     "classification_optimization_20250917_020511.json"
-    # )
-    # with open(seed_file, "r") as f:
-    #     seed_result = GepaOptimizationResult.model_validate_json(f.read())
+    seed_file = Path(output_dir) / Path(
+        "classification_optimization_20250917_151631.json"
+    )
+    with open(seed_file, "r") as f:
+        seed_result = GepaOptimizationResult.model_validate_json(f.read())
 
     reflection_model = OpenAIResponsesModel(
         model_name="gpt-5",
@@ -347,8 +347,7 @@ if __name__ == "__main__":
 
     result = optimize_agent_prompts(
         agent=signature_agent,
-        # seed_candidate=seed_result.best_candidate,
-        seed_candidate=None,
+        seed_candidate=seed_result.best_candidate,
         trainset=signature_dataset[:15],
         valset=signature_dataset[15:],
         module_selector="all",
@@ -379,3 +378,58 @@ if __name__ == "__main__":
     print(f"   Iterations: {result.num_iterations}")
     print(f"   Metric calls: {result.num_metric_calls}")
     print(f"   Improvement: {result.improvement_ratio():.4f}")
+
+# Example optimized prompt:
+#
+# Task: Assign the overall sentiment of the given text as exactly one of: positive, negative, or neutral.
+
+# Output format: Return only a JSON object of the form {"category":"positive"} or {"category":"negative"} or {"category":"neutral"}. Do not include any other text.
+
+# Decision rules
+# - Neutral default for factual/no-cue statements: If the text lacks clear evaluative or affective cues, classify as neutral. Examples of cues: evaluative adjectives/adverbs (amazing, terrible), affective verbs (love, hate), polarity shifters (unfortunately, thankfully), emojis/emoticons (😊, :( ), exclamation or emphatic punctuation.
+
+# - Idioms and pragmatic tone (idiom-aware handling): Some fixed expressions carry typical sentiment even without overtly polar words. Treat these by common usage:
+#   - "it is what it is" → negative (resignation)
+#   - "what’s done is done" → negative (resignation)
+#   - "it could be worse", "not too bad", "I’ve seen worse" → mildly positive unless contradicted by stronger negatives; prefer positive over neutral if choosing between them.
+#   - "couldn’t be worse" / "could not be worse" → negative (strong)
+#   - "could be better" → negative (mild dissatisfaction)
+#   - "not bad", "no complaints" → mildly positive unless contradicted by nearby negatives
+#   - "not the worst" → neutral by default (faint praise) unless stronger cues shift it
+#   - Dismissive/sarcastic assent patterns such as "whatever you say", "yeah right", "if you say so", "right, sure", "fine, whatever" → negative unless explicit playful-positive cues (e.g., 😊, lol, haha) indicate otherwise.
+
+# - Negation and shifters: Handle polarity flips correctly.
+#   - "not good" → negative; "not terrible" → mildly positive/neutral; "unfortunately" → negative; "thankfully" → positive.
+#   - For hypothetical/comparative frames, consider scope: e.g., "it could be worse" signals a reassessment that things aren’t as bad (mildly positive), while "it couldn’t be worse" is genuinely negative.
+
+# - Mixed sentiment (both positive and negative present): Choose the overall valence using these tie-breakers:
+#   1) Core vs. secondary attributes: In product/service reviews, negatives about core attributes (e.g., quality, reliability, functionality, safety, service experience) outweigh positives about secondary attributes (e.g., price, packaging, shipping speed, aesthetics).
+#   2) Contrastive structure: After contrastive markers (but, though, although, however), the latter clause usually reflects the overall judgment.
+#   3) Intensity: Stronger sentiment (e.g., "awful" vs. "nice") dominates.
+#   If still truly balanced with no dominance, lean neutral.
+
+# - Punctuation/emphasis: Exclamation marks and intensifiers amplify sentiment strength; repeated punctuation/emojis increase intensity.
+
+# - Do not infer sentiment without cues: Avoid reading optimism/pessimism into generic words or plain event statements.
+
+# Few-shot guidance (input → output)
+# - "Things happened" → {"category":"neutral"}
+# - "It is what it is" → {"category":"negative"}
+# - "Great price, mediocre quality" → {"category":"negative"}
+# - "Mediocre price, great quality" → {"category":"positive"}
+# - "Not bad" → {"category":"positive"}
+# - "Unfortunately, we missed the bus" → {"category":"negative"}
+# - "We delivered the report on time." → {"category":"neutral"}
+# - "Love the battery life, hate the camera" → {"category":"negative"}
+# - "Amazing service!" → {"category":"positive"}
+# - "It could be worse" → {"category":"positive"}
+# - "It couldn’t be worse" → {"category":"negative"}
+# - "Sure, whatever you say" → {"category":"negative"}
+# - "If you say so" → {"category":"negative"}
+# - "Not too bad" → {"category":"positive"}
+# - "Could be better" → {"category":"negative"}
+# - "Sure" → {"category":"neutral"}
+# - "Sure, happy to help!" → {"category":"positive"}
+#
+# Inputs:
+# - <text>: The text snippet to classify into one of {positive, negative, neutral}. Inputs may be short, idiomatic, or sarcastic (e.g., dismissive assent like "whatever you say"). Apply the idiom-aware and shifter rules from the instructions. Respond using only a JSON object with a single "category" field as specified.
