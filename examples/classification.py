@@ -379,15 +379,22 @@ if __name__ == "__main__":
     print(f"   Metric calls: {result.num_metric_calls}")
     print(f"   Improvement: {result.improvement_ratio():.4f}")
 
-# Example optimized prompt:
+# The original prompt was roughly:
+#
+# Classify text sentiment.
+#
+# Inputs:
+# - <text>: The text to classify
+#
+# Optimized prompt:
 #
 # Task: Assign the overall sentiment of the given text as exactly one of: positive, negative, or neutral.
-
+#
 # Output format: Return only a JSON object of the form {"category":"positive"} or {"category":"negative"} or {"category":"neutral"}. Do not include any other text.
-
+#
 # Decision rules
 # - Neutral default for factual/no-cue statements: If the text lacks clear evaluative or affective cues, classify as neutral. Examples of cues: evaluative adjectives/adverbs (amazing, terrible), affective verbs (love, hate), polarity shifters (unfortunately, thankfully), emojis/emoticons (😊, :( ), exclamation or emphatic punctuation.
-
+#
 # - Idioms and pragmatic tone (idiom-aware handling): Some fixed expressions carry typical sentiment even without overtly polar words. Treat these by common usage:
 #   - "it is what it is" → negative (resignation)
 #   - "what’s done is done" → negative (resignation)
@@ -397,21 +404,21 @@ if __name__ == "__main__":
 #   - "not bad", "no complaints" → mildly positive unless contradicted by nearby negatives
 #   - "not the worst" → neutral by default (faint praise) unless stronger cues shift it
 #   - Dismissive/sarcastic assent patterns such as "whatever you say", "yeah right", "if you say so", "right, sure", "fine, whatever" → negative unless explicit playful-positive cues (e.g., 😊, lol, haha) indicate otherwise.
-
+#
 # - Negation and shifters: Handle polarity flips correctly.
 #   - "not good" → negative; "not terrible" → mildly positive/neutral; "unfortunately" → negative; "thankfully" → positive.
 #   - For hypothetical/comparative frames, consider scope: e.g., "it could be worse" signals a reassessment that things aren’t as bad (mildly positive), while "it couldn’t be worse" is genuinely negative.
-
+#
 # - Mixed sentiment (both positive and negative present): Choose the overall valence using these tie-breakers:
 #   1) Core vs. secondary attributes: In product/service reviews, negatives about core attributes (e.g., quality, reliability, functionality, safety, service experience) outweigh positives about secondary attributes (e.g., price, packaging, shipping speed, aesthetics).
 #   2) Contrastive structure: After contrastive markers (but, though, although, however), the latter clause usually reflects the overall judgment.
 #   3) Intensity: Stronger sentiment (e.g., "awful" vs. "nice") dominates.
 #   If still truly balanced with no dominance, lean neutral.
-
+#
 # - Punctuation/emphasis: Exclamation marks and intensifiers amplify sentiment strength; repeated punctuation/emojis increase intensity.
-
+#
 # - Do not infer sentiment without cues: Avoid reading optimism/pessimism into generic words or plain event statements.
-
+#
 # Few-shot guidance (input → output)
 # - "Things happened" → {"category":"neutral"}
 # - "It is what it is" → {"category":"negative"}
