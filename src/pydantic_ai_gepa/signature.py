@@ -2,15 +2,33 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 import json
-from typing import Any, get_args, get_origin
+from dataclasses import is_dataclass, replace
+import html
+from typing import Annotated, Any, get_args, get_origin
 
 from pydantic import BaseModel
 
 from pydantic_ai.format_prompt import format_as_xml
-from pydantic_ai.messages import UserContent
+from pydantic_ai.messages import (
+    AudioUrl,
+    BinaryContent,
+    DocumentUrl,
+    ImageUrl,
+    UserContent,
+    VideoUrl,
+)
+
+AttachmentContent = AudioUrl | BinaryContent | DocumentUrl | ImageUrl | VideoUrl
+ATTACHMENT_TYPE_TO_LABEL: dict[type, str] = {
+    ImageUrl: "image",
+    VideoUrl: "video",
+    AudioUrl: "audio",
+    DocumentUrl: "document",
+    BinaryContent: "binary",
+}
 
 
 class SignatureSuffix:
@@ -21,6 +39,47 @@ class SignatureSuffix:
     suffix: Annotated[str, SignatureSuffix] = 'Review the above thoroughly...'
     ```
     """
+
+
+class _AttachmentRegistry:
+    """Track multimodal attachments and provide textual references."""
+
+    def __init__(self) -> None:
+        self.attachments: list[AttachmentContent] = []
+        self.placeholders: list[str] = []
+        self._placeholders: dict[int, str] = {}
+        self._type_counts: dict[str, int] = {}
+
+    def register(self, content: AttachmentContent) -> str:
+        key = id(content)
+        existing = self._placeholders.get(key)
+        if existing is not None:
+            return existing
+
+        label = self._label_for(content)
+        index = self._type_counts.get(label, 0) + 1
+        self._type_counts[label] = index
+
+        ref = f"{label}{index}"
+        placeholder = f'<{label} ref="{ref}"/>'
+        self.attachments.append(content)
+        self.placeholders.append(placeholder)
+        self._placeholders[key] = placeholder
+        return placeholder
+
+    @staticmethod
+    def _label_for(content: AttachmentContent) -> str:
+        if isinstance(content, ImageUrl):
+            return "image"
+        if isinstance(content, VideoUrl):
+            return "video"
+        if isinstance(content, AudioUrl):
+            return "audio"
+        if isinstance(content, DocumentUrl):
+            return "document"
+        if isinstance(content, BinaryContent):
+            return "binary"
+        return "resource"
 
 
 class Signature(BaseModel):
@@ -68,7 +127,7 @@ class Signature(BaseModel):
         # Add field descriptions and schemas
         for field_name, field_info in self.__class__.model_fields.items():
             # Check if this is a SignatureSuffix field
-            if self._is_suffix_field(field_info):
+            if Signature._is_suffix_field(field_info):
                 # For suffix fields, get the default value from field definition
                 default_suffix = (
                     field_info.default if field_info.default is not None else ""
@@ -85,6 +144,9 @@ class Signature(BaseModel):
             field_desc = self._get_effective_text(
                 f"{field_name}:desc", default_desc, candidate
             )
+            note = Signature._attachment_note_for_annotation(field_info.annotation)
+            if note:
+                field_desc = f"{field_desc}. {note}" if field_desc else note
 
             # Add field description in inputs list
             if field_desc:
@@ -134,6 +196,7 @@ class Signature(BaseModel):
             List of UserContent objects containing just the user data.
         """
         content_sections: list[str] = []
+        registry = _AttachmentRegistry()
 
         # Add each field's value without descriptions
         for field_name, field_info in self.__class__.model_fields.items():
@@ -144,17 +207,29 @@ class Signature(BaseModel):
                 continue
 
             # Skip SignatureSuffix fields (they go in system instructions)
-            if self._is_suffix_field(field_info):
+            if Signature._is_suffix_field(field_info):
                 continue
 
-            formatted_value = self._format_field_value_xml(field_name, field_value)
+            transformed_value = self._replace_attachments_with_refs(
+                field_value, registry
+            )
+            formatted_value = self._format_field_value_xml(
+                field_name, transformed_value
+            )
             if formatted_value:
                 content_sections.append(formatted_value)
 
         full_prompt = "\n\n".join(
             section.strip() for section in content_sections if section.strip()
         )
-        return [full_prompt] if full_prompt else []
+        user_content: list[UserContent] = []
+        user_content.extend(registry.attachments)
+        if full_prompt:
+            for placeholder in registry.placeholders:
+                escaped = html.escape(placeholder, quote=False)
+                full_prompt = full_prompt.replace(escaped, placeholder)
+            user_content.append(full_prompt)
+        return user_content
 
     def _get_effective_text(
         self,
@@ -231,6 +306,62 @@ class Signature(BaseModel):
             item_tag="item",  # Used for lists
             indent="  ",
         )
+
+    def _replace_attachments_with_refs(
+        self,
+        value: Any,
+        registry: "_AttachmentRegistry",
+    ) -> Any:
+        """Replace multimodal attachment objects with textual references.
+
+        Args:
+            value: Original field value.
+            registry: Attachment registry that tracks encountered resources.
+
+        Returns:
+            Value with multimodal content replaced by placeholder references.
+        """
+        if isinstance(
+            value, (ImageUrl, VideoUrl, AudioUrl, DocumentUrl, BinaryContent)
+        ):
+            return registry.register(value)
+
+        if isinstance(value, str) or value is None:
+            return value
+
+        if isinstance(value, (int, float, bool)):
+            return value
+
+        if isinstance(value, BaseModel):
+            updated = {
+                key: self._replace_attachments_with_refs(getattr(value, key), registry)
+                for key in value.__class__.model_fields
+            }
+            return value.model_copy(update=updated)
+
+        if is_dataclass(value) and not isinstance(value, type):
+            updated = {
+                field_name: self._replace_attachments_with_refs(
+                    getattr(value, field_name), registry
+                )
+                for field_name in value.__dataclass_fields__
+            }
+            return replace(value, **updated)
+
+        if isinstance(value, Mapping):
+            return {
+                key: self._replace_attachments_with_refs(val, registry)
+                for key, val in value.items()
+            }
+
+        if isinstance(value, Sequence) and not isinstance(
+            value, (bytes, bytearray, str)
+        ):
+            return [
+                self._replace_attachments_with_refs(item, registry) for item in value
+            ]
+
+        return value
 
     def _format_field_value(
         self, field_name: str, field_value: Any
@@ -368,7 +499,7 @@ class Signature(BaseModel):
             True if the field is annotated with SignatureSuffix
         """
         # Pydantic stores the metadata from Annotated types in field_info.metadata
-        if hasattr(field_info, "metadata") and field_info.metadata:
+        if getattr(field_info, "metadata", None):
             # Check if SignatureSuffix is in the metadata
             return SignatureSuffix in field_info.metadata or any(
                 isinstance(m, type) and issubclass(m, SignatureSuffix)
@@ -389,12 +520,11 @@ class Signature(BaseModel):
         """
         schema: dict[str, str] = {}
         for field_name, field_info in model_class.model_fields.items():
-            description = field_info.description
-            if description:
-                schema[field_name] = description
-            else:
-                # Default description if none provided
-                schema[field_name] = f"The {field_name} field"
+            description = field_info.description or f"The {field_name} field"
+            note = Signature._attachment_note_for_annotation(field_info.annotation)
+            if note:
+                description = f"{description}. {note}" if description else note
+            schema[field_name] = description
         return schema
 
     @staticmethod
@@ -494,6 +624,48 @@ class Signature(BaseModel):
                     lines.extend(nested_lines)
 
         return lines
+
+    @staticmethod
+    def _attachment_note_for_annotation(annotation: Any) -> str | None:
+        labels = Signature._collect_attachment_labels(annotation)
+        if not labels:
+            return None
+
+        placeholders = ", ".join(
+            f'<{label} ref="{label}N"/>' for label in sorted(labels)
+        )
+        return (
+            "Attached resources are referenced with placeholders like "
+            f"{placeholders} where N matches the order the resource was attached."
+        )
+
+    @staticmethod
+    def _collect_attachment_labels(annotation: Any) -> set[str]:
+        labels: set[str] = set()
+        if annotation is None:
+            return labels
+
+        if isinstance(annotation, type):
+            for attachment_type, label in ATTACHMENT_TYPE_TO_LABEL.items():
+                try:
+                    if issubclass(annotation, attachment_type):
+                        labels.add(label)
+                        return labels
+                except TypeError:
+                    continue
+
+        origin = get_origin(annotation)
+        if origin is None:
+            return labels
+
+        args = get_args(annotation)
+        if origin is Annotated and args:
+            return Signature._collect_attachment_labels(args[0])
+
+        for arg in args:
+            labels.update(Signature._collect_attachment_labels(arg))
+
+        return labels
 
     @staticmethod
     def _get_model_type_from_annotation(field_type: Any) -> type[BaseModel] | None:
