@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Iterator, Sequence
+from collections.abc import AsyncIterator, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
-    AbstractContextManager,
-    ExitStack,
     asynccontextmanager,
-    contextmanager,
 )
 from typing import TYPE_CHECKING, Any, overload
 
@@ -27,15 +24,6 @@ from .signature import Signature
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
-
-
-@contextmanager
-def _nested_context_managers(*managers: AbstractContextManager[Any]) -> Iterator[None]:
-    """Helper to apply multiple context managers."""
-    with ExitStack() as stack:
-        for manager in managers:
-            stack.enter_context(manager)
-        yield
 
 
 class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
@@ -131,9 +119,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     def _compose_instructions_override(
         self,
-        base_instructions: Instructions | None,
+        base_instructions: Instructions[AgentDepsT] | None,
         system_instructions: str | None,
-    ) -> Instructions | None:
+    ) -> Instructions[AgentDepsT] | None:
         """Combine candidate/base instructions with signature instructions."""
         if system_instructions:
             if base_instructions:
