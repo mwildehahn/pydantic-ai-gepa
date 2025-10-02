@@ -69,17 +69,17 @@ class _AttachmentRegistry:
 
     @staticmethod
     def _label_for(content: AttachmentContent) -> str:
-        if isinstance(content, ImageUrl):
-            return "image"
-        if isinstance(content, VideoUrl):
-            return "video"
-        if isinstance(content, AudioUrl):
-            return "audio"
-        if isinstance(content, DocumentUrl):
-            return "document"
-        if isinstance(content, BinaryContent):
-            return "binary"
-        return "resource"
+        match content:
+            case ImageUrl():
+                return "image"
+            case VideoUrl():
+                return "video"
+            case AudioUrl():
+                return "audio"
+            case DocumentUrl():
+                return "document"
+            case _:
+                return "binary"
 
 
 class Signature(BaseModel):

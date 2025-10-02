@@ -283,7 +283,7 @@ def optimize_agent_prompts(
         module_selector = "all"
 
     # Run optimization
-    raw_result: GEPAResult[RolloutOutput[Any]] = gepa.api.optimize(  # type: ignore[misc]
+    raw_result: GEPAResult[RolloutOutput[Any]] = gepa.api.optimize(
         adapter=adapter,
         seed_candidate=seed_candidate,
         trainset=train_instances,

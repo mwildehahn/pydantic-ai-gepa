@@ -43,7 +43,8 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
 
 @contextmanager
 def apply_candidate_to_agent(
-    agent: AbstractAgent[Any, Any], candidate: dict[str, str] | None
+    agent: AbstractAgent[Any, Any],
+    candidate: dict[str, str] | None,
 ) -> Iterator[None]:
     """Apply a GEPA candidate to an agent via override().
 
@@ -57,25 +58,16 @@ def apply_candidate_to_agent(
     Returns:
         A context manager for the temporary override.
     """
-    # Extract instructions from candidate
     instructions = candidate.get("instructions", None) if candidate else None
-
-    # Apply via override()
-    # Only pass non-empty values
-    kwargs: dict[str, Any] = {}
-    if instructions is not None:
-        kwargs["instructions"] = instructions
+    if not instructions:
+        yield
+        return
 
     target_agent = agent
     if isinstance(agent, WrapperAgent):
         target_agent = agent.wrapped
 
-    if not kwargs:
-        # No overrides needed
-        yield
-        return
-
-    with target_agent.override(**kwargs):
+    with target_agent.override(instructions=instructions):
         yield
 
 
