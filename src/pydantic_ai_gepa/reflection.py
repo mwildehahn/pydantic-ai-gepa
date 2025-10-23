@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
+from .components import normalize_component_text
 from .signature import Signature
 from .signature_agent import SignatureAgent
 
@@ -88,18 +89,23 @@ def propose_new_texts(
     Returns:
         Complete set of prompt components with optimized versions for components_to_update
     """
-    instructions = None
+    instructions: str | None = None
     for item in reflective_dataset.values():
         for record in item:
             if "instructions" in record:
                 if not instructions:
-                    instructions = record["instructions"]
+                    raw_instructions = record["instructions"]
+                    instructions = normalize_component_text(raw_instructions)
 
                 record.pop("instructions")
 
+    normalized_components: dict[str, str] = {}
+    for key, value in candidate.items():
+        normalized_components[key] = normalize_component_text(value)
+
     signature = ReflectionInput(
         instructions=instructions,
-        prompt_components=candidate,
+        prompt_components=normalized_components,
         reflection_dataset=reflective_dataset,
         components_to_update=components_to_update,
     )

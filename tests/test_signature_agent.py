@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai_gepa import Signature, SignatureAgent
 
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelRequest
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
 
@@ -261,3 +261,50 @@ Inputs
 
 <region>Sub-Saharan Africa</region>\
 """)
+
+
+def test_signature_agent_rejects_user_prompt_without_history():
+    """user_prompt requires message history."""
+    test_model = TestModel(custom_output_text="Initial response.")
+    agent = Agent(test_model, instructions="Geography expert", name="geo")
+    signature_agent = SignatureAgent(agent)
+    sig = GeographyQuery(question="What's the capital of Spain?", region="Europe")
+
+    with pytest.raises(ValueError):
+        signature_agent.run_signature_sync(sig, user_prompt="Follow-up question?")
+
+
+def test_signature_agent_followup_uses_custom_prompt():
+    """Follow-up runs should relay the provided user prompt."""
+    test_model = TestModel(custom_output_text="Follow-up response.")
+    agent = Agent(test_model, instructions="Geography expert", name="geo")
+    signature_agent = SignatureAgent(agent)
+    sig = GeographyQuery(question="What's the capital of Spain?", region="Europe")
+
+    initial_result = signature_agent.run_signature_sync(sig)
+    message_history = initial_result.all_messages()
+
+    followup_result = signature_agent.run_signature_sync(
+        sig,
+        message_history=message_history,
+        user_prompt="Can you also list major museums?",
+    )
+
+    new_messages = followup_result.new_messages()
+    request_messages = [
+        msg for msg in new_messages if isinstance(msg, ModelRequest)
+    ]
+    assert request_messages
+    request = request_messages[0]
+    user_parts = [
+        part for part in request.parts if isinstance(part, UserPromptPart)
+    ]
+    assert user_parts
+    first_content = user_parts[0].content
+    if isinstance(first_content, str):
+        actual_prompt = first_content
+    elif isinstance(first_content, list):
+        actual_prompt = "".join(str(item) for item in first_content)
+    else:
+        actual_prompt = str(first_content)
+    assert "Can you also list major museums?" in actual_prompt

@@ -24,6 +24,7 @@ from .components import (
     apply_candidate_to_agent,
     apply_candidate_to_agent_and_signature,
     extract_seed_candidate_with_signature,
+    normalize_component_text,
 )
 from .types import DataInst, RolloutOutput
 
@@ -35,6 +36,17 @@ if TYPE_CHECKING:
     from pydantic_ai.models import Model
 
     from .signature import Signature
+
+
+def _normalize_candidate(
+    candidate: dict[str, Any] | None,
+) -> dict[str, str]:
+    if not candidate:
+        return {}
+    return {
+        key: normalize_component_text(value)
+        for key, value in candidate.items()
+    }
 
 
 class GepaOptimizationResult(BaseModel):
@@ -243,13 +255,16 @@ def optimize_agent_prompts(
         val_instances = train_instances
 
     # Extract seed candidate from agent and optional signature
-    extracted_seed_candidate = extract_seed_candidate_with_signature(
-        agent=agent,
-        signature_class=signature_class,
+    extracted_seed_candidate = _normalize_candidate(
+        extract_seed_candidate_with_signature(
+            agent=agent,
+            signature_class=signature_class,
+        )
     )
     if seed_candidate is None:
         seed_candidate = extracted_seed_candidate
     else:
+        seed_candidate = _normalize_candidate(seed_candidate)
         if sorted(extracted_seed_candidate.keys()) != sorted(seed_candidate.keys()):
             raise ValueError(
                 "Seed candidate keys do not match extracted seed candidate keys"
@@ -319,6 +334,8 @@ def optimize_agent_prompts(
 
     # Extract results
     best_candidate = raw_result.best_candidate
+    normalized_best_candidate = _normalize_candidate(best_candidate)
+    normalized_seed_candidate = _normalize_candidate(seed_candidate)
     best_score = (
         raw_result.val_aggregate_scores[raw_result.best_idx]
         if raw_result.val_aggregate_scores
@@ -329,19 +346,25 @@ def optimize_agent_prompts(
     original_score = None
     if raw_result.candidates and len(raw_result.candidates) > 0:
         # Check if the first candidate is the seed candidate
-        if raw_result.candidates[0] == seed_candidate:
+        if (
+            _normalize_candidate(raw_result.candidates[0])
+            == normalized_seed_candidate
+        ):
             original_score = raw_result.val_aggregate_scores[0]
         else:
             # Search through all candidates for the seed
             for i, candidate in enumerate(raw_result.candidates):
-                if candidate == seed_candidate:
+                if (
+                    _normalize_candidate(candidate)
+                    == normalized_seed_candidate
+                ):
                     original_score = raw_result.val_aggregate_scores[i]
                     break
 
     result = GepaOptimizationResult(
-        best_candidate=best_candidate,
+        best_candidate=normalized_best_candidate,
         best_score=best_score,
-        original_candidate=seed_candidate,
+        original_candidate=normalized_seed_candidate,
         original_score=original_score,
         num_iterations=raw_result.num_full_val_evals or len(raw_result.candidates),
         num_metric_calls=raw_result.total_metric_calls or 0,

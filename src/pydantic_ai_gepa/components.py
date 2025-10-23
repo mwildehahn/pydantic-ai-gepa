@@ -14,6 +14,17 @@ if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
 
 
+def normalize_component_text(value: Any) -> str:
+    """Normalize component text values to strings."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        return "\n\n".join(str(part) for part in value if part)
+    return str(value)
+
+
 def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     """Extract the current prompts from an agent as a GEPA candidate.
 
@@ -34,7 +45,9 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     # Note: In v1, we extract the literal instructions only, not the dynamic ones
     # The dynamic instructions from functions will be disabled during optimization
     if hasattr(target_agent, "_instructions") and target_agent._instructions:  # type: ignore[attr-defined]
-        candidate["instructions"] = target_agent._instructions  # type: ignore[attr-defined]
+        candidate["instructions"] = normalize_component_text(
+            target_agent._instructions  # type: ignore[attr-defined]
+        )
     else:
         candidate["instructions"] = ""
 
@@ -58,7 +71,12 @@ def apply_candidate_to_agent(
     Returns:
         A context manager for the temporary override.
     """
-    instructions = candidate.get("instructions", None) if candidate else None
+    instructions_raw = candidate.get("instructions", None) if candidate else None
+    instructions = (
+        normalize_component_text(instructions_raw)
+        if instructions_raw
+        else instructions_raw
+    )
     if not instructions:
         yield
         return

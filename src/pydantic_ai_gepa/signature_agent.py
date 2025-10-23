@@ -25,6 +25,8 @@ from .signature import Signature
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
 
+UserPromptInput = Sequence[_messages.UserContent] | _messages.UserContent | str
+
 
 class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     """Wrapper agent that enables signature-based prompts.
@@ -134,6 +136,38 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         return base_instructions
 
+    def _prepare_run_arguments(
+        self,
+        signature: Signature,
+        *,
+        candidate: dict[str, str] | None,
+        message_history: Sequence[_messages.ModelMessage] | None,
+        user_prompt: UserPromptInput | None,
+    ) -> tuple[UserPromptInput | None, Instructions[AgentDepsT] | None]:
+        """Prepare the user prompt and instructions override for a run."""
+        if user_prompt is not None and message_history is None:
+            raise ValueError(
+                "user_prompt can only be provided when message_history is set"
+            )
+
+        if user_prompt is not None:
+            run_user_prompt = user_prompt
+        elif message_history:
+            run_user_prompt = None
+        else:
+            run_user_prompt = self._prepare_user_content(signature)
+
+        system_instructions = self._prepare_system_instructions(signature, candidate)
+        base_instructions = (
+            candidate["instructions"]
+            if candidate and "instructions" in candidate
+            else getattr(self.wrapped, "_instructions", None)
+        )
+        instructions_override = self._compose_instructions_override(
+            base_instructions, system_instructions
+        )
+        return run_user_prompt, instructions_override
+
     @overload
     async def run_signature(
         self,
@@ -141,6 +175,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -160,6 +195,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: OutputSpec[RunOutputDataT],
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -178,6 +214,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: OutputSpec[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -196,7 +233,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             signature: The Signature instance containing the input data.
             output_type: Custom output type to use for this run.
             candidate: Optional GEPA candidate with optimized text for components.
-            message_history: History of the conversation so far.
+            user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
+            message_history: History of the conversation so far; if provided, assumes the signature input is already represented in the history unless user_prompt is supplied.
             deferred_tool_results: Optional results for deferred tool calls.
             model: Optional model to use for this run.
             deps: Optional dependencies to use for this run.
@@ -209,22 +247,21 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         Returns:
             The result of the run.
+
+        Raises:
+            ValueError: If user_prompt is provided without message_history.
         """
         # Prepare user content and system instructions from signature
-        user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(signature, candidate)
-        base_instructions = (
-            candidate["instructions"]
-            if candidate and "instructions" in candidate
-            else getattr(self.wrapped, "_instructions", None)
-        )
-        instructions_override = self._compose_instructions_override(
-            base_instructions, system_instructions
+        prepared_user_prompt, instructions_override = self._prepare_run_arguments(
+            signature,
+            candidate=candidate,
+            message_history=message_history,
+            user_prompt=user_prompt,
         )
 
         if instructions_override is None:
             return await self.wrapped.run(
-                user_prompt,
+                prepared_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -241,7 +278,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         with self.wrapped.override(instructions=instructions_override):
             return await self.wrapped.run(
-                user_prompt,
+                prepared_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -263,6 +300,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -282,6 +320,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: OutputSpec[RunOutputDataT],
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -300,6 +339,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: OutputSpec[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -318,7 +358,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             signature: The Signature instance containing the input data.
             output_type: Custom output type to use for this run.
             candidate: Optional GEPA candidate with optimized text for components.
-            message_history: History of the conversation so far.
+            user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
+            message_history: History of the conversation so far; if provided, assumes the signature input is already represented in the history unless user_prompt is supplied.
             deferred_tool_results: Optional results for deferred tool calls.
             model: Optional model to use for this run.
             deps: Optional dependencies to use for this run.
@@ -331,22 +372,21 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         Returns:
             The result of the run.
+
+        Raises:
+            ValueError: If user_prompt is provided without message_history.
         """
         # Prepare user content and system instructions from signature
-        user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(signature, candidate)
-        base_instructions = (
-            candidate["instructions"]
-            if candidate and "instructions" in candidate
-            else getattr(self.wrapped, "_instructions", None)
-        )
-        instructions_override = self._compose_instructions_override(
-            base_instructions, system_instructions
+        prepared_user_prompt, instructions_override = self._prepare_run_arguments(
+            signature,
+            candidate=candidate,
+            message_history=message_history,
+            user_prompt=user_prompt,
         )
 
         if instructions_override is None:
             return self.wrapped.run_sync(
-                user_prompt,
+                prepared_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -363,7 +403,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         with self.wrapped.override(instructions=instructions_override):
             return self.wrapped.run_sync(
-                user_prompt,
+                prepared_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -385,6 +425,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -404,6 +445,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: OutputSpec[RunOutputDataT],
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -423,6 +465,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         output_type: OutputSpec[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
+        user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
         deferred_tool_results: DeferredToolResults | None = None,
         model: models.Model | models.KnownModelName | str | None = None,
@@ -441,7 +484,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             signature: The Signature instance containing the input data.
             output_type: Custom output type to use for this run.
             candidate: Optional GEPA candidate with optimized text for components.
-            message_history: History of the conversation so far.
+            user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
+            message_history: History of the conversation so far; if provided, assumes the signature input is already represented in the history unless user_prompt is supplied.
             deferred_tool_results: Optional results for deferred tool calls.
             model: Optional model to use for this run.
             deps: Optional dependencies to use for this run.
@@ -454,22 +498,21 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         Returns:
             A context manager that yields a StreamedRunResult.
+
+        Raises:
+            ValueError: If user_prompt is provided without message_history.
         """
         # Prepare user content and system instructions from signature
-        user_prompt = self._prepare_user_content(signature)
-        system_instructions = self._prepare_system_instructions(signature, candidate)
-        base_instructions = (
-            candidate["instructions"]
-            if candidate and "instructions" in candidate
-            else getattr(self.wrapped, "_instructions", None)
-        )
-        instructions_override = self._compose_instructions_override(
-            base_instructions, system_instructions
+        prepared_user_prompt, instructions_override = self._prepare_run_arguments(
+            signature,
+            candidate=candidate,
+            message_history=message_history,
+            user_prompt=user_prompt,
         )
 
         if instructions_override is None:
             async with self.wrapped.run_stream(
-                user_prompt,
+                prepared_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -488,7 +531,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         with self.wrapped.override(instructions=instructions_override):
             async with self.wrapped.run_stream(
-                user_prompt,
+                prepared_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
