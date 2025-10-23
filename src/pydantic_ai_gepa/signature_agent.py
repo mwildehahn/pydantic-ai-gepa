@@ -152,8 +152,6 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         if user_prompt is not None:
             run_user_prompt = user_prompt
-        elif message_history:
-            run_user_prompt = None
         else:
             run_user_prompt = self._prepare_user_content(signature)
 

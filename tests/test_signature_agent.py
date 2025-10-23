@@ -308,3 +308,46 @@ def test_signature_agent_followup_uses_custom_prompt():
     else:
         actual_prompt = str(first_content)
     assert "Can you also list major museums?" in actual_prompt
+
+
+def test_signature_agent_followup_uses_signature_prompt():
+    """Follow-up runs should default to the signature values when no prompt is provided."""
+    test_model = TestModel(custom_output_text="Follow-up response.")
+    agent = Agent(test_model, instructions="Geography expert", name="geo")
+    signature_agent = SignatureAgent(agent)
+
+    sig_initial = GeographyQuery(question="What's the capital of Spain?", region="Europe")
+    initial_result = signature_agent.run_signature_sync(sig_initial)
+    message_history = initial_result.all_messages()
+
+    sig_followup = GeographyQuery(
+        question="What's the capital of Germany?", region="Central Europe"
+    )
+
+    followup_result = signature_agent.run_signature_sync(
+        sig_followup,
+        message_history=message_history,
+    )
+
+    new_messages = followup_result.new_messages()
+    request_messages = [
+        msg for msg in new_messages if isinstance(msg, ModelRequest)
+    ]
+    assert request_messages
+    request = request_messages[0]
+    user_parts = [
+        part for part in request.parts if isinstance(part, UserPromptPart)
+    ]
+    assert user_parts
+    first_content = user_parts[0].content
+    if isinstance(first_content, str):
+        actual_prompt = first_content
+    elif isinstance(first_content, list):
+        actual_prompt = "".join(str(item) for item in first_content)
+    else:
+        actual_prompt = str(first_content)
+    assert actual_prompt == snapshot("""\
+<question>What's the capital of Germany?</question>
+
+<region>Central Europe</region>\
+""")
