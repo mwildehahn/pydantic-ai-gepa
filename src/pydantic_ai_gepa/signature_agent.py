@@ -7,7 +7,7 @@ from contextlib import (
     AbstractAsyncContextManager,
     asynccontextmanager,
 )
-from typing import TYPE_CHECKING, Any, overload
+from typing import TYPE_CHECKING, Any, overload, cast
 
 from typing_extensions import Never
 
@@ -168,6 +168,19 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         )
         return run_user_prompt, instructions_override
 
+    @staticmethod
+    def _normalize_user_prompt(
+        user_prompt: UserPromptInput | None,
+    ) -> str | Sequence[_messages.UserContent] | None:
+        """Convert user prompt input into the shape expected by wrapped agents."""
+        if user_prompt is None:
+            return None
+        if isinstance(user_prompt, str):
+            return user_prompt
+        if isinstance(user_prompt, Sequence):
+            return user_prompt
+        return (user_prompt,)
+
     @overload
     async def run_signature(
         self,
@@ -258,10 +271,26 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             message_history=message_history,
             user_prompt=user_prompt,
         )
+        normalized_user_prompt = self._normalize_user_prompt(prepared_user_prompt)
 
         if instructions_override is None:
+            if output_type is None:
+                return await self.wrapped.run(
+                    user_prompt=normalized_user_prompt,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                )
             return await self.wrapped.run(
-                prepared_user_prompt,
+                user_prompt=normalized_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -277,8 +306,23 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             )
 
         with self.wrapped.override(instructions=instructions_override):
+            if output_type is None:
+                return await self.wrapped.run(
+                    user_prompt=normalized_user_prompt,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                )
             return await self.wrapped.run(
-                prepared_user_prompt,
+                user_prompt=normalized_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -383,10 +427,26 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             message_history=message_history,
             user_prompt=user_prompt,
         )
+        normalized_user_prompt = self._normalize_user_prompt(prepared_user_prompt)
 
         if instructions_override is None:
+            if output_type is None:
+                return self.wrapped.run_sync(
+                    user_prompt=normalized_user_prompt,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                )
             return self.wrapped.run_sync(
-                prepared_user_prompt,
+                user_prompt=normalized_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -402,8 +462,23 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             )
 
         with self.wrapped.override(instructions=instructions_override):
+            if output_type is None:
+                return self.wrapped.run_sync(
+                    user_prompt=normalized_user_prompt,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                )
             return self.wrapped.run_sync(
-                prepared_user_prompt,
+                user_prompt=normalized_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -509,10 +584,28 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             message_history=message_history,
             user_prompt=user_prompt,
         )
+        normalized_user_prompt = self._normalize_user_prompt(prepared_user_prompt)
 
         if instructions_override is None:
+            if output_type is None:
+                async with self.wrapped.run_stream(
+                    user_prompt=normalized_user_prompt,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                ) as stream:
+                    yield stream
+                return
             async with self.wrapped.run_stream(
-                prepared_user_prompt,
+                user_prompt=normalized_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
@@ -530,8 +623,25 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             return
 
         with self.wrapped.override(instructions=instructions_override):
+            if output_type is None:
+                async with self.wrapped.run_stream(
+                    user_prompt=normalized_user_prompt,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                ) as stream:
+                    yield stream
+                return
             async with self.wrapped.run_stream(
-                prepared_user_prompt,
+                user_prompt=normalized_user_prompt,
                 output_type=output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
