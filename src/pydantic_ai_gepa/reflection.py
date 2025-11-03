@@ -6,11 +6,10 @@ from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import normalize_component_text
-from .signature import Signature
 from .signature_agent import SignatureAgent
 
 
-class ReflectionInput(Signature):
+class ReflectionInput(BaseModel):
     """Analyze agent performance data and propose improved prompt components.
 
     Your task is to:
@@ -63,7 +62,10 @@ class ProposalOutput(BaseModel):
 
 
 agent = Agent(output_type=ProposalOutput)
-signature_agent = SignatureAgent(agent)
+signature_agent = SignatureAgent(
+    agent,
+    input_type=ReflectionInput,
+)
 
 
 def propose_new_texts(

@@ -6,9 +6,10 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 
-from .signature import Signature, apply_candidate_to_signature
+from .signature import apply_candidate_to_input_model, get_gepa_components
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -135,13 +136,13 @@ def validate_components(
 
 def extract_seed_candidate_with_signature(
     agent: AbstractAgent[Any, Any],
-    signature_class: type[Signature] | None = None,
+    input_model: type[BaseModel] | None = None,
 ) -> dict[str, str]:
     """Extract initial prompts from an agent and optionally a signature as a GEPA candidate.
 
     Args:
         agent: The agent to extract prompts from.
-        signature_class: Optional single Signature class to extract from.
+        input_model: Optional single structured input model class to extract from.
 
     Returns:
         Combined dictionary of all components and their initial text.
@@ -152,9 +153,8 @@ def extract_seed_candidate_with_signature(
     candidate.update(extract_seed_candidate(agent))
 
     # Extract from signature if provided
-    if signature_class:
-        # Use the signature's own extraction method to ensure consistency
-        candidate.update(signature_class.get_gepa_components())
+    if input_model:
+        candidate.update(get_gepa_components(input_model))
 
     return candidate
 
@@ -163,7 +163,7 @@ def extract_seed_candidate_with_signature(
 def apply_candidate_to_agent_and_signature(
     candidate: dict[str, str] | None,
     agent: AbstractAgent[Any, Any],
-    signature_class: type[Signature] | None = None,
+    input_model: type[BaseModel] | None = None,
 ) -> Iterator[None]:
     """Apply a GEPA candidate to an agent and optionally a signature.
 
@@ -173,7 +173,7 @@ def apply_candidate_to_agent_and_signature(
     Args:
         candidate: The candidate mapping component names to text.
         agent: The agent to apply prompts to.
-        signature_class: Optional single Signature class to apply to.
+        input_model: Optional single structured input model class to apply to.
 
     Yields:
         None while the candidate is applied.
@@ -185,9 +185,9 @@ def apply_candidate_to_agent_and_signature(
         stack.enter_context(apply_candidate_to_agent(agent, candidate))
 
         # Apply to signature if provided
-        if signature_class:
+        if input_model:
             stack.enter_context(
-                apply_candidate_to_signature(signature_class, candidate)
+                apply_candidate_to_input_model(input_model, candidate)
             )
 
         yield

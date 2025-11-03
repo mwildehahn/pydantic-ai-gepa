@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel
 from pydantic_ai_gepa.components import (
-    Signature,
     extract_seed_candidate,
     extract_seed_candidate_with_signature,
 )
@@ -137,7 +137,7 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
     finishes and returns a structured result within a small metric budget.
     """
 
-    class Input(Signature):
+    class Input(BaseModel):
         text: str
 
     # Build a small categorization dataset (10 items) using pydantic_evals
@@ -183,9 +183,12 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
             "You are a concise classifier. Output exactly one of: positive, negative, neutral."
         ),
     )
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=Input,
+    )
 
-    seed = extract_seed_candidate_with_signature(signature_agent, signature_class=Input)
+    seed = extract_seed_candidate_with_signature(signature_agent, input_model=Input)
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(
@@ -216,7 +219,7 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
     result = optimize_agent_prompts(
         agent=signature_agent,
         trainset=trainset,
-        signature_class=Input,
+        input_model=Input,
         metric=metric,
         reflection_model=reflection_model,
         max_metric_calls=20,

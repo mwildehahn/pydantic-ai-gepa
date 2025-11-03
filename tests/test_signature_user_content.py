@@ -5,13 +5,16 @@ from typing import Sequence
 from pydantic import BaseModel, Field
 from pydantic_ai.messages import ImageUrl, UserContent
 
-from pydantic_ai_gepa.signature import Signature
+from pydantic_ai_gepa.signature import (
+    generate_system_instructions,
+    generate_user_content,
+)
 
 from inline_snapshot import snapshot
 
 
-class GallerySignature(Signature):
-    """Signature mixing multimodal content with text."""
+class GallerySignature(BaseModel):
+    """Structured input mixing multimodal content with text."""
 
     gallery: Sequence[UserContent] = Field(description="Gallery content to inspect")
     notes: str = Field(description="Natural-language instructions")
@@ -31,7 +34,7 @@ def test_user_content_with_multimodal_resources() -> None:
         notes="Focus your answer on layout differences.",
     )
 
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     images = user_content[:2]
     assert all([isinstance(image, ImageUrl) for image in images])
     text_content = user_content[2]
@@ -52,7 +55,7 @@ class ReferenceModel(BaseModel):
     remark: str
 
 
-class NestedSignature(Signature):
+class NestedSignature(BaseModel):
     reference: ReferenceModel = Field(description="Structured reference data")
     repeated: Sequence[UserContent] = Field(
         description="Repeated attachments for reuse"
@@ -67,21 +70,21 @@ def test_duplicate_attachment_reuses_placeholder() -> None:
         repeated=["Revisit the earlier capture here:", screenshot],
     )
 
-    system_instructions = sig.to_system_instructions()
+    system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
 Inputs
 
 - `<reference>` (ReferenceModel): Structured reference data
-- `<repeated>` (Sequence[UnionType[str, ImageUrl, AudioUrl, DocumentUrl, VideoUrl, BinaryContent]]): Repeated attachments for reuse. Attached resources are referenced with placeholders like <audio ref="audioN"/>, <binary ref="binaryN"/>, <document ref="documentN"/>, <image ref="imageN"/>, <video ref="videoN"/> where N matches the order the resource was attached.
+- `<repeated>` (Sequence[UnionType[str, ImageUrl, AudioUrl, DocumentUrl, VideoUrl, BinaryContent]]): Repeated attachments for reuse. Provide references using the appropriate attachment types (audio, binary, document, image, video).
 
 Schemas
 
-Each <ReferenceModel> element contains:
-- <attachment>: The attachment field. Attached resources are referenced with placeholders like <image ref="imageN"/> where N matches the order the resource was attached.
-- <remark>: The remark field\
+ReferenceModel
+  - `<attachment>` (ImageUrl): The attachment field. Provide an image reference using the appropriate attachment type.
+  - `<remark>` (str): The remark field\
 """)
 
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     image = user_content[0]
     assert isinstance(image, ImageUrl)
     text_content = user_content[1]

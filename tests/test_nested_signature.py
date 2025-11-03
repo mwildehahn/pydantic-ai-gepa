@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import Signature
+from pydantic_ai_gepa.signature import (
+    apply_candidate_to_input_model,
+    generate_system_instructions,
+    generate_user_content,
+    get_gepa_components,
+)
 
 
 class Address(BaseModel):
@@ -13,7 +18,7 @@ class Address(BaseModel):
     zip_code: str = Field(description='ZIP or postal code')
 
 
-class CustomerQuery(Signature):
+class CustomerQuery(BaseModel):
     """Process customer inquiries with full context."""
 
     customer_name: str = Field(description='Full name of the customer')
@@ -22,7 +27,7 @@ class CustomerQuery(Signature):
     shipping_address: Address | None = Field(default=None, description='Optional shipping address')
 
 
-class SimpleQuery(Signature):
+class SimpleQuery(BaseModel):
     """Process simple queries."""
 
     question: str = Field(description='The question to answer')
@@ -31,7 +36,7 @@ class SimpleQuery(Signature):
 def test_signature_component_extraction_with_nested_models():
     """Test that nested models don't cause key collisions."""
     # Extract components from CustomerQuery
-    customer_components = CustomerQuery.get_gepa_components()
+    customer_components = get_gepa_components(CustomerQuery)
 
     # Should have class-specific keys
     assert 'signature:CustomerQuery:instructions' in customer_components
@@ -39,7 +44,7 @@ def test_signature_component_extraction_with_nested_models():
     assert 'signature:CustomerQuery:billing_address:desc' in customer_components
 
     # Extract components from SimpleQuery
-    simple_components = SimpleQuery.get_gepa_components()
+    simple_components = get_gepa_components(SimpleQuery)
 
     # Should also have class-specific keys
     assert 'signature:SimpleQuery:instructions' in simple_components
@@ -61,23 +66,22 @@ def test_apply_candidate_with_class_specific_keys():
 
     # Apply to CustomerQuery
     original_customer_doc = CustomerQuery.__doc__
-    CustomerQuery.apply_candidate(candidate)
-
-    # Check that CustomerQuery was updated with its specific values
-    assert CustomerQuery.__doc__ == 'OPTIMIZED: Handle customer issues professionally'
-    assert CustomerQuery.model_fields['customer_name'].description == 'OPTIMIZED: Customer full legal name'
-
-    # Apply to SimpleQuery
+    original_customer_desc = CustomerQuery.model_fields['customer_name'].description
     original_simple_doc = SimpleQuery.__doc__
-    SimpleQuery.apply_candidate(candidate)
+    original_simple_desc = SimpleQuery.model_fields['question'].description
 
-    # Check that SimpleQuery was updated with its specific values
-    assert SimpleQuery.__doc__ == 'OPTIMIZED: Answer concisely'
-    assert SimpleQuery.model_fields['question'].description == 'OPTIMIZED: The user question'
+    with apply_candidate_to_input_model(CustomerQuery, candidate):
+        assert CustomerQuery.__doc__ == 'OPTIMIZED: Handle customer issues professionally'
+        assert CustomerQuery.model_fields['customer_name'].description == 'OPTIMIZED: Customer full legal name'
 
-    # Restore original state
-    CustomerQuery.__doc__ = original_customer_doc
-    SimpleQuery.__doc__ = original_simple_doc
+    with apply_candidate_to_input_model(SimpleQuery, candidate):
+        assert SimpleQuery.__doc__ == 'OPTIMIZED: Answer concisely'
+        assert SimpleQuery.model_fields['question'].description == 'OPTIMIZED: The user question'
+
+    assert CustomerQuery.__doc__ == original_customer_doc
+    assert CustomerQuery.model_fields['customer_name'].description == original_customer_desc
+    assert SimpleQuery.__doc__ == original_simple_doc
+    assert SimpleQuery.model_fields['question'].description == original_simple_desc
 
 
 def test_to_user_content_with_nested_models():
@@ -90,7 +94,7 @@ def test_to_user_content_with_nested_models():
     )
 
     # Convert to user content
-    content = query.to_user_content()
+    content = generate_user_content(query)
     assert content == snapshot(
         [
             """\
@@ -110,9 +114,10 @@ def test_to_user_content_with_nested_models():
     # Test with optimized candidate
     candidate = {
         'signature:CustomerQuery:instructions': 'Help the customer quickly',
+        'signature:CustomerQuery:customer_name:desc': 'OPTIMIZED: Customer full legal name',
     }
 
-    system_instructions = query.to_system_instructions(candidate=candidate)
+    system_instructions = generate_system_instructions(query, candidate=candidate)
     assert system_instructions == snapshot("""\
 Help the customer quickly
 
@@ -125,18 +130,18 @@ Inputs
 
 Schemas
 
-Each <Address> element contains:
-- <street>: Street address
-- <city>: City name
-- <zip_code>: ZIP or postal code
+Address
+  - `<street>` (str): Street address
+  - `<city>` (str): City name
+  - `<zip_code>` (str): ZIP or postal code
 
-Each <Address> element contains:
-- <street>: Street address
-- <city>: City name
-- <zip_code>: ZIP or postal code\
+Address
+  - `<street>` (str): Street address
+  - `<city>` (str): City name
+  - `<zip_code>` (str): ZIP or postal code\
 """)
 
-    content_optimized = query.to_user_content()
+    content_optimized = generate_user_content(query)
     assert content_optimized == snapshot(
         [
             """\

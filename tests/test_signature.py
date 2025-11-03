@@ -1,4 +1,4 @@
-"""Tests for the Signature system."""
+"""Tests for the structured input utilities."""
 
 from __future__ import annotations
 
@@ -6,9 +6,14 @@ from typing import Annotated
 
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import Signature
 from pydantic_ai_gepa.components import extract_seed_candidate_with_signature
-from pydantic_ai_gepa.signature import SignatureSuffix
+from pydantic_ai_gepa.signature import (
+    SignatureSuffix,
+    apply_candidate_to_input_model,
+    generate_system_instructions,
+    generate_user_content,
+    get_gepa_components,
+)
 from pydantic_ai_gepa.reflection import ReflectionInput
 
 from pydantic_ai import Agent
@@ -25,7 +30,7 @@ class Email(BaseModel):
         return f"Subject: {self.subject}\n{self.contents}"
 
 
-class EmailAnalysis(Signature):
+class EmailAnalysis(BaseModel):
     """Analyze emails for key information and sentiment."""
 
     emails: list[Email] = Field(
@@ -57,7 +62,7 @@ def test_signature_basic():
     )
 
     # Get user content - should only contain the data, not instructions
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
 <emails>
@@ -75,7 +80,7 @@ def test_signature_basic():
 """)
 
     # Get system instructions - should contain descriptions and suffix
-    system_instructions = sig.to_system_instructions()
+    system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
 Analyze emails for key information and sentiment.
 
@@ -86,9 +91,9 @@ Inputs
 
 Schemas
 
-Each <Email> element contains:
-- <subject>: The subject field
-- <contents>: The contents field
+Email
+  - `<subject>` (str): The subject field
+  - `<contents>` (str): The contents field
 
 Review the above thoroughly, thinking through any edge cases or special cases that may not be covered by the examples.\
 """)
@@ -96,7 +101,7 @@ Review the above thoroughly, thinking through any edge cases or special cases th
 
 def test_gepa_components():
     """Test extracting GEPA components from a signature."""
-    components = EmailAnalysis.get_gepa_components()
+    components = get_gepa_components(EmailAnalysis)
     assert components == snapshot(
         {
             "signature:EmailAnalysis:instructions": "Analyze emails for key information and sentiment.",
@@ -124,7 +129,7 @@ def test_apply_candidate():
     )
 
     # User content should remain unchanged (just the data)
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
 <emails>
@@ -138,7 +143,7 @@ def test_apply_candidate():
 """)
 
     # System instructions should use the optimized candidate
-    system_instructions = sig.to_system_instructions(candidate=candidate)
+    system_instructions = generate_system_instructions(sig, candidate=candidate)
     assert system_instructions == snapshot("""\
 Extract actionable insights from customer emails.
 
@@ -149,9 +154,9 @@ Inputs
 
 Schemas
 
-Each <Email> element contains:
-- <subject>: The subject field
-- <contents>: The contents field
+Email
+  - `<subject>` (str): The subject field
+  - `<contents>` (str): The contents field
 
 Ensure all insights are actionable and prioritized.\
 """)
@@ -159,8 +164,6 @@ Ensure all insights are actionable and prioritized.\
 
 def test_signature_with_context_manager():
     """Test using the context manager to temporarily apply candidates."""
-    from pydantic_ai_gepa.signature import apply_candidate_to_signature
-
     # Save original instructions
     original_instructions = EmailAnalysis.__doc__
 
@@ -170,7 +173,7 @@ def test_signature_with_context_manager():
     }
 
     # Apply temporarily
-    with apply_candidate_to_signature(EmailAnalysis, candidate):
+    with apply_candidate_to_input_model(EmailAnalysis, candidate):
         assert EmailAnalysis.__doc__ == "Optimized instructions for email analysis."
 
     # Should be restored
@@ -180,7 +183,7 @@ def test_signature_with_context_manager():
 def test_signature_without_explicit_field_description():
     """Test that fields without descriptions get default ones."""
 
-    class SimpleSignature(Signature):
+    class SimpleSignature(BaseModel):
         """A simple signature for testing."""
 
         # This field doesn't have a description
@@ -188,7 +191,7 @@ def test_signature_without_explicit_field_description():
         # This one does
         number: int = Field(description="A number to process")
 
-    components = SimpleSignature.get_gepa_components()
+    components = get_gepa_components(SimpleSignature)
     assert components == snapshot(
         {
             "signature:SimpleSignature:instructions": "A simple signature for testing.",
@@ -199,7 +202,7 @@ def test_signature_without_explicit_field_description():
 
     # Test that system instructions include the default descriptions
     sig = SimpleSignature(text="Hello", number=42)
-    system_instructions = sig.to_system_instructions()
+    system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
 A simple signature for testing.
 
@@ -210,7 +213,7 @@ Inputs
 """)
 
     # User content should just have the values
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
 <text>Hello</text>
@@ -226,7 +229,7 @@ def test_extract_seed_candidate_with_signature():
         instructions="Be helpful and professional.",
     )
     candidate = extract_seed_candidate_with_signature(
-        agent=agent, signature_class=EmailAnalysis
+        agent=agent, input_model=EmailAnalysis
     )
     assert candidate == snapshot(
         {
@@ -282,7 +285,7 @@ def test_reflection_signature_formatting():
         components_to_update=["instructions"],
     )
 
-    system_instructions = sig.to_system_instructions()
+    system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
 Analyze agent performance data and propose improved prompt components.
 
@@ -308,7 +311,7 @@ Inputs
 - `<components_to_update>` (list[str]): Specific components to optimize in this iteration. Only modify these components in your response while keeping others unchanged.\
 """)
 
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
 <prompt_components>
@@ -355,7 +358,7 @@ Inputs
 def test_separation_of_concerns():
     """Test that system instructions and user content are properly separated."""
 
-    class SensitiveDataSignature(Signature):
+    class SensitiveDataSignature(BaseModel):
         """Process user data with care."""
 
         user_input: str = Field(
@@ -373,7 +376,7 @@ def test_separation_of_concerns():
     )
 
     # User content should contain raw data (including potentially malicious content)
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     assert user_content == snapshot(
         [
             """\
@@ -385,7 +388,7 @@ def test_separation_of_concerns():
     )
 
     # System instructions should be separate and safe from user manipulation
-    system_instructions = sig.to_system_instructions()
+    system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
 Process user data with care.
 

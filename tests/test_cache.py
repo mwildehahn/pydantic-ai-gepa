@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 
+from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
@@ -11,7 +12,6 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai_gepa.cache import CacheManager, create_cached_metric
 from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
 from pydantic_ai_gepa.runner import optimize_agent_prompts
-from pydantic_ai_gepa.signature import Signature
 from pydantic_ai_gepa.types import (
     DataInstWithPrompt,
     DataInstWithSignature,
@@ -73,7 +73,7 @@ def test_cache_manager_with_signature():
     with tempfile.TemporaryDirectory() as tmpdir:
         cache = CacheManager(cache_dir=tmpdir, enabled=True, verbose=False)
 
-        class TestSignature(Signature):
+        class TestSignature(BaseModel):
             text: str
             value: int = 42
 
@@ -88,7 +88,7 @@ def test_cache_manager_with_signature():
         output = RolloutOutput.from_success("positive")
         candidate = {
             "instructions": "Classify the text",
-            "TestSignature.text": "Input text",
+            "signature:TestSignature:text:desc": "Input text",
         }
 
         # Cache a result
@@ -378,10 +378,10 @@ def test_cache_key_stability():
         # Candidates with different key orders but same content
         candidate1 = {
             "instructions": "Test",
-            "signature:ExampleSignature:instructions": "Signature",
+            "signature:ExampleSignature:instructions": "InputType",
         }
         candidate2 = {
-            "signature:ExampleSignature:instructions": "Signature",
+            "signature:ExampleSignature:instructions": "InputType",
             "instructions": "Test",
         }
 

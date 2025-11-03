@@ -8,13 +8,14 @@ from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 
+from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
 from .reflection import propose_new_texts
-from .signature import Signature, apply_candidate_to_signature
+from .signature import apply_candidate_to_input_model
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
 from .types import DataInst, DataInstWithPrompt, RolloutOutput, Trajectory
@@ -52,8 +53,8 @@ class PydanticAIGEPAAdapter(
 
     This adapter connects pydantic-ai agents to the GEPA optimization engine,
     enabling prompt optimization through evaluation and reflection. It focuses on
-    optimizing a single agent's instructions, optionally with a single Signature
-    class for structured input formatting.
+    optimizing a single agent's instructions, optionally with a single structured
+    input model class for formatting.
     """
 
     def __init__(
@@ -61,7 +62,7 @@ class PydanticAIGEPAAdapter(
         agent: AbstractAgent[Any, Any],
         metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
         *,
-        signature_class: type[Signature] | None = None,
+        signature_class: type[BaseModel] | None = None,
         reflection_sampler: ReflectionSampler | None = None,
         reflection_model: Model | KnownModelName | str | None = None,
         cache_manager: CacheManager | None = None,
@@ -73,7 +74,7 @@ class PydanticAIGEPAAdapter(
             metric: A function that computes (score, feedback) for a data instance
                    and its output. Higher scores are better. The feedback string
                    (second element) is optional but recommended for better optimization.
-            signature_class: Optional single Signature class whose instructions and field
+            signature_class: Optional structured input model class whose instructions and field
                             descriptions will be optimized alongside the agent's prompts.
             reflection_sampler: Optional sampler for reflection records. If provided,
                                it will be called to sample records when needed. If None,
@@ -148,7 +149,7 @@ class PydanticAIGEPAAdapter(
         # Apply to signature if provided
         if self.signature_class:
             stack.enter_context(
-                apply_candidate_to_signature(self.signature_class, candidate)
+                apply_candidate_to_input_model(self.signature_class, candidate)
             )
 
         return stack

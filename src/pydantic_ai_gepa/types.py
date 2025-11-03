@@ -14,10 +14,8 @@ from pydantic_ai.messages import (
     UserPromptPart,
 )
 
-from .signature import Signature
-
-# Type variable for the signature type
-SignatureT = TypeVar("SignatureT", bound=Signature)
+# Type variable for the input type
+InputModelT = TypeVar("InputModelT", bound=BaseModel)
 
 # Type variable for the output type in RolloutOutput
 OutputT = TypeVar("OutputT")
@@ -37,13 +35,13 @@ class DataInstWithPrompt:
 
 
 @dataclass
-class DataInstWithSignature(Generic[SignatureT]):
+class DataInstWithSignature(Generic[InputModelT]):
     """A single data instance for optimization.
 
     Each instance represents a single case from a pydantic-evals Dataset.
     """
 
-    signature: SignatureT
+    signature: InputModelT
     message_history: list[ModelMessage] | None
     metadata: dict[str, Any]
     case_id: str  # Unique identifier for tracking

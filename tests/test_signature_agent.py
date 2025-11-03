@@ -3,14 +3,18 @@ from __future__ import annotations
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import Signature, SignatureAgent
+from pydantic_ai_gepa import SignatureAgent
+from pydantic_ai_gepa.signature import (
+    generate_system_instructions,
+    generate_user_content,
+)
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
 
-class GeographyQuery(Signature):
+class GeographyQuery(BaseModel):
     """Ask a question about geography."""
 
     question: str = Field(description="The geography question to ask")
@@ -49,7 +53,11 @@ def test_signature_agent_basic():
     )
 
     # Wrap with SignatureAgent
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=GeographyAnswer,
+    )
 
     # Create a signature instance
     sig = GeographyQuery(
@@ -64,7 +72,7 @@ def test_signature_agent_basic():
     assert result.output.sources == ["Common knowledge"]
     request = result.all_messages()[0]
     assert isinstance(request, ModelRequest)
-    expected_signature_instructions = sig.to_system_instructions()
+    expected_signature_instructions = generate_system_instructions(sig)
     assert expected_signature_instructions == snapshot(
         """\
 Ask a question about geography.
@@ -103,7 +111,11 @@ def test_signature_agent_with_override_candidate():
         name="geography",
     )
 
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=GeographyAnswer,
+    )
     sig = GeographyQuery(
         question="What's the capital of Italy?", region="Southern Europe"
     )
@@ -120,8 +132,8 @@ def test_signature_agent_with_override_candidate():
     assert result.output.confidence == "high"
     request = result.all_messages()[0]
     assert isinstance(request, ModelRequest)
-    expected_signature_instructions = sig.to_system_instructions(
-        candidate=override_candidate
+    expected_signature_instructions = generate_system_instructions(
+        sig, candidate=override_candidate
     )
     assert expected_signature_instructions == snapshot(
         """\
@@ -157,7 +169,11 @@ def test_signature_agent_without_output_type():
     )
 
     # Wrap with SignatureAgent
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=str,
+    )
 
     # Create and run with a signature
     sig = GeographyQuery(
@@ -186,7 +202,11 @@ async def test_signature_agent_async():
         name="geo",
     )
 
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=GeographyAnswer,
+    )
     sig = GeographyQuery(
         question="What's the capital of the UK?", region="Western Europe"
     )
@@ -207,7 +227,11 @@ async def test_signature_agent_streaming():
         name="geo",
     )
 
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=str,
+    )
     sig = GeographyQuery(question="What's the capital of Japan?", region=None)
 
     async with signature_agent.run_signature_stream(sig) as stream:
@@ -222,7 +246,7 @@ def test_prompt_generation_from_signature():
     )
 
     # Test without candidate
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
 <question>What are the major rivers in Africa?</question>
@@ -244,7 +268,7 @@ def test_prompt_generation_with_candidate():
         "signature:GeographyQuery:region:desc": "Area of focus:",
     }
 
-    system_instructions = sig.to_system_instructions(candidate=candidate)
+    system_instructions = generate_system_instructions(sig, candidate=candidate)
     assert system_instructions == snapshot("""\
 Focus on major waterways and their importance.
 
@@ -254,7 +278,7 @@ Inputs
 - `<region>` (UnionType[str, NoneType]): Area of focus:\
 """)
 
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     assert len(user_content) == 1
     assert user_content[0] == snapshot("""\
 <question>What are the major rivers in Africa?</question>
@@ -267,7 +291,11 @@ def test_signature_agent_rejects_user_prompt_without_history():
     """user_prompt requires message history."""
     test_model = TestModel(custom_output_text="Initial response.")
     agent = Agent(test_model, instructions="Geography expert", name="geo")
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=str,
+    )
     sig = GeographyQuery(question="What's the capital of Spain?", region="Europe")
 
     with pytest.raises(ValueError):
@@ -278,7 +306,11 @@ def test_signature_agent_followup_uses_custom_prompt():
     """Follow-up runs should relay the provided user prompt."""
     test_model = TestModel(custom_output_text="Follow-up response.")
     agent = Agent(test_model, instructions="Geography expert", name="geo")
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=str,
+    )
     sig = GeographyQuery(question="What's the capital of Spain?", region="Europe")
 
     initial_result = signature_agent.run_signature_sync(sig)
@@ -314,7 +346,11 @@ def test_signature_agent_followup_uses_signature_prompt():
     """Follow-up runs should default to the signature values when no prompt is provided."""
     test_model = TestModel(custom_output_text="Follow-up response.")
     agent = Agent(test_model, instructions="Geography expert", name="geo")
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        output_type=str,
+    )
 
     sig_initial = GeographyQuery(question="What's the capital of Spain?", region="Europe")
     initial_result = signature_agent.run_signature_sync(sig_initial)

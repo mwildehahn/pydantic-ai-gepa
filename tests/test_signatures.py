@@ -1,4 +1,4 @@
-"""Tests for Signature integration with agents and GEPA."""
+"""Tests for structured input integration with agents and GEPA."""
 
 from __future__ import annotations
 
@@ -6,8 +6,14 @@ from typing import Any
 
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import DataInst, PydanticAIGEPAAdapter, Signature
+from pydantic_ai_gepa import DataInst, PydanticAIGEPAAdapter
 from pydantic_ai_gepa.components import extract_seed_candidate_with_signature
+from pydantic_ai_gepa.signature import (
+    apply_candidate_to_input_model,
+    generate_system_instructions,
+    generate_user_content,
+    get_gepa_components,
+)
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
@@ -44,8 +50,8 @@ class SupportResponse(BaseModel):
     needs_escalation: bool
 
 
-# Define a Signature for structured input
-class EmailSupportSignature(Signature):
+# Define a structured input model
+class EmailSupportSignature(BaseModel):
     """Analyze customer support emails and generate appropriate responses."""
 
     emails: list[Email] = Field(
@@ -93,7 +99,7 @@ def test_signature_to_prompt_parts():
     )
 
     # Convert to prompt parts
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
 
     assert len(user_content) == 1
     content = user_content[0]
@@ -160,8 +166,10 @@ def test_signature_with_optimized_candidate():
     }
 
     # Convert with optimized prompts
-    user_content = sig.to_user_content()
-    system_instructions = sig.to_system_instructions(candidate=optimized_candidate)
+    user_content = generate_user_content(sig)
+    system_instructions = generate_system_instructions(
+        sig, candidate=optimized_candidate
+    )
     assert system_instructions == snapshot("""\
 You are an expert support agent. Identify critical issues immediately.
 
@@ -173,13 +181,15 @@ Inputs
 
 Schemas
 
-Each <Email> element contains:
-- <header>: The header of the email.
-  - <subject>: The subject of the email. Pay specific attention to this.
-  - <sender>: The sender field
-    - <name>: The name of the sender.
-    - <address>: The email address of the sender.
-- <contents>: The contents field\
+Email
+  - `<header>` (EmailHeader): The header of the email.
+    EmailHeader
+      - `<subject>` (str): The subject of the email. Pay specific attention to this.
+      - `<sender>` (EmailSender): The sender field
+        EmailSender
+          - `<name>` (str): The name of the sender.
+          - `<address>` (str): The email address of the sender.
+  - `<contents>` (str): The contents field\
 """)
 
     content = user_content[0]
@@ -205,7 +215,7 @@ Each <Email> element contains:
 
 def test_extract_signature_components():
     """Test extracting GEPA components from a signature."""
-    components = EmailSupportSignature.get_gepa_components()
+    components = get_gepa_components(EmailSupportSignature)
     assert components == snapshot(
         {
             'signature:EmailSupportSignature:instructions': 'Analyze customer support emails and generate appropriate responses.',
@@ -250,7 +260,7 @@ def test_signature_with_agent():
     )
 
     # Convert to prompt and run agent
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     prompt_content = user_content[0]
     assert prompt_content == snapshot("""\
 <emails>
@@ -316,7 +326,7 @@ def test_extract_seed_candidate_with_signatures():
     # Extract components from both agent and signature
     candidate = extract_seed_candidate_with_signature(
         agent=agent,
-        signature_class=EmailSupportSignature,
+        input_model=EmailSupportSignature,
     )
 
     # Should have components from both agent and signature
@@ -350,7 +360,7 @@ def test_signature_with_none_field():
         company_policies='Default policies',
     )
 
-    user_content = sig.to_user_content()
+    user_content = generate_user_content(sig)
     content = user_content[0]
     assert content == snapshot("""\
 <emails>
@@ -373,7 +383,7 @@ def test_signature_with_none_field():
 def test_signature_field_without_description():
     """Test that fields without explicit descriptions get default ones."""
 
-    class MinimalSignature(Signature):
+    class MinimalSignature(BaseModel):
         """A minimal signature."""
 
         # Field without description
@@ -381,7 +391,7 @@ def test_signature_field_without_description():
         # Field with description
         config: dict[str, Any] = Field(description='Configuration settings')
 
-    components = MinimalSignature.get_gepa_components()
+    components = get_gepa_components(MinimalSignature)
     assert components == snapshot(
         {
             'signature:MinimalSignature:instructions': 'A minimal signature.',

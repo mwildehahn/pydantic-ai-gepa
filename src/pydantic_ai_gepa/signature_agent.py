@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any, overload, cast
 
 from typing_extensions import Never
 
+from pydantic import BaseModel
 from pydantic_ai import messages as _messages, models, usage as _usage
 from pydantic_ai.agent import AgentRunResult, EventStreamHandler, WrapperAgent
 from pydantic_ai.agent.abstract import RunOutputDataT, Instructions
@@ -20,7 +21,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import AgentDepsT, DeferredToolResults
 from pydantic_ai.toolsets import AbstractToolset
 
-from .signature import Signature
+from .signature import generate_system_instructions, generate_user_content
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -31,22 +32,27 @@ UserPromptInput = Sequence[_messages.UserContent] | _messages.UserContent | str
 class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     """Wrapper agent that enables signature-based prompts.
 
-    This wrapper allows you to run agents using Signature instances instead of
-    raw prompt strings. It handles conversion from Signature to prompt format
-    and can apply GEPA optimizations.
+    This wrapper allows you to run agents using structured input models instead
+    of raw prompt strings. It handles conversion from Pydantic models to prompt
+    format and can apply GEPA optimizations. When the wrapped agent already has
+    an output type configured, the SignatureAgent will reuse it automatically.
 
     Example:
         ```python
         from pydantic_ai import Agent
         from pydantic_ai.durable_exec.temporal import TemporalAgent
-        from pydantic_ai_gepa import SignatureAgent, Signature
-        from pydantic import Field
+        from pydantic_ai_gepa import SignatureAgent
+        from pydantic import BaseModel, Field
 
-        class QuerySignature(Signature):
+        class Query(BaseModel):
             '''Answer questions about geography'''
 
             question: str = Field(description="The geography question to answer")
             context: str = Field(description="Additional context if needed")
+
+        class GeographyAnswer(BaseModel):
+            answer: str
+            confidence: str
 
         # Create base agent
         agent = Agent(
@@ -58,11 +64,14 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         # Wrap with Temporal if needed
         temporal_agent = TemporalAgent(agent)
 
-        # Add signature support
-        signature_agent = SignatureAgent(temporal_agent)
+        # Add signature support (output_type inferred from wrapped agent)
+        signature_agent = SignatureAgent(
+            temporal_agent,
+            input_type=Query,
+        )
 
         # Run with signature
-        sig = QuerySignature(
+        sig = Query(
             question="What's the capital of France?",
             context="Focus on current political capital"
         )
@@ -73,6 +82,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     def __init__(
         self,
         wrapped: AbstractAgent[AgentDepsT, OutputDataT],
+        input_type: type[BaseModel],
+        output_type: OutputSpec[OutputDataT] | type[OutputDataT] | None = None,
         *,
         append_instructions: bool = True,
     ):
@@ -80,36 +91,73 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         Args:
             wrapped: The agent to wrap (can be any AbstractAgent, including TemporalAgent).
+            input_type: The Pydantic model class representing the structured input schema.
+            output_type: Optional output type or spec expected from the wrapped agent.
             append_instructions: If True, append signature instructions to the agent's instructions.
         """
+        if not issubclass(input_type, BaseModel):
+            raise TypeError(
+                f"input_type must subclass BaseModel, got {input_type!r}"
+            )
+
+        inferred_output_type = (
+            output_type
+            if output_type is not None
+            else getattr(wrapped, "output_type", None)
+        )
+        if inferred_output_type is None:
+            raise TypeError(
+                "SignatureAgent requires an output_type. Provide one explicitly, "
+                "configure the wrapped agent with an output_type, or supply one "
+                "per-call when invoking signature runs."
+            )
+
         super().__init__(wrapped)
         self.append_instructions = append_instructions
+        self._input_model = input_type
+        self._default_output_type = inferred_output_type
+
+    @property
+    def input_type(self) -> type[BaseModel]:
+        """Return the input model class this agent expects."""
+        return self._input_model
+
+    @property
+    def output_type(self) -> OutputSpec[OutputDataT] | type[OutputDataT]:
+        """Return the default output type used by the agent."""
+        return self._default_output_type
+
+    def _require_input_instance(self, signature: BaseModel) -> None:
+        """Ensure the provided signature instance matches the configured input type."""
+        if not isinstance(signature, self._input_model):
+            raise TypeError(
+                f"Expected signature of type {self._input_model.__name__}, "
+                f"got {signature.__class__.__name__}"
+            )
 
     def _prepare_user_content(
         self,
-        signature: Signature,
+        signature: BaseModel,
     ) -> Sequence[_messages.UserContent]:
         """Extract user content from a signature.
 
         Args:
-            signature: The Signature instance to convert.
+            signature: The structured input instance to convert.
 
         Returns:
             The user content without system instructions.
         """
-        # Convert signature to user content only
-        # Note: candidate is used for system instructions, not user content
-        return signature.to_user_content()
+        return generate_user_content(signature)
 
     def _prepare_system_instructions(
         self,
-        signature: Signature,
+        signature: BaseModel,
         candidate: dict[str, str] | None = None,
     ) -> str | None:
         """Extract system instructions from a signature.
 
         Args:
-            signature: The Signature instance to convert.
+            signature: The structured input instance to convert.
 
         Returns:
             The system instructions string or None if empty.
@@ -117,7 +165,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         if not self.append_instructions:
             return None
 
-        return signature.to_system_instructions(candidate=candidate)
+        return generate_system_instructions(signature, candidate=candidate)
 
     def _compose_instructions_override(
         self,
@@ -138,13 +186,14 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     def _prepare_run_arguments(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
         candidate: dict[str, str] | None,
         message_history: Sequence[_messages.ModelMessage] | None,
         user_prompt: UserPromptInput | None,
     ) -> tuple[UserPromptInput | None, Instructions[AgentDepsT] | None]:
         """Prepare the user prompt and instructions override for a run."""
+        self._require_input_instance(signature)
         if user_prompt is not None and message_history is None:
             raise ValueError(
                 "user_prompt can only be provided when message_history is set"
@@ -182,7 +231,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     async def run_signature(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
@@ -202,9 +251,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     async def run_signature(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
-        output_type: OutputSpec[RunOutputDataT],
+        output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT],
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
@@ -221,9 +270,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     async def run_signature(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
-        output_type: OutputSpec[RunOutputDataT] | None = None,
+        output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
@@ -241,8 +290,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """Run the agent with a signature-based prompt.
 
         Args:
-            signature: The Signature instance containing the input data.
-            output_type: Custom output type to use for this run.
+            signature: The structured input instance containing the input data.
+            output_type: Custom output type to use for this run; defaults to the configured signature output type.
             candidate: Optional GEPA candidate with optimized text for components.
             user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
             message_history: History of the conversation so far; if provided, assumes the signature input is already represented in the history unless user_prompt is supplied.
@@ -271,25 +320,20 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         )
         normalized_user_prompt = self._normalize_user_prompt(prepared_user_prompt)
 
+        effective_output_type = (
+            output_type if output_type is not None else self._default_output_type
+        )
+        if effective_output_type is None:
+            raise TypeError(
+                "SignatureAgent requires an output_type to execute. "
+                "Ensure the wrapped agent has an output_type or pass one to "
+                "run_signature(..., output_type=...)."
+            )
+
         if instructions_override is None:
-            if output_type is None:
-                return await self.wrapped.run(
-                    user_prompt=normalized_user_prompt,
-                    message_history=message_history,
-                    deferred_tool_results=deferred_tool_results,
-                    model=model,
-                    deps=deps,
-                    model_settings=model_settings,
-                    usage_limits=usage_limits,
-                    usage=usage,
-                    infer_name=infer_name,
-                    toolsets=toolsets,
-                    event_stream_handler=event_stream_handler,
-                    **_deprecated_kwargs,
-                )
             return await self.wrapped.run(
                 user_prompt=normalized_user_prompt,
-                output_type=output_type,
+                output_type=effective_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
@@ -304,24 +348,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             )
 
         with self.wrapped.override(instructions=instructions_override):
-            if output_type is None:
-                return await self.wrapped.run(
-                    user_prompt=normalized_user_prompt,
-                    message_history=message_history,
-                    deferred_tool_results=deferred_tool_results,
-                    model=model,
-                    deps=deps,
-                    model_settings=model_settings,
-                    usage_limits=usage_limits,
-                    usage=usage,
-                    infer_name=infer_name,
-                    toolsets=toolsets,
-                    event_stream_handler=event_stream_handler,
-                    **_deprecated_kwargs,
-                )
             return await self.wrapped.run(
                 user_prompt=normalized_user_prompt,
-                output_type=output_type,
+                output_type=effective_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
@@ -338,7 +367,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_sync(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
@@ -358,9 +387,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_sync(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
-        output_type: OutputSpec[RunOutputDataT],
+        output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT],
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
@@ -377,9 +406,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     def run_signature_sync(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
-        output_type: OutputSpec[RunOutputDataT] | None = None,
+        output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
@@ -397,8 +426,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """Synchronously run the agent with a signature-based prompt.
 
         Args:
-            signature: The Signature instance containing the input data.
-            output_type: Custom output type to use for this run.
+            signature: The structured input instance containing the input data.
+            output_type: Custom output type to use for this run; defaults to the configured signature output type.
             candidate: Optional GEPA candidate with optimized text for components.
             user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
             message_history: History of the conversation so far; if provided, assumes the signature input is already represented in the history unless user_prompt is supplied.
@@ -427,25 +456,20 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         )
         normalized_user_prompt = self._normalize_user_prompt(prepared_user_prompt)
 
+        effective_output_type = (
+            output_type if output_type is not None else self._default_output_type
+        )
+        if effective_output_type is None:
+            raise TypeError(
+                "SignatureAgent requires an output_type to execute. "
+                "Ensure the wrapped agent has an output_type or pass one to "
+                "run_signature_sync(..., output_type=...)."
+            )
+
         if instructions_override is None:
-            if output_type is None:
-                return self.wrapped.run_sync(
-                    user_prompt=normalized_user_prompt,
-                    message_history=message_history,
-                    deferred_tool_results=deferred_tool_results,
-                    model=model,
-                    deps=deps,
-                    model_settings=model_settings,
-                    usage_limits=usage_limits,
-                    usage=usage,
-                    infer_name=infer_name,
-                    toolsets=toolsets,
-                    event_stream_handler=event_stream_handler,
-                    **_deprecated_kwargs,
-                )
             return self.wrapped.run_sync(
                 user_prompt=normalized_user_prompt,
-                output_type=output_type,
+                output_type=effective_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
@@ -460,24 +484,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             )
 
         with self.wrapped.override(instructions=instructions_override):
-            if output_type is None:
-                return self.wrapped.run_sync(
-                    user_prompt=normalized_user_prompt,
-                    message_history=message_history,
-                    deferred_tool_results=deferred_tool_results,
-                    model=model,
-                    deps=deps,
-                    model_settings=model_settings,
-                    usage_limits=usage_limits,
-                    usage=usage,
-                    infer_name=infer_name,
-                    toolsets=toolsets,
-                    event_stream_handler=event_stream_handler,
-                    **_deprecated_kwargs,
-                )
             return self.wrapped.run_sync(
                 user_prompt=normalized_user_prompt,
-                output_type=output_type,
+                output_type=effective_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
@@ -494,7 +503,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_stream(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
@@ -514,9 +523,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_stream(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
-        output_type: OutputSpec[RunOutputDataT],
+        output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT],
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
@@ -534,9 +543,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @asynccontextmanager
     async def run_signature_stream(
         self,
-        signature: Signature,
+        signature: BaseModel,
         *,
-        output_type: OutputSpec[RunOutputDataT] | None = None,
+        output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
         message_history: list[_messages.ModelMessage] | None = None,
@@ -554,8 +563,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """Stream the agent execution with a signature-based prompt.
 
         Args:
-            signature: The Signature instance containing the input data.
-            output_type: Custom output type to use for this run.
+            signature: The structured input instance containing the input data.
+            output_type: Custom output type to use for this run; defaults to the configured signature output type.
             candidate: Optional GEPA candidate with optimized text for components.
             user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
             message_history: History of the conversation so far; if provided, assumes the signature input is already represented in the history unless user_prompt is supplied.
@@ -584,27 +593,20 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         )
         normalized_user_prompt = self._normalize_user_prompt(prepared_user_prompt)
 
+        effective_output_type = (
+            output_type if output_type is not None else self._default_output_type
+        )
+        if effective_output_type is None:
+            raise TypeError(
+                "SignatureAgent requires an output_type to execute. "
+                "Ensure the wrapped agent has an output_type or pass one to "
+                "run_signature_stream(..., output_type=...)."
+            )
+
         if instructions_override is None:
-            if output_type is None:
-                async with self.wrapped.run_stream(
-                    user_prompt=normalized_user_prompt,
-                    message_history=message_history,
-                    deferred_tool_results=deferred_tool_results,
-                    model=model,
-                    deps=deps,
-                    model_settings=model_settings,
-                    usage_limits=usage_limits,
-                    usage=usage,
-                    infer_name=infer_name,
-                    toolsets=toolsets,
-                    event_stream_handler=event_stream_handler,
-                    **_deprecated_kwargs,
-                ) as stream:
-                    yield stream
-                return
             async with self.wrapped.run_stream(
                 user_prompt=normalized_user_prompt,
-                output_type=output_type,
+                output_type=effective_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
@@ -621,26 +623,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             return
 
         with self.wrapped.override(instructions=instructions_override):
-            if output_type is None:
-                async with self.wrapped.run_stream(
-                    user_prompt=normalized_user_prompt,
-                    message_history=message_history,
-                    deferred_tool_results=deferred_tool_results,
-                    model=model,
-                    deps=deps,
-                    model_settings=model_settings,
-                    usage_limits=usage_limits,
-                    usage=usage,
-                    infer_name=infer_name,
-                    toolsets=toolsets,
-                    event_stream_handler=event_stream_handler,
-                    **_deprecated_kwargs,
-                ) as stream:
-                    yield stream
-                return
             async with self.wrapped.run_stream(
                 user_prompt=normalized_user_prompt,
-                output_type=output_type,
+                output_type=effective_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
