@@ -15,12 +15,12 @@ from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
 from .reflection import propose_new_texts
-from .signature import apply_candidate_to_input_model
+from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
 from .types import DataInst, DataInstWithPrompt, RolloutOutput, Trajectory
 
-# Type variable for the DataInst type
+# Type variables
 DataInstT = TypeVar("DataInstT", bound=DataInst)
 
 if TYPE_CHECKING:
@@ -62,7 +62,7 @@ class PydanticAIGEPAAdapter(
         agent: AbstractAgent[Any, Any],
         metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
         *,
-        signature_class: type[BaseModel] | None = None,
+        input_type: InputSpec[BaseModel] | None = None,
         reflection_sampler: ReflectionSampler | None = None,
         reflection_model: Model | KnownModelName | str | None = None,
         cache_manager: CacheManager | None = None,
@@ -74,7 +74,7 @@ class PydanticAIGEPAAdapter(
             metric: A function that computes (score, feedback) for a data instance
                    and its output. Higher scores are better. The feedback string
                    (second element) is optional but recommended for better optimization.
-            signature_class: Optional structured input model class whose instructions and field
+            input_type: Optional structured input specification whose instructions and field
                             descriptions will be optimized alongside the agent's prompts.
             reflection_sampler: Optional sampler for reflection records. If provided,
                                it will be called to sample records when needed. If None,
@@ -84,7 +84,9 @@ class PydanticAIGEPAAdapter(
         """
         self.agent = agent
         self.metric = metric
-        self.signature_class = signature_class
+        self.input_spec: BoundInputSpec[BaseModel] | None = (
+            build_input_spec(input_type) if input_type else None
+        )
         self.reflection_sampler = reflection_sampler
         self.reflection_model = reflection_model
         self.cache_manager = cache_manager
@@ -147,10 +149,8 @@ class PydanticAIGEPAAdapter(
         stack.enter_context(apply_candidate_to_agent(self.agent, candidate))
 
         # Apply to signature if provided
-        if self.signature_class:
-            stack.enter_context(
-                apply_candidate_to_input_model(self.signature_class, candidate)
-            )
+        if self.input_spec:
+            stack.enter_context(self.input_spec.apply_candidate(candidate))
 
         return stack
 

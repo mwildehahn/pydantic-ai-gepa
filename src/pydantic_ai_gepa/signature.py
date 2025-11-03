@@ -6,7 +6,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 import html
 from dataclasses import is_dataclass, replace
-from typing import Annotated, Any, get_args, get_origin
+from typing import Annotated, Any, Generic, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -19,6 +19,18 @@ from pydantic_ai.messages import (
     UserContent,
     VideoUrl,
 )
+
+__all__ = [
+    "SignatureSuffix",
+    "generate_system_instructions",
+    "generate_user_content",
+    "get_gepa_components",
+    "apply_candidate_to_input_model",
+    "extract_signature_components",
+    "BoundInputSpec",
+    "InputSpec",
+    "build_input_spec",
+]
 
 AttachmentContent = AudioUrl | BinaryContent | DocumentUrl | ImageUrl | VideoUrl
 ATTACHMENT_TYPE_TO_LABEL: dict[type, str] = {
@@ -115,6 +127,52 @@ def extract_signature_components(
     for model_cls in models:
         all_components.update(get_gepa_components(model_cls))
     return all_components
+
+
+ModelT = TypeVar("ModelT", bound=BaseModel)
+
+
+class BoundInputSpec(Generic[ModelT]):
+    """Normalized view over a structured input model."""
+
+    def __init__(self, model_cls: type[ModelT]) -> None:
+        if not issubclass(model_cls, BaseModel):
+            raise TypeError(
+                f"Input specs must be Pydantic BaseModel subclasses, got {model_cls!r}"
+            )
+        self.model_cls: type[ModelT] = model_cls
+
+    def generate_system_instructions(
+        self,
+        instance: ModelT,
+        *,
+        candidate: dict[str, str] | None = None,
+    ) -> str:
+        return generate_system_instructions(instance, candidate=candidate)
+
+    def generate_user_content(self, instance: ModelT) -> Sequence[UserContent]:
+        return generate_user_content(instance)
+
+    def get_gepa_components(self) -> dict[str, str]:
+        return get_gepa_components(self.model_cls)
+
+    @contextmanager
+    def apply_candidate(
+        self,
+        candidate: dict[str, str] | None,
+    ) -> Iterator[None]:
+        with apply_candidate_to_input_model(self.model_cls, candidate):
+            yield
+
+
+InputSpec = type[ModelT] | BoundInputSpec[ModelT]
+
+
+def build_input_spec(input_spec: InputSpec[ModelT]) -> BoundInputSpec[ModelT]:
+    """Normalize an input specification into a BoundInputSpec."""
+    if isinstance(input_spec, BoundInputSpec):
+        return input_spec
+    return BoundInputSpec(input_spec)
 
 
 class _InputShared:

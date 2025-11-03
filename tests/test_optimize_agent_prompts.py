@@ -188,7 +188,7 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
         input_type=Input,
     )
 
-    seed = extract_seed_candidate_with_signature(signature_agent, input_model=Input)
+    seed = extract_seed_candidate_with_signature(signature_agent, input_type=Input)
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(
@@ -219,7 +219,7 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
     result = optimize_agent_prompts(
         agent=signature_agent,
         trainset=trainset,
-        input_model=Input,
+        input_type=Input,
         metric=metric,
         reflection_model=reflection_model,
         max_metric_calls=20,

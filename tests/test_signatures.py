@@ -307,10 +307,11 @@ def test_gepa_adapter_with_signatures():
     adapter = PydanticAIGEPAAdapter(
         agent=agent,
         metric=support_metric,
-        signature_class=EmailSupportSignature,
+        input_type=EmailSupportSignature,
     )
 
-    assert adapter.signature_class == EmailSupportSignature
+    assert adapter.input_spec is not None
+    assert adapter.input_spec.model_cls is EmailSupportSignature
     assert adapter.agent == agent
     assert adapter.metric == support_metric
 
@@ -326,7 +327,7 @@ def test_extract_seed_candidate_with_signatures():
     # Extract components from both agent and signature
     candidate = extract_seed_candidate_with_signature(
         agent=agent,
-        input_model=EmailSupportSignature,
+        input_type=EmailSupportSignature,
     )
 
     # Should have components from both agent and signature

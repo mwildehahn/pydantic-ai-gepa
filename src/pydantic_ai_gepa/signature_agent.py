@@ -21,7 +21,8 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import AgentDepsT, DeferredToolResults
 from pydantic_ai.toolsets import AbstractToolset
 
-from .signature import generate_system_instructions, generate_user_content
+from .signature import BoundInputSpec, InputSpec, build_input_spec
+
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -70,7 +71,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             input_type=Query,
         )
 
-        # Run with signature
+        # Run with structured input
         sig = Query(
             question="What's the capital of France?",
             context="Focus on current political capital"
@@ -82,7 +83,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     def __init__(
         self,
         wrapped: AbstractAgent[AgentDepsT, OutputDataT],
-        input_type: type[BaseModel],
+        input_type: InputSpec[BaseModel],
         output_type: OutputSpec[OutputDataT] | type[OutputDataT] | None = None,
         *,
         append_instructions: bool = True,
@@ -91,14 +92,11 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         Args:
             wrapped: The agent to wrap (can be any AbstractAgent, including TemporalAgent).
-            input_type: The Pydantic model class representing the structured input schema.
+            input_type: The structured input specification (BaseModel subclass or BoundInputSpec).
             output_type: Optional output type or spec expected from the wrapped agent.
             append_instructions: If True, append signature instructions to the agent's instructions.
         """
-        if not issubclass(input_type, BaseModel):
-            raise TypeError(
-                f"input_type must subclass BaseModel, got {input_type!r}"
-            )
+        bound_spec = build_input_spec(input_type)
 
         inferred_output_type = (
             output_type
@@ -114,13 +112,23 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
         super().__init__(wrapped)
         self.append_instructions = append_instructions
-        self._input_model = input_type
+        self._input_spec: BoundInputSpec[BaseModel] = bound_spec
         self._default_output_type = inferred_output_type
 
     @property
+    def input_spec(self) -> BoundInputSpec[BaseModel]:
+        """Return the bound input specification for this agent."""
+        return self._input_spec
+
+    @property
+    def input_model(self) -> type[BaseModel]:
+        """Return the structured input model class."""
+        return self._input_spec.model_cls
+
+    @property
     def input_type(self) -> type[BaseModel]:
-        """Return the input model class this agent expects."""
-        return self._input_model
+        """Return the structured input model class (backwards compatibility)."""
+        return self.input_model
 
     @property
     def output_type(self) -> OutputSpec[OutputDataT] | type[OutputDataT]:
@@ -129,9 +137,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     def _require_input_instance(self, signature: BaseModel) -> None:
         """Ensure the provided signature instance matches the configured input type."""
-        if not isinstance(signature, self._input_model):
+        if not isinstance(signature, self._input_spec.model_cls):
             raise TypeError(
-                f"Expected signature of type {self._input_model.__name__}, "
+                f"Expected signature of type {self._input_spec.model_cls.__name__}, "
                 f"got {signature.__class__.__name__}"
             )
 
@@ -147,7 +155,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Returns:
             The user content without system instructions.
         """
-        return generate_user_content(signature)
+        return self._input_spec.generate_user_content(signature)
 
     def _prepare_system_instructions(
         self,
@@ -165,7 +173,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         if not self.append_instructions:
             return None
 
-        return generate_system_instructions(signature, candidate=candidate)
+        return self._input_spec.generate_system_instructions(
+            signature, candidate=candidate
+        )
 
     def _compose_instructions_override(
         self,

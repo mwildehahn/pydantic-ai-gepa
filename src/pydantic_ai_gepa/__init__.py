@@ -6,8 +6,11 @@ from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
 from .cache import CacheManager, create_cached_metric
 from .runner import GepaOptimizationResult, optimize_agent_prompts
 from .signature import (
+    BoundInputSpec,
+    InputSpec,
     SignatureSuffix,
     apply_candidate_to_input_model,
+    build_input_spec,
     generate_system_instructions,
     generate_user_content,
     get_gepa_components,
@@ -26,10 +29,13 @@ __all__ = [
     "Trajectory",
     "RolloutOutput",
     "OutputT",
+    "BoundInputSpec",
+    "InputSpec",
     "generate_system_instructions",
     "generate_user_content",
     "get_gepa_components",
     "apply_candidate_to_input_model",
+    "build_input_spec",
     "SignatureSuffix",
     "SignatureAgent",
 ]

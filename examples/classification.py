@@ -357,7 +357,7 @@ if __name__ == "__main__":
         valset=signature_dataset[15:],
         module_selector="all",
         metric=metric,
-        input_model=ClassificationInput,
+        input_type=ClassificationInput,
         reflection_model=reflection_model,
         max_metric_calls=200,
         display_progress_bar=True,

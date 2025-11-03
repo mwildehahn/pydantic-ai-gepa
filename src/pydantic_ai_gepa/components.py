@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Iterator, Sequence
 
 from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 
-from .signature import apply_candidate_to_input_model, get_gepa_components
+from .signature import InputSpec, build_input_spec
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -136,13 +136,13 @@ def validate_components(
 
 def extract_seed_candidate_with_signature(
     agent: AbstractAgent[Any, Any],
-    input_model: type[BaseModel] | None = None,
+    input_type: InputSpec[BaseModel] | None = None,
 ) -> dict[str, str]:
     """Extract initial prompts from an agent and optionally a signature as a GEPA candidate.
 
     Args:
         agent: The agent to extract prompts from.
-        input_model: Optional single structured input model class to extract from.
+        input_type: Optional structured input specification to extract from.
 
     Returns:
         Combined dictionary of all components and their initial text.
@@ -153,8 +153,9 @@ def extract_seed_candidate_with_signature(
     candidate.update(extract_seed_candidate(agent))
 
     # Extract from signature if provided
-    if input_model:
-        candidate.update(get_gepa_components(input_model))
+    if input_type:
+        spec = build_input_spec(input_type)
+        candidate.update(spec.get_gepa_components())
 
     return candidate
 
@@ -163,7 +164,7 @@ def extract_seed_candidate_with_signature(
 def apply_candidate_to_agent_and_signature(
     candidate: dict[str, str] | None,
     agent: AbstractAgent[Any, Any],
-    input_model: type[BaseModel] | None = None,
+    input_type: InputSpec[BaseModel] | None = None,
 ) -> Iterator[None]:
     """Apply a GEPA candidate to an agent and optionally a signature.
 
@@ -173,7 +174,7 @@ def apply_candidate_to_agent_and_signature(
     Args:
         candidate: The candidate mapping component names to text.
         agent: The agent to apply prompts to.
-        input_model: Optional single structured input model class to apply to.
+        input_type: Optional structured input specification to apply to.
 
     Yields:
         None while the candidate is applied.
@@ -185,9 +186,8 @@ def apply_candidate_to_agent_and_signature(
         stack.enter_context(apply_candidate_to_agent(agent, candidate))
 
         # Apply to signature if provided
-        if input_model:
-            stack.enter_context(
-                apply_candidate_to_input_model(input_model, candidate)
-            )
+        if input_type:
+            spec = build_input_spec(input_type)
+            stack.enter_context(spec.apply_candidate(candidate))
 
         yield

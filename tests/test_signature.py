@@ -229,7 +229,7 @@ def test_extract_seed_candidate_with_signature():
         instructions="Be helpful and professional.",
     )
     candidate = extract_seed_candidate_with_signature(
-        agent=agent, input_model=EmailAnalysis
+        agent=agent, input_type=EmailAnalysis
     )
     assert candidate == snapshot(
         {
