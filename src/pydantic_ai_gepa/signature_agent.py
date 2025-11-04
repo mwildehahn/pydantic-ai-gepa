@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Sequence
 from contextlib import (
     AbstractAsyncContextManager,
+    ExitStack,
     asynccontextmanager,
+    nullcontext,
 )
 from typing import TYPE_CHECKING, Any, overload, cast
 
@@ -22,6 +24,11 @@ from pydantic_ai.tools import AgentDepsT, DeferredToolResults
 from pydantic_ai.toolsets import AbstractToolset
 
 from .signature import BoundInputSpec, InputSpec, build_input_spec
+from .tool_components import (
+    ToolOptimizationManager,
+    get_or_create_tool_optimizer,
+    get_tool_optimizer,
+)
 
 
 if TYPE_CHECKING:
@@ -87,6 +94,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         output_type: OutputSpec[OutputDataT] | type[OutputDataT] | None = None,
         *,
         append_instructions: bool = True,
+        optimize_tools: bool = False,
     ):
         """Initialize the SignatureAgent wrapper.
 
@@ -95,6 +103,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             input_type: The structured input specification (BaseModel subclass or BoundInputSpec).
             output_type: Optional output type or spec expected from the wrapped agent.
             append_instructions: If True, append signature instructions to the agent's instructions.
+            optimize_tools: If True, expose and optimize tool descriptions and parameter schemas via GEPA.
         """
         bound_spec = build_input_spec(input_type)
 
@@ -114,6 +123,15 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         self.append_instructions = append_instructions
         self._input_spec: BoundInputSpec[BaseModel] = bound_spec
         self._default_output_type = inferred_output_type
+        self._optimize_tools = optimize_tools
+
+        self._tool_optimizer: ToolOptimizationManager | None = None
+        if optimize_tools:
+            self._tool_optimizer = get_or_create_tool_optimizer(wrapped)
+        else:
+            existing_optimizer = get_tool_optimizer(wrapped)
+            if existing_optimizer is not None:
+                self._tool_optimizer = existing_optimizer
 
     @property
     def input_spec(self) -> BoundInputSpec[BaseModel]:
@@ -134,6 +152,23 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     def output_type(self) -> OutputSpec[OutputDataT] | type[OutputDataT]:
         """Return the default output type used by the agent."""
         return self._default_output_type
+
+    @property
+    def optimize_tools(self) -> bool:
+        """Return whether tool optimization is enabled."""
+        return self._optimize_tools
+
+    def get_tool_components(self) -> dict[str, str]:
+        """Return the seed tool component texts when tool optimization is enabled."""
+        if not self._optimize_tools or not self._tool_optimizer:
+            return {}
+        return self._tool_optimizer.get_seed_components()
+
+    def get_tool_component_keys(self) -> list[str]:
+        """Return the list of tool component keys."""
+        if not self._optimize_tools or not self._tool_optimizer:
+            return []
+        return self._tool_optimizer.get_component_keys()
 
     def _require_input_instance(self, signature: BaseModel) -> None:
         """Ensure the provided signature instance matches the configured input type."""
@@ -238,6 +273,14 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             return user_prompt
         return (user_prompt,)
 
+    def _tool_candidate_context(
+        self, candidate: dict[str, str] | None
+    ):
+        """Context manager that applies tool candidate overrides if enabled."""
+        if not self._tool_optimizer or candidate is None:
+            return nullcontext()
+        return self._tool_optimizer.candidate_context(candidate)
+
     @overload
     async def run_signature(
         self,
@@ -340,24 +383,12 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 "run_signature(..., output_type=...)."
             )
 
-        if instructions_override is None:
-            return await self.wrapped.run(
-                user_prompt=normalized_user_prompt,
-                output_type=effective_output_type,
-                message_history=message_history,
-                deferred_tool_results=deferred_tool_results,
-                model=model,
-                deps=deps,
-                model_settings=model_settings,
-                usage_limits=usage_limits,
-                usage=usage,
-                infer_name=infer_name,
-                toolsets=toolsets,
-                event_stream_handler=event_stream_handler,
-                **_deprecated_kwargs,
-            )
+        with ExitStack() as stack:
+            stack.enter_context(self._tool_candidate_context(candidate))
 
-        with self.wrapped.override(instructions=instructions_override):
+            if instructions_override is not None:
+                stack.enter_context(self.wrapped.override(instructions=instructions_override))
+
             return await self.wrapped.run(
                 user_prompt=normalized_user_prompt,
                 output_type=effective_output_type,
@@ -476,24 +507,12 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 "run_signature_sync(..., output_type=...)."
             )
 
-        if instructions_override is None:
-            return self.wrapped.run_sync(
-                user_prompt=normalized_user_prompt,
-                output_type=effective_output_type,
-                message_history=message_history,
-                deferred_tool_results=deferred_tool_results,
-                model=model,
-                deps=deps,
-                model_settings=model_settings,
-                usage_limits=usage_limits,
-                usage=usage,
-                infer_name=infer_name,
-                toolsets=toolsets,
-                event_stream_handler=event_stream_handler,
-                **_deprecated_kwargs,
-            )
+        with ExitStack() as stack:
+            stack.enter_context(self._tool_candidate_context(candidate))
 
-        with self.wrapped.override(instructions=instructions_override):
+            if instructions_override is not None:
+                stack.enter_context(self.wrapped.override(instructions=instructions_override))
+
             return self.wrapped.run_sync(
                 user_prompt=normalized_user_prompt,
                 output_type=effective_output_type,
@@ -613,39 +632,40 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 "run_signature_stream(..., output_type=...)."
             )
 
-        if instructions_override is None:
-            async with self.wrapped.run_stream(
-                user_prompt=normalized_user_prompt,
-                output_type=effective_output_type,
-                message_history=message_history,
-                deferred_tool_results=deferred_tool_results,
-                model=model,
-                deps=deps,
-                model_settings=model_settings,
-                usage_limits=usage_limits,
-                usage=usage,
-                infer_name=infer_name,
-                toolsets=toolsets,
-                event_stream_handler=event_stream_handler,
-                **_deprecated_kwargs,
-            ) as stream:
-                yield stream
-            return
+        with self._tool_candidate_context(candidate):
+            if instructions_override is None:
+                async with self.wrapped.run_stream(
+                    user_prompt=normalized_user_prompt,
+                    output_type=effective_output_type,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                ) as stream:
+                    yield stream
+                return
 
-        with self.wrapped.override(instructions=instructions_override):
-            async with self.wrapped.run_stream(
-                user_prompt=normalized_user_prompt,
-                output_type=effective_output_type,
-                message_history=message_history,
-                deferred_tool_results=deferred_tool_results,
-                model=model,
-                deps=deps,
-                model_settings=model_settings,
-                usage_limits=usage_limits,
-                usage=usage,
-                infer_name=infer_name,
-                toolsets=toolsets,
-                event_stream_handler=event_stream_handler,
-                **_deprecated_kwargs,
-            ) as stream:
-                yield stream
+            with self.wrapped.override(instructions=instructions_override):
+                async with self.wrapped.run_stream(
+                    user_prompt=normalized_user_prompt,
+                    output_type=effective_output_type,
+                    message_history=message_history,
+                    deferred_tool_results=deferred_tool_results,
+                    model=model,
+                    deps=deps,
+                    model_settings=model_settings,
+                    usage_limits=usage_limits,
+                    usage=usage,
+                    infer_name=infer_name,
+                    toolsets=toolsets,
+                    event_stream_handler=event_stream_handler,
+                    **_deprecated_kwargs,
+                ) as stream:
+                    yield stream

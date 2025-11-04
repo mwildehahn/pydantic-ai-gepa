@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 from pydantic_ai_gepa import SignatureAgent
+from pydantic_ai_gepa.components import (
+    apply_candidate_to_agent,
+    extract_seed_candidate,
+    get_component_names,
+)
 from pydantic_ai_gepa.signature import (
     generate_system_instructions,
     generate_user_content,
 )
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, ToolDefinition
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
@@ -323,14 +330,10 @@ def test_signature_agent_followup_uses_custom_prompt():
     )
 
     new_messages = followup_result.new_messages()
-    request_messages = [
-        msg for msg in new_messages if isinstance(msg, ModelRequest)
-    ]
+    request_messages = [msg for msg in new_messages if isinstance(msg, ModelRequest)]
     assert request_messages
     request = request_messages[0]
-    user_parts = [
-        part for part in request.parts if isinstance(part, UserPromptPart)
-    ]
+    user_parts = [part for part in request.parts if isinstance(part, UserPromptPart)]
     assert user_parts
     first_content = user_parts[0].content
     if isinstance(first_content, str):
@@ -352,7 +355,9 @@ def test_signature_agent_followup_uses_signature_prompt():
         output_type=str,
     )
 
-    sig_initial = GeographyQuery(question="What's the capital of Spain?", region="Europe")
+    sig_initial = GeographyQuery(
+        question="What's the capital of Spain?", region="Europe"
+    )
     initial_result = signature_agent.run_signature_sync(sig_initial)
     message_history = initial_result.all_messages()
 
@@ -366,14 +371,10 @@ def test_signature_agent_followup_uses_signature_prompt():
     )
 
     new_messages = followup_result.new_messages()
-    request_messages = [
-        msg for msg in new_messages if isinstance(msg, ModelRequest)
-    ]
+    request_messages = [msg for msg in new_messages if isinstance(msg, ModelRequest)]
     assert request_messages
     request = request_messages[0]
-    user_parts = [
-        part for part in request.parts if isinstance(part, UserPromptPart)
-    ]
+    user_parts = [part for part in request.parts if isinstance(part, UserPromptPart)]
     assert user_parts
     first_content = user_parts[0].content
     if isinstance(first_content, str):
@@ -387,3 +388,219 @@ def test_signature_agent_followup_uses_signature_prompt():
 
 <region>Central Europe</region>\
 """)
+
+
+class FormatRequest(BaseModel):
+    """Request payload for formatting."""
+
+    text: str = Field(description="Original text that needs formatting")
+    style: str = Field(description="Formatting style or tone to apply")
+
+
+def _build_formatter_agent() -> SignatureAgent[Any, str]:
+    test_model = TestModel(custom_output_text="done")
+    agent = Agent(
+        test_model,
+        instructions="You format copy with precision.",
+        output_type=str,
+        name="formatter",
+    )
+
+    @agent.tool_plain
+    def format_text(text: str, style: str) -> str:
+        """Format content for downstream processing.
+
+        Args:
+            text: Raw text to format.
+            style: Formatting instructions to apply.
+        """
+
+        return f"{style}:{text}"
+
+    return SignatureAgent(
+        agent,
+        input_type=FormatRequest,
+        output_type=str,
+        optimize_tools=True,
+    )
+
+
+def test_signature_agent_tool_components_seed():
+    """Tool components are exposed when optimization is enabled."""
+    signature_agent = _build_formatter_agent()
+
+    seed = extract_seed_candidate(signature_agent)
+    assert seed == snapshot(
+        {
+            "instructions": "You format copy with precision.",
+            "tool:format_text:description": "Format content for downstream processing.",
+            "tool:format_text:param:text": "Raw text to format.",
+            "tool:format_text:param:style": "Formatting instructions to apply.",
+        }
+    )
+
+    component_names = get_component_names(signature_agent)
+    assert component_names == snapshot(
+        [
+            "instructions",
+            "tool:format_text:description",
+            "tool:format_text:param:text",
+            "tool:format_text:param:style",
+        ]
+    )
+
+
+def test_signature_agent_tool_candidate_modifies_definitions():
+    """Tool candidates modify descriptions during signature runs."""
+    signature_agent = _build_formatter_agent()
+    test_model = signature_agent.wrapped.model
+    assert isinstance(test_model, TestModel)
+
+    sig = FormatRequest(text="hello", style="formal")
+
+    # Baseline run without tool overrides
+    _ = signature_agent.run_signature_sync(sig)
+    assert test_model.last_model_request_parameters
+    tool_defs = test_model.last_model_request_parameters.function_tools
+    assert tool_defs == snapshot(
+        [
+            ToolDefinition(
+                name="format_text",
+                parameters_json_schema={
+                    "additionalProperties": False,
+                    "properties": {
+                        "text": {
+                            "description": "Raw text to format.",
+                            "type": "string",
+                        },
+                        "style": {
+                            "description": "Formatting instructions to apply.",
+                            "type": "string",
+                        },
+                    },
+                    "required": ["text", "style"],
+                    "type": "object",
+                },
+                description="Format content for downstream processing.",
+            )
+        ]
+    )
+
+    candidate = {
+        "tool:format_text:description": "Polish the incoming copy for publication.",
+        "tool:format_text:param:text": "Draft prose that needs polish.",
+        "tool:format_text:param:style": "Desired finishing style or tone.",
+    }
+
+    # Direct candidate override on the signature run
+    _ = signature_agent.run_signature_sync(sig, candidate=candidate)
+    tool_defs = test_model.last_model_request_parameters.function_tools
+    assert tool_defs == snapshot(
+        [
+            ToolDefinition(
+                name="format_text",
+                parameters_json_schema={
+                    "additionalProperties": False,
+                    "properties": {
+                        "text": {
+                            "description": "Draft prose that needs polish.",
+                            "type": "string",
+                        },
+                        "style": {
+                            "description": "Desired finishing style or tone.",
+                            "type": "string",
+                        },
+                    },
+                    "required": ["text", "style"],
+                    "type": "object",
+                },
+                description="Polish the incoming copy for publication.",
+            )
+        ]
+    )
+
+    # Revert to baseline when candidate not provided
+    _ = signature_agent.run_signature_sync(sig)
+    tool_defs = test_model.last_model_request_parameters.function_tools
+    assert tool_defs == snapshot(
+        [
+            ToolDefinition(
+                name="format_text",
+                parameters_json_schema={
+                    "additionalProperties": False,
+                    "properties": {
+                        "text": {
+                            "description": "Raw text to format.",
+                            "type": "string",
+                        },
+                        "style": {
+                            "description": "Formatting instructions to apply.",
+                            "type": "string",
+                        },
+                    },
+                    "required": ["text", "style"],
+                    "type": "object",
+                },
+                description="Format content for downstream processing.",
+            )
+        ]
+    )
+
+    # Context manager application (emulates GEPA adapter)
+    tool_only_candidate = {
+        "tool:format_text:description": "Apply brand voice polishing.",
+        "tool:format_text:param:text": "Source text awaiting adjustments.",
+    }
+    with apply_candidate_to_agent(signature_agent, tool_only_candidate):
+        _ = signature_agent.run_signature_sync(sig)
+        tool_defs = test_model.last_model_request_parameters.function_tools
+        assert tool_defs == snapshot(
+            [
+                ToolDefinition(
+                    name="format_text",
+                    parameters_json_schema={
+                        "additionalProperties": False,
+                        "properties": {
+                            "text": {
+                                "description": "Source text awaiting adjustments.",
+                                "type": "string",
+                            },
+                            "style": {
+                                "description": "Formatting instructions to apply.",
+                                "type": "string",
+                            },
+                        },
+                        "required": ["text", "style"],
+                        "type": "object",
+                    },
+                    description="Apply brand voice polishing.",
+                )
+            ]
+        )
+
+    # After context exit, baseline should be restored
+    _ = signature_agent.run_signature_sync(sig)
+    tool_defs = test_model.last_model_request_parameters.function_tools
+    assert tool_defs == snapshot(
+        [
+            ToolDefinition(
+                name="format_text",
+                parameters_json_schema={
+                    "additionalProperties": False,
+                    "properties": {
+                        "text": {
+                            "description": "Raw text to format.",
+                            "type": "string",
+                        },
+                        "style": {
+                            "description": "Formatting instructions to apply.",
+                            "type": "string",
+                        },
+                    },
+                    "required": ["text", "style"],
+                    "type": "object",
+                },
+                description="Format content for downstream processing.",
+            )
+        ]
+    )
