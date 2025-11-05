@@ -14,7 +14,7 @@ from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa.runner import optimize_agent_prompts
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithSignature, RolloutOutput
+from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -95,13 +95,13 @@ class MathProblemInput(BaseModel):
 class MathProblemOutput(BaseModel):
     """The solved value and the expression that produced it."""
 
-    answer: float = Field(description="Numeric answer rounded only if necessary.")
-    expression: str = Field(
-        description="The Python expression evaluated via python_eval."
-    )
     explanation: str = Field(
         description="Two sentences max summarizing how the expression solves the problem."
     )
+    expression: str = Field(
+        description="The Python expression evaluated via python_eval."
+    )
+    answer: float = Field(description="Numeric answer rounded only if necessary.")
 
 
 CASE_DEFINITIONS: list[dict[str, Any]] = [
@@ -298,8 +298,8 @@ dataset = Dataset[MathProblemInput, MathProblemOutput](
 )
 
 signature_dataset = [
-    DataInstWithSignature[MathProblemInput](
-        signature=dataset_case.inputs,
+    DataInstWithInput[MathProblemInput](
+        input=dataset_case.inputs,
         message_history=None,
         metadata={
             "expected_answer": dataset_case.expected_output.answer
@@ -327,6 +327,10 @@ agent = Agent(
 )
 
 
+class PythonEvalOutput(BaseModel):
+    numeric_result: float
+
+
 @agent.tool(
     name="python_eval",
     description="Execute a pure Python expression using math helpers to recover precise numeric answers.",
@@ -334,14 +338,10 @@ agent = Agent(
 def python_eval_tool(
     ctx: RunContext[Any],
     expression: str,
-) -> dict[str, str | float]:
+) -> PythonEvalOutput:
     """Evaluate deterministic numeric Python expressions using the math module."""
-    numeric, display = evaluate_expression(expression)
-    return {
-        "expression": expression,
-        "numeric_result": numeric,
-        "display_result": display,
-    }
+    numeric, _ = evaluate_expression(expression)
+    return PythonEvalOutput(numeric_result=numeric)
 
 
 signature_agent = SignatureAgent(
@@ -352,22 +352,26 @@ signature_agent = SignatureAgent(
 
 
 def metric(
-    data_inst: DataInstWithSignature[MathProblemInput],
+    data_inst: DataInstWithInput[MathProblemInput],
     output: RolloutOutput[MathProblemOutput],
 ) -> tuple[float, str | None]:
     if not output.success or output.result is None:
         return 0.0, output.error_message or "Agent failed to produce an output."
 
-    predicted = output.result.answer
-    expression = output.result.expression.strip()
+    predicted_output = output.result
+    predicted = predicted_output.answer
+    expression = (predicted_output.expression or "").strip()
     tolerance = data_inst.metadata.get("tolerance", 1e-9)
     target = data_inst.metadata.get("expected_answer")
     base_feedback = data_inst.metadata.get("feedback")
     ideal_expression = data_inst.metadata.get("ideal_expression")
 
     if not expression:
+        hint = "Include the python_eval expression you executed."
+        if ideal_expression:
+            hint = f"{hint} For reference, one valid approach is `{ideal_expression}`."
         prefix = f"{base_feedback} " if base_feedback else ""
-        return 0.0, f"{prefix}Missing expression used for python_eval."
+        return 0.0, f"{prefix}Missing expression used for python_eval. {hint}"
 
     try:
         evaluated, display = evaluate_expression(expression)
@@ -400,7 +404,7 @@ def metric(
         "tighten the computation or adjust rounding."
     )
     if ideal_expression and ideal_expression != expression:
-        hint += f" Reconsider using `{ideal_expression}` as the tool expression."
+        hint += f" A reliable expression is `{ideal_expression}`."
     feedback = f"{base} {hint}"
     return score, feedback
 

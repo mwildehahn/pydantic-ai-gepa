@@ -284,7 +284,7 @@ class PydanticAIGEPAAdapter(
             else:
                 assert isinstance(self.agent, SignatureAgent)
                 result = self.agent.run_signature_sync(
-                    instance.signature,
+                    instance.input,
                     message_history=instance.message_history,
                 )
 
@@ -334,7 +334,7 @@ class PydanticAIGEPAAdapter(
             else:
                 assert isinstance(self.agent, SignatureAgent)
                 result = self.agent.run_signature_sync(
-                    instance.signature,
+                    instance.input,
                     message_history=instance.message_history,
                 )
 

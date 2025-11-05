@@ -11,7 +11,7 @@ from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent_prompts
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithSignature, RolloutOutput
+from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -239,8 +239,8 @@ dataset = Dataset[ClassificationInput, ClassificationOutput](
 # Use a diverse set of challenging cases for training
 # Include examples from different categories to help the model learn the nuanced steering patterns
 signature_dataset = [
-    DataInstWithSignature[ClassificationInput](
-        signature=case.inputs,
+    DataInstWithInput[ClassificationInput](
+        input=case.inputs,
         message_history=None,
         metadata={
             "label": case.expected_output.category
@@ -301,7 +301,7 @@ eval_signature_agent = SignatureAgent(
 
 
 def metric(
-    data_inst: DataInstWithSignature[ClassificationInput],
+    data_inst: DataInstWithInput[ClassificationInput],
     output: RolloutOutput[ClassificationOutput],
 ) -> tuple[float, str | None]:
     if (
@@ -313,7 +313,7 @@ def metric(
         return 1.0, "Correct"
 
     eval_signature = EvaluationInput(
-        text=data_inst.signature.text,
+        text=data_inst.input.text,
         error_message=output.error_message,
         category=output.result.category
         if output.result

@@ -12,11 +12,7 @@ from pydantic_ai.models.test import TestModel
 from pydantic_ai_gepa.cache import CacheManager, create_cached_metric
 from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
 from pydantic_ai_gepa.runner import optimize_agent_prompts
-from pydantic_ai_gepa.types import (
-    DataInstWithPrompt,
-    DataInstWithSignature,
-    RolloutOutput,
-)
+from pydantic_ai_gepa.types import DataInstWithInput, DataInstWithPrompt, RolloutOutput
 
 
 def test_cache_manager_basic():
@@ -78,8 +74,8 @@ def test_cache_manager_with_signature():
             value: int = 42
 
         # Create test data with signature
-        data_inst = DataInstWithSignature(
-            signature=TestSignature(text="Test input", value=100),
+        data_inst = DataInstWithInput(
+            input=TestSignature(text="Test input", value=100),
             message_history=None,
             metadata={"label": "positive"},
             case_id="sig-test-1",
@@ -99,8 +95,8 @@ def test_cache_manager_with_signature():
         assert result == (1.0, "Correct")
 
         # Different signature value should miss
-        data_inst2 = DataInstWithSignature(
-            signature=TestSignature(text="Different input", value=100),
+        data_inst2 = DataInstWithInput(
+            input=TestSignature(text="Different input", value=100),
             message_history=None,
             metadata={"label": "positive"},
             case_id="sig-test-2",

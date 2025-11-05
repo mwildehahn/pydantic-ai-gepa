@@ -365,7 +365,7 @@ class _InputModelView(_InputShared):
         instruction_sections: list[str] = []
         suffix_parts: list[str] = []
         input_lines: list[str] = []
-        schema_descriptions: list[str] = []
+        schema_descriptions: dict[type[BaseModel], str] = {}
 
         if instructions:
             instruction_sections.append(instructions.strip())
@@ -395,10 +395,10 @@ class _InputModelView(_InputShared):
                 input_lines.append(f"- `<{field_name}>` ({type_name}): {field_desc}")
 
             model_type = self._get_model_type_from_annotation(field_info.annotation)
-            if model_type:
+            if model_type and model_type not in schema_descriptions:
                 schema_desc = self._format_model_schema(model_type)
                 if schema_desc:
-                    schema_descriptions.append(schema_desc)
+                    schema_descriptions[model_type] = schema_desc
 
         if input_lines:
             instruction_sections.append("Inputs")
@@ -406,7 +406,7 @@ class _InputModelView(_InputShared):
 
         if schema_descriptions:
             instruction_sections.append("Schemas")
-            instruction_sections.append("\n\n".join(schema_descriptions))
+            instruction_sections.append("\n\n".join(schema_descriptions.values()))
 
         if suffix_parts:
             suffix_text = "\n".join(part.strip() for part in suffix_parts if part)

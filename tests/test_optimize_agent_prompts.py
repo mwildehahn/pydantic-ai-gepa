@@ -18,12 +18,7 @@ from pydantic_ai_gepa.components import (
 from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
 from pydantic_ai_gepa.runner import optimize_agent_prompts
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import (
-    DataInst,
-    DataInstWithPrompt,
-    DataInstWithSignature,
-    RolloutOutput,
-)
+from pydantic_ai_gepa.types import DataInst, DataInstWithInput, DataInstWithPrompt, RolloutOutput
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
@@ -165,8 +160,8 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
 
     # Convert the dataset to GEPA DataInst entries
     trainset: list[DataInst] = [
-        DataInstWithSignature(
-            signature=Input(
+        DataInstWithInput(
+            input=Input(
                 text=case.inputs["text"],
             ),
             message_history=None,

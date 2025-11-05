@@ -133,11 +133,6 @@ Schemas
 Address
   - `<street>` (str): Street address
   - `<city>` (str): City name
-  - `<zip_code>` (str): ZIP or postal code
-
-Address
-  - `<street>` (str): Street address
-  - `<city>` (str): City name
   - `<zip_code>` (str): ZIP or postal code\
 """)
 
