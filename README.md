@@ -14,7 +14,8 @@ This is still very much an experimental work in progress and depends on this PR 
 
 1. Install dependencies: `uv sync --all-extras`
 2. Run the sentiment example: `uv run python examples/classification.py`
-3. Inspect outputs under `optimization_results/` to compare candidates and scores.
+3. Run the tool-using math example: `uv run python examples/math_tools.py`
+4. Inspect outputs under `optimization_results/` to compare candidates and scores.
 
 ## Project Layout
 

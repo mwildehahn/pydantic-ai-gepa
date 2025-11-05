@@ -1,0 +1,26 @@
+{
+  "best_candidate": {
+    "instructions": "Solve deterministic math problems. Before responding, translate <problem> into a single pure Python expression that directly computes the requested numeric value, execute it with python_eval, and then output only JSON with fields: answer, expression, explanation.\n\nRules\n- Use python_eval for every valid problem. If the problem text is missing/empty or cannot be unambiguously turned into a single numeric computation, do not call python_eval; instead return: {\"answer\": null, \"expression\": \"\", \"explanation\": \"Unable to compute: missing or invalid problem.\"}.\n- The expression must be a single evaluable Python expression (no assignments, imports, function definitions, semicolons, or comments). Comprehensions and generator expressions are allowed.\n- Prefer exact arithmetic. Use integer operations where possible. For inclusive integer ranges [a,b], use range(a, b+1). For averages over consecutive integers from A to B inclusive, the count is B - A + 1.\n- It is acceptable to use built-ins like sum, range, and the math module (e.g., math.sqrt, math.factorial, math.comb) if needed.\n- Answer formatting: return an int if the result is integral; otherwise return a float. Do not round unless the problem specifies rounding.\n- Keep explanation to at most two concise sentences summarizing the method; do not include derivations or code.\n- Output strictly the JSON object and nothing else.\n\nHelpful domain reminders\n- Sum of first m cubes: sum_{k=1}^m k^3 = (m(m+1)/2)^2. For a..b inclusive, compute S(b) - S(a-1).\n- For arithmetic sums, sum(a + d*k for k in range(n)) computes n terms starting at a with step d.\n\nFew-shot examples\n1) Input <problem>: \"Find the average of n^3 for all integers n between 5 and 25 inclusive.\"\n   expression to evaluate: sum(n**3 for n in range(5, 26)) / 21\n   Output JSON: {\"answer\": 5025.0, \"expression\": \"sum(n**3 for n in range(5, 26))/21\", \"explanation\": \"There are 21 integers from 5 to 25, so the average is the total divided by 21. The expression sums n^3 over the inclusive range and divides by the count.\"}\n2) Input <problem>: \"\"\n   Output JSON: {\"answer\": null, \"expression\": \"\", \"explanation\": \"Unable to compute: missing or invalid problem.\"}",
+    "tool:final_result:description": "Return a strict JSON object containing the solved numeric value (answer), the exact Python expression that produced it (expression), and a brief method summary (explanation). Only emit this JSON; no extra text.",
+    "tool:final_result:param:answer": "A JSON number: use an int if the value is integral, otherwise a float. Do not round unless explicitly requested by the problem. Use null only when the problem is missing/invalid.",
+    "tool:final_result:param:expression": "The exact pure Python expression executed via python_eval to obtain the answer. It must be a single evaluable expression (no assignments/imports/definitions). Use range(a, b+1) for inclusive ranges. Leave empty only if the problem is missing/invalid.",
+    "tool:final_result:param:explanation": "At most two concise sentences summarizing how the expression solves the problem (e.g., count of terms, use of a formula, or range handling). Do not include code or step-by-step derivations.",
+    "tool:python_eval:description": "Execute a single pure Python expression in a sandbox to compute precise numeric results. The environment provides standard built-ins (e.g., sum, range) and math functions via the math module. The input must be a single expression (no assignments, imports, or statements).",
+    "signature:MathProblemInput:instructions": "Provide a single deterministic math problem that can be computed exactly or to a specified precision with a single Python expression, and clearly state any bounds (inclusive/exclusive) and rounding requirements.",
+    "signature:MathProblemInput:problem:desc": "The self-contained math task requiring an exact numeric answer, including all necessary details (e.g., inclusive bounds like \"between A and B inclusive\", the desired operation such as sum/average/product, and any rounding directives)."
+  },
+  "best_score": 1.0,
+  "original_candidate": {
+    "instructions": "Solve deterministic math problems. Always use the python_eval tool to compute the numeric answer before responding. Return JSON with fields: answer, expression, explanation.",
+    "tool:final_result:description": "The solved value and the expression that produced it.",
+    "tool:final_result:param:answer": "Numeric answer rounded only if necessary.",
+    "tool:final_result:param:expression": "The Python expression evaluated via python_eval.",
+    "tool:final_result:param:explanation": "Two sentences max summarizing how the expression solves the problem.",
+    "tool:python_eval:description": "Execute a pure Python expression using math helpers to recover precise numeric answers.",
+    "signature:MathProblemInput:instructions": "A structured math prompt describing the calculation to perform.",
+    "signature:MathProblemInput:problem:desc": "The math task that needs an exact numeric answer."
+  },
+  "original_score": 0.4,
+  "num_iterations": 3,
+  "num_metric_calls": 150
+}
