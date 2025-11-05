@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict
+import logging
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
@@ -19,6 +20,8 @@ from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
 from .types import DataInst, DataInstWithPrompt, RolloutOutput, Trajectory
+
+logger = logging.getLogger(__name__)
 
 # Type variables
 DataInstT = TypeVar("DataInstT", bound=DataInst)
@@ -244,7 +247,9 @@ class PydanticAIGEPAAdapter(
             return result
 
         except Exception as e:
-            # Handle errors gracefully
+            logger.exception(
+                "Failed to process data instance %s", getattr(data_inst, "case_id", "unknown")
+            )
             output = RolloutOutput.from_error(e)
             trajectory = (
                 Trajectory(messages=[], final_output=None, error=str(e))
@@ -312,6 +317,10 @@ class PydanticAIGEPAAdapter(
 
             return trajectory, output
         except Exception as e:
+            logger.exception(
+                "Failed to run agent with traces for instance %s",
+                getattr(instance, "case_id", "unknown"),
+            )
             trajectory = Trajectory(messages=messages, final_output=None, error=str(e))
             output = RolloutOutput.from_error(e)
             return trajectory, output
@@ -340,6 +349,10 @@ class PydanticAIGEPAAdapter(
 
             return RolloutOutput.from_success(result.output)
         except Exception as e:
+            logger.exception(
+                "Failed to run agent without traces for instance %s",
+                getattr(instance, "case_id", "unknown"),
+            )
             return RolloutOutput.from_error(e)
 
     def make_reflective_dataset(

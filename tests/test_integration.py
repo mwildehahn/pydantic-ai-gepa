@@ -12,6 +12,7 @@ from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
+import time_machine
 
 
 def test_extract_seed_candidate():
@@ -81,6 +82,7 @@ def test_process_data_instance():
     assert result_with_trace["trajectory"].final_output == "Test response"
 
 
+@time_machine.travel("2023-01-01", tick=False)
 def test_make_reflective_dataset():
     """Test making a reflective dataset."""
     agent = Agent(
@@ -115,10 +117,58 @@ def test_make_reflective_dataset():
                     "user_prompt": "Hello",
                     "assistant_response": "Test response",
                     "error": None,
+                    "messages": [
+                        {
+                            "kind": "request",
+                            "parts": [
+                                {
+                                    "type": "user_prompt",
+                                    "role": "user",
+                                    "content": "Hello",
+                                    "timestamp": '2023-01-01T08:00:00+00:00',
+                                }
+                            ],
+                            "instructions": "Be helpful",
+                        },
+                        {
+                            "kind": "response",
+                            "model_name": "test",
+                            "timestamp": '2023-01-01T08:00:00+00:00',
+                            "parts": [
+                                {
+                                    "type": "text",
+                                    "role": "assistant",
+                                    "content": "Test response",
+                                }
+                            ],
+                            "usage": {
+                                "input_tokens": 51,
+                                "cache_write_tokens": 0,
+                                "cache_read_tokens": 0,
+                                "output_tokens": 2,
+                                "input_audio_tokens": 0,
+                                "cache_audio_read_tokens": 0,
+                                "output_audio_tokens": 0,
+                                "details": {},
+                            },
+                        },
+                    ],
+                    "run_usage": {
+                        "input_tokens": 51,
+                        "cache_write_tokens": 0,
+                        "cache_read_tokens": 0,
+                        "output_tokens": 2,
+                        "input_audio_tokens": 0,
+                        "cache_audio_read_tokens": 0,
+                        "output_audio_tokens": 0,
+                        "details": {},
+                        "requests": 1,
+                        "tool_calls": 0,
+                    },
                     "score": 0.8,
                     "success": True,
-                    "feedback": "Good",
                     "instructions": "Be helpful",
+                    "feedback": "Good",
                 }
             ]
         }
