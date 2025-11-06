@@ -4,22 +4,26 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import asdict
+import logging
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 
+from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
 from .reflection import propose_new_texts
-from .signature import Signature, apply_candidate_to_signature
+from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
 from .types import DataInst, DataInstWithPrompt, RolloutOutput, Trajectory
 
-# Type variable for the DataInst type
+logger = logging.getLogger(__name__)
+
+# Type variables
 DataInstT = TypeVar("DataInstT", bound=DataInst)
 
 if TYPE_CHECKING:
@@ -52,8 +56,8 @@ class PydanticAIGEPAAdapter(
 
     This adapter connects pydantic-ai agents to the GEPA optimization engine,
     enabling prompt optimization through evaluation and reflection. It focuses on
-    optimizing a single agent's instructions, optionally with a single Signature
-    class for structured input formatting.
+    optimizing a single agent's instructions, optionally with a single structured
+    input model class for formatting.
     """
 
     def __init__(
@@ -61,7 +65,7 @@ class PydanticAIGEPAAdapter(
         agent: AbstractAgent[Any, Any],
         metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
         *,
-        signature_class: type[Signature] | None = None,
+        input_type: InputSpec[BaseModel] | None = None,
         reflection_sampler: ReflectionSampler | None = None,
         reflection_model: Model | KnownModelName | str | None = None,
         cache_manager: CacheManager | None = None,
@@ -73,7 +77,7 @@ class PydanticAIGEPAAdapter(
             metric: A function that computes (score, feedback) for a data instance
                    and its output. Higher scores are better. The feedback string
                    (second element) is optional but recommended for better optimization.
-            signature_class: Optional single Signature class whose instructions and field
+            input_type: Optional structured input specification whose instructions and field
                             descriptions will be optimized alongside the agent's prompts.
             reflection_sampler: Optional sampler for reflection records. If provided,
                                it will be called to sample records when needed. If None,
@@ -83,7 +87,9 @@ class PydanticAIGEPAAdapter(
         """
         self.agent = agent
         self.metric = metric
-        self.signature_class = signature_class
+        self.input_spec: BoundInputSpec[BaseModel] | None = (
+            build_input_spec(input_type) if input_type else None
+        )
         self.reflection_sampler = reflection_sampler
         self.reflection_model = reflection_model
         self.cache_manager = cache_manager
@@ -146,10 +152,8 @@ class PydanticAIGEPAAdapter(
         stack.enter_context(apply_candidate_to_agent(self.agent, candidate))
 
         # Apply to signature if provided
-        if self.signature_class:
-            stack.enter_context(
-                apply_candidate_to_signature(self.signature_class, candidate)
-            )
+        if self.input_spec:
+            stack.enter_context(self.input_spec.apply_candidate(candidate))
 
         return stack
 
@@ -243,7 +247,9 @@ class PydanticAIGEPAAdapter(
             return result
 
         except Exception as e:
-            # Handle errors gracefully
+            logger.exception(
+                "Failed to process data instance %s", getattr(data_inst, "case_id", "unknown")
+            )
             output = RolloutOutput.from_error(e)
             trajectory = (
                 Trajectory(messages=[], final_output=None, error=str(e))
@@ -283,7 +289,7 @@ class PydanticAIGEPAAdapter(
             else:
                 assert isinstance(self.agent, SignatureAgent)
                 result = self.agent.run_signature_sync(
-                    instance.signature,
+                    instance.input,
                     message_history=instance.message_history,
                 )
 
@@ -311,6 +317,10 @@ class PydanticAIGEPAAdapter(
 
             return trajectory, output
         except Exception as e:
+            logger.exception(
+                "Failed to run agent with traces for instance %s",
+                getattr(instance, "case_id", "unknown"),
+            )
             trajectory = Trajectory(messages=messages, final_output=None, error=str(e))
             output = RolloutOutput.from_error(e)
             return trajectory, output
@@ -333,12 +343,16 @@ class PydanticAIGEPAAdapter(
             else:
                 assert isinstance(self.agent, SignatureAgent)
                 result = self.agent.run_signature_sync(
-                    instance.signature,
+                    instance.input,
                     message_history=instance.message_history,
                 )
 
             return RolloutOutput.from_success(result.output)
         except Exception as e:
+            logger.exception(
+                "Failed to run agent without traces for instance %s",
+                getattr(instance, "case_id", "unknown"),
+            )
             return RolloutOutput.from_error(e)
 
     def make_reflective_dataset(

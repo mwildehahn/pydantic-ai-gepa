@@ -10,13 +10,7 @@ from typing import Any, Callable, TypeVar
 
 import cloudpickle
 
-from .types import (
-    DataInst,
-    DataInstWithPrompt,
-    DataInstWithSignature,
-    RolloutOutput,
-    Trajectory,
-)
+from .types import DataInst, DataInstWithPrompt, DataInstWithInput, RolloutOutput, Trajectory
 
 logger = logging.getLogger(__name__)
 
@@ -126,10 +120,8 @@ class CacheManager:
         if isinstance(data_inst, DataInstWithPrompt):
             serialized_prompt = self._serialize_for_key(data_inst.user_prompt)
             key_parts.append(f"prompt:{serialized_prompt}")
-        elif isinstance(data_inst, DataInstWithSignature):
-            key_parts.append(
-                f"signature:{self._serialize_for_key(data_inst.signature)}"
-            )
+        elif isinstance(data_inst, DataInstWithInput):
+            key_parts.append(f"signature:{self._serialize_for_key(data_inst.input)}")
 
         # Add metadata and case_id
         serialized_metadata = self._serialize_for_key(data_inst.metadata)

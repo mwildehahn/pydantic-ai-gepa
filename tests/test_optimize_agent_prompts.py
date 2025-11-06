@@ -10,20 +10,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import BaseModel
 from pydantic_ai_gepa.components import (
-    Signature,
     extract_seed_candidate,
     extract_seed_candidate_with_signature,
 )
 from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
 from pydantic_ai_gepa.runner import optimize_agent_prompts
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import (
-    DataInst,
-    DataInstWithPrompt,
-    DataInstWithSignature,
-    RolloutOutput,
-)
+from pydantic_ai_gepa.types import DataInst, DataInstWithInput, DataInstWithPrompt, RolloutOutput
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
@@ -137,7 +132,7 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
     finishes and returns a structured result within a small metric budget.
     """
 
-    class Input(Signature):
+    class Input(BaseModel):
         text: str
 
     # Build a small categorization dataset (10 items) using pydantic_evals
@@ -165,8 +160,8 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
 
     # Convert the dataset to GEPA DataInst entries
     trainset: list[DataInst] = [
-        DataInstWithSignature(
-            signature=Input(
+        DataInstWithInput(
+            input=Input(
                 text=case.inputs["text"],
             ),
             message_history=None,
@@ -183,9 +178,12 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
             "You are a concise classifier. Output exactly one of: positive, negative, neutral."
         ),
     )
-    signature_agent = SignatureAgent(agent)
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=Input,
+    )
 
-    seed = extract_seed_candidate_with_signature(signature_agent, signature_class=Input)
+    seed = extract_seed_candidate_with_signature(signature_agent, input_type=Input)
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(
@@ -216,7 +214,7 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
     result = optimize_agent_prompts(
         agent=signature_agent,
         trainset=trainset,
-        signature_class=Input,
+        input_type=Input,
         metric=metric,
         reflection_model=reflection_model,
         max_metric_calls=20,

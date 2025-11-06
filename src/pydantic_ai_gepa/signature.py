@@ -1,13 +1,12 @@
-"""DSPy-style Signature system for pydantic-ai with GEPA optimization."""
+"""Structured input utilities for GEPA optimization."""
 
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
-import json
-from dataclasses import is_dataclass, replace
 import html
-from typing import Annotated, Any, get_args, get_origin
+from dataclasses import is_dataclass, replace
+from typing import Annotated, Any, Generic, TypeVar, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -21,6 +20,18 @@ from pydantic_ai.messages import (
     VideoUrl,
 )
 
+__all__ = [
+    "SignatureSuffix",
+    "generate_system_instructions",
+    "generate_user_content",
+    "get_gepa_components",
+    "apply_candidate_to_input_model",
+    "extract_signature_components",
+    "BoundInputSpec",
+    "InputSpec",
+    "build_input_spec",
+]
+
 AttachmentContent = AudioUrl | BinaryContent | DocumentUrl | ImageUrl | VideoUrl
 ATTACHMENT_TYPE_TO_LABEL: dict[type, str] = {
     ImageUrl: "image",
@@ -30,15 +41,8 @@ ATTACHMENT_TYPE_TO_LABEL: dict[type, str] = {
     BinaryContent: "binary",
 }
 
-
 class SignatureSuffix:
-    """Marker for fields that should be appended as plain text without formatting.
-
-    Use with Annotated to mark a string field as a suffix:
-    ```python
-    suffix: Annotated[str, SignatureSuffix] = 'Review the above thoroughly...'
-    ```
-    """
+    """Marker for fields that should be appended as plain text without formatting."""
 
 
 class _AttachmentRegistry:
@@ -82,154 +86,100 @@ class _AttachmentRegistry:
                 return "binary"
 
 
-class Signature(BaseModel):
-    """Base class for defining input signatures that can be optimized by GEPA.
+def generate_system_instructions(
+    instance: BaseModel,
+    *,
+    candidate: dict[str, str] | None = None,
+) -> str:
+    """Generate system instructions for a structured input instance."""
+    view = _InputModelView(instance)
+    return view.build_system_instructions(candidate=candidate)
 
-    Subclass this to define your input schema:
 
-    ```python
-    class EmailAnalysis(Signature):
-        '''Analyze emails for key information'''
+def generate_user_content(instance: BaseModel) -> Sequence[UserContent]:
+    """Convert a structured input instance to user content."""
+    view = _InputModelView(instance)
+    return view.build_user_content()
 
-        emails: list[Email] = Field(description="Emails to analyze")
-        context: str = Field(description="Additional context")
-    ```
 
-    The class docstring and field descriptions can be optimized by GEPA.
-    All fields are automatically treated as inputs.
-    """
+def get_gepa_components(model_cls: type[BaseModel]) -> dict[str, str]:
+    """Extract default GEPA components for a structured input model."""
+    class_view = _InputClassView(model_cls)
+    return class_view.get_gepa_components()
 
-    def to_system_instructions(self, *, candidate: dict[str, str] | None = None) -> str:
-        """Generate system instructions including field descriptions, schemas, and suffix.
 
-        Args:
-            candidate: Optional GEPA candidate with optimized text for components.
-                      If not provided, uses the default descriptions.
+@contextmanager
+def apply_candidate_to_input_model(
+    model_cls: type[BaseModel],
+    candidate: dict[str, str] | None,
+) -> Iterator[None]:
+    """Temporarily apply a GEPA candidate to a structured input model."""
+    class_view = _InputClassView(model_cls)
+    with class_view.apply_candidate(candidate):
+        yield
 
-        Returns:
-            System instructions string to be added to the agent's instructions.
-        """
-        # Get the effective instructions and field descriptions
-        instructions = self._get_effective_text(
-            "instructions", self.__class__.__doc__ or "", candidate
-        )
 
-        # Build the system instructions
-        instruction_sections: list[str] = []
-        suffix_parts: list[str] = []  # Collect suffix fields to append at the end
-        input_lines: list[str] = []
-        schema_descriptions: list[str] = []
+def extract_signature_components(
+    models: Sequence[type[BaseModel]],
+) -> dict[str, str]:
+    """Extract all GEPA components from multiple structured input models."""
+    all_components: dict[str, str] = {}
+    for model_cls in models:
+        all_components.update(get_gepa_components(model_cls))
+    return all_components
 
-        # Add signature-level instructions as plain text if present
-        if instructions:
-            instruction_sections.append(instructions.strip())
 
-        # Add field descriptions and schemas
-        for field_name, field_info in self.__class__.model_fields.items():
-            # Check if this is a SignatureSuffix field
-            if Signature._is_suffix_field(field_info):
-                # For suffix fields, get the default value from field definition
-                default_suffix = (
-                    field_info.default if field_info.default is not None else ""
-                )
-                suffix_text = self._get_effective_text(
-                    field_name, str(default_suffix), candidate
-                )
-                if suffix_text:
-                    suffix_parts.append(suffix_text)
-                continue
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
-            # Get the effective description for this field
-            default_desc = field_info.description or f"The {field_name} input"
-            field_desc = self._get_effective_text(
-                f"{field_name}:desc", default_desc, candidate
+
+class BoundInputSpec(Generic[ModelT]):
+    """Normalized view over a structured input model."""
+
+    def __init__(self, model_cls: type[ModelT]) -> None:
+        if not issubclass(model_cls, BaseModel):
+            raise TypeError(
+                f"Input specs must be Pydantic BaseModel subclasses, got {model_cls!r}"
             )
-            note = Signature._attachment_note_for_annotation(field_info.annotation)
-            if note:
-                field_desc = f"{field_desc}. {note}" if field_desc else note
+        self.model_cls: type[ModelT] = model_cls
 
-            # Add field description in inputs list
-            if field_desc:
-                type_name = self._get_type_name(field_info.annotation)
-                input_lines.append(f"- `<{field_name}>` ({type_name}): {field_desc}")
+    def generate_system_instructions(
+        self,
+        instance: ModelT,
+        *,
+        candidate: dict[str, str] | None = None,
+    ) -> str:
+        return generate_system_instructions(instance, candidate=candidate)
 
-            # Check if the field type is a Pydantic model or list of models
-            # We want to include schema info even if the current value is None
-            field_type = field_info.annotation
-            model_type = self._get_model_type_from_annotation(field_type)
-            if model_type:
-                # Add schema description for the model type
-                schema_desc = self._format_model_schema(model_type)
-                if schema_desc:
-                    schema_descriptions.append(schema_desc)
+    def generate_user_content(self, instance: ModelT) -> Sequence[UserContent]:
+        return generate_user_content(instance)
 
-        if input_lines:
-            instruction_sections.append("Inputs")
-            instruction_sections.append("\n".join(input_lines))
+    def get_gepa_components(self) -> dict[str, str]:
+        return get_gepa_components(self.model_cls)
 
-        if schema_descriptions:
-            instruction_sections.append("Schemas")
-            instruction_sections.append("\n\n".join(schema_descriptions))
+    @contextmanager
+    def apply_candidate(
+        self,
+        candidate: dict[str, str] | None,
+    ) -> Iterator[None]:
+        with apply_candidate_to_input_model(self.model_cls, candidate):
+            yield
 
-        # Add suffix parts at the end as additional guidance
-        if suffix_parts:
-            suffix_text = "\n".join(part.strip() for part in suffix_parts if part)
-            if suffix_text:
-                instruction_sections.append(suffix_text)
 
-        # Join all sections into a single instructions string
-        instruction_text = "\n\n".join(
-            section.strip() for section in instruction_sections if section.strip()
-        )
-        return instruction_text
+InputSpec = type[ModelT] | BoundInputSpec[ModelT]
 
-    def to_user_content(self) -> list[UserContent]:
-        """Convert this signature instance to UserContent objects for pydantic-ai.
 
-        This method returns only the user data values, without descriptions or instructions.
-        System instructions should be retrieved via `to_system_instructions()`.
+def build_input_spec(input_spec: InputSpec[ModelT]) -> BoundInputSpec[ModelT]:
+    """Normalize an input specification into a BoundInputSpec."""
+    if isinstance(input_spec, BoundInputSpec):
+        return input_spec
+    return BoundInputSpec(input_spec)
 
-        Args:
-            candidate: Optional GEPA candidate (currently unused for user content).
 
-        Returns:
-            List of UserContent objects containing just the user data.
-        """
-        content_sections: list[str] = []
-        registry = _AttachmentRegistry()
+class _InputShared:
+    """Utilities shared between instance-level and class-level operations."""
 
-        # Add each field's value without descriptions
-        for field_name, field_info in self.__class__.model_fields.items():
-            field_value = getattr(self, field_name)
-
-            # Skip None values for optional fields
-            if field_value is None:
-                continue
-
-            # Skip SignatureSuffix fields (they go in system instructions)
-            if Signature._is_suffix_field(field_info):
-                continue
-
-            transformed_value = self._replace_attachments_with_refs(
-                field_value, registry
-            )
-            formatted_value = self._format_field_value_xml(
-                field_name, transformed_value
-            )
-            if formatted_value:
-                content_sections.append(formatted_value)
-
-        full_prompt = "\n\n".join(
-            section.strip() for section in content_sections if section.strip()
-        )
-        user_content: list[UserContent] = []
-        user_content.extend(registry.attachments)
-        if full_prompt:
-            for placeholder in registry.placeholders:
-                escaped = html.escape(placeholder, quote=False)
-                full_prompt = full_prompt.replace(escaped, placeholder)
-            user_content.append(full_prompt)
-        return user_content
+    def __init__(self, model_cls: type[BaseModel]) -> None:
+        self.model_cls = model_cls
 
     def _get_effective_text(
         self,
@@ -237,20 +187,22 @@ class Signature(BaseModel):
         default: str,
         candidate: dict[str, str] | None,
     ) -> str:
-        """Get the effective text for a component, using candidate if available."""
         if candidate is None:
             return default
-
-        # Build the full component name with class name to handle nested models
-        class_name = self.__class__.__name__
-        full_key = f"signature:{class_name}:{component_key}"
-
+        full_key = f"signature:{self.model_cls.__name__}:{component_key}"
         return candidate.get(full_key, default)
 
     @staticmethod
-    def _get_type_name(annotation: Any) -> str:
-        """Produce a readable representation of a field annotation."""
+    def _is_suffix_field(field_info: Any) -> bool:
+        if getattr(field_info, "metadata", None):
+            return SignatureSuffix in field_info.metadata or any(
+                isinstance(m, type) and issubclass(m, SignatureSuffix)
+                for m in field_info.metadata
+            )
+        return False
 
+    @staticmethod
+    def _get_type_name(annotation: Any) -> str:
         if annotation is None:
             return "Any"
 
@@ -268,59 +220,240 @@ class Signature(BaseModel):
         if not args:
             return origin_name
 
-        arg_names = ", ".join(Signature._get_type_name(arg) for arg in args)
+        arg_names = ", ".join(
+            _InputShared._get_type_name(arg) for arg in args  # type: ignore[attr-defined]
+        )
         return f"{origin_name}[{arg_names}]"
 
-    def _format_field_value_xml(self, field_name: str, field_value: Any) -> str | None:
-        """Format a field value using XML tags for inclusion in user content.
+    @staticmethod
+    def _collect_attachment_labels(annotation: Any) -> set[str]:
+        labels: set[str] = set()
 
-        Args:
-            field_name: The name of the field (becomes the XML tag)
-            field_value: The value to format
+        origin = get_origin(annotation)
+        if origin is None:
+            if isinstance(annotation, type):
+                label = ATTACHMENT_TYPE_TO_LABEL.get(annotation)
+                if label:
+                    labels.add(label)
+        else:
+            args = get_args(annotation)
+            if not args:
+                return labels
+            if origin in (list, tuple, set, frozenset, Sequence):
+                labels.update(_InputShared._collect_attachment_labels(args[0]))
+            else:
+                for arg in args:
+                    labels.update(_InputShared._collect_attachment_labels(arg))
 
-        Returns:
-            XML-formatted string or None if the value should be skipped
-        """
-        # Handle None
-        if field_value is None:
+        return labels
+
+    @staticmethod
+    def _attachment_note_for_annotation(annotation: Any) -> str | None:
+        labels = _InputShared._collect_attachment_labels(annotation)
+        if not labels:
             return None
-
-        # Lists of BaseModels - use specific item tag
-        if self._is_list_of_models(field_value):
-            if not field_value:
-                return f"<{field_name}></{field_name}>"
-
-            item_class = field_value[0].__class__
-            return format_as_xml(
-                field_value,
-                root_tag=field_name,
-                item_tag=item_class.__name__,
-                indent="  ",
-            )
-
-        # Always use format_as_xml for consistency
-        # This handles BaseModels, dicts, lists, and scalars uniformly
-        return format_as_xml(
-            field_value,
-            root_tag=field_name,
-            item_tag="item",  # Used for lists
-            indent="  ",
+        if len(labels) == 1:
+            label = next(iter(labels))
+            article = "an" if label[0].lower() in {"a", "e", "i", "o", "u"} else "a"
+            return f"Provide {article} {label} reference using the appropriate attachment type."
+        joined = ", ".join(sorted(labels))
+        return (
+            f"Provide references using the appropriate attachment types "
+            f"({joined})."
         )
+
+    @staticmethod
+    def _format_field_label(field_name: str) -> str:
+        parts = field_name.replace("_", " ").strip().split()
+        if not parts:
+            return field_name
+        return " ".join(part.capitalize() for part in parts)
+
+    @staticmethod
+    def _is_simple_scalar(value: Any) -> bool:
+        return isinstance(value, (str, int, float, bool)) or value is None
+
+    @staticmethod
+    def _is_list_of_models(value: Any) -> bool:
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(isinstance(item, BaseModel) for item in value)
+        )
+
+    @staticmethod
+    def _get_model_type_from_annotation(field_type: Any) -> type[BaseModel] | None:
+        if field_type is None:
+            return None
+        origin = get_origin(field_type)
+        if origin is not None:
+            args = get_args(field_type)
+            if args:
+                inner_type = args[0]
+                if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
+                    return inner_type
+        elif isinstance(field_type, type) and issubclass(field_type, BaseModel):
+            return field_type
+        return None
+
+    def _extract_model_schema(self, model_class: type[BaseModel]) -> dict[str, str]:
+        schema: dict[str, str] = {}
+        for field_name, field_info in model_class.model_fields.items():
+            description = field_info.description or f"The {field_name} field"
+            note = self._attachment_note_for_annotation(field_info.annotation)
+            if note:
+                description = f"{description}. {note}" if description else note
+            schema[field_name] = description
+        return schema
+
+    def _format_fields_recursive(
+        self,
+        model_class: type[BaseModel],
+        indent: int = 0,
+        visited: set[type[BaseModel]] | None = None,
+    ) -> list[str]:
+        if visited is None:
+            visited = set()
+        if model_class in visited:
+            return []
+        visited.add(model_class)
+
+        schema = self._extract_model_schema(model_class)
+        lines: list[str] = []
+        indent_str = " " * indent
+
+        lines.append(f"{indent_str}{model_class.__name__}")
+        for field_name, description in schema.items():
+            field = model_class.model_fields[field_name]
+            field_annotation = field.annotation
+            type_name = self._get_type_name(field_annotation)
+            desc = description or f"The {field_name} field"
+            lines.append(f"{indent_str}  - `<{field_name}>` ({type_name}): {desc}")
+
+            nested_model = self._get_model_type_from_annotation(field_annotation)
+            if nested_model:
+                nested_lines = self._format_fields_recursive(
+                    nested_model, indent + 4, visited
+                )
+                lines.extend(nested_lines)
+
+        return lines
+
+    def _format_model_schema(self, model_class: type[BaseModel]) -> str | None:
+        lines = self._format_fields_recursive(model_class)
+        if not lines:
+            return None
+        return "\n".join(lines)
+
+
+class _InputModelView(_InputShared):
+    """Operations that require a concrete model instance."""
+
+    def __init__(self, instance: BaseModel) -> None:
+        super().__init__(instance.__class__)
+        self.instance = instance
+
+    def build_system_instructions(
+        self,
+        *,
+        candidate: dict[str, str] | None,
+    ) -> str:
+        instructions = self._get_effective_text(
+            "instructions", self.model_cls.__doc__ or "", candidate
+        )
+
+        instruction_sections: list[str] = []
+        suffix_parts: list[str] = []
+        input_lines: list[str] = []
+        schema_descriptions: dict[type[BaseModel], str] = {}
+
+        if instructions:
+            instruction_sections.append(instructions.strip())
+
+        for field_name, field_info in self.model_cls.model_fields.items():
+            if self._is_suffix_field(field_info):
+                default_suffix = (
+                    field_info.default if field_info.default is not None else ""
+                )
+                suffix_text = self._get_effective_text(
+                    field_name, str(default_suffix), candidate
+                )
+                if suffix_text:
+                    suffix_parts.append(suffix_text)
+                continue
+
+            default_desc = field_info.description or f"The {field_name} input"
+            field_desc = self._get_effective_text(
+                f"{field_name}:desc", default_desc, candidate
+            )
+            note = self._attachment_note_for_annotation(field_info.annotation)
+            if note:
+                field_desc = f"{field_desc}. {note}" if field_desc else note
+
+            if field_desc:
+                type_name = self._get_type_name(field_info.annotation)
+                input_lines.append(f"- `<{field_name}>` ({type_name}): {field_desc}")
+
+            model_type = self._get_model_type_from_annotation(field_info.annotation)
+            if model_type and model_type not in schema_descriptions:
+                schema_desc = self._format_model_schema(model_type)
+                if schema_desc:
+                    schema_descriptions[model_type] = schema_desc
+
+        if input_lines:
+            instruction_sections.append("Inputs")
+            instruction_sections.append("\n".join(input_lines))
+
+        if schema_descriptions:
+            instruction_sections.append("Schemas")
+            instruction_sections.append("\n\n".join(schema_descriptions.values()))
+
+        if suffix_parts:
+            suffix_text = "\n".join(part.strip() for part in suffix_parts if part)
+            if suffix_text:
+                instruction_sections.append(suffix_text)
+
+        return "\n\n".join(
+            section.strip() for section in instruction_sections if section.strip()
+        )
+
+    def build_user_content(self) -> Sequence[UserContent]:
+        content_sections: list[str] = []
+        registry = _AttachmentRegistry()
+
+        for field_name, field_info in self.model_cls.model_fields.items():
+            field_value = getattr(self.instance, field_name)
+
+            if field_value is None:
+                continue
+
+            if self._is_suffix_field(field_info):
+                continue
+
+            transformed_value = self._replace_attachments_with_refs(
+                field_value, registry
+            )
+            formatted_value = self._format_field_value_xml(field_name, transformed_value)
+            if formatted_value:
+                content_sections.append(formatted_value)
+
+        full_prompt = "\n\n".join(
+            section.strip() for section in content_sections if section.strip()
+        )
+        user_content: list[UserContent] = []
+        user_content.extend(registry.attachments)
+        if full_prompt:
+            for placeholder in registry.placeholders:
+                escaped = html.escape(placeholder, quote=False)
+                full_prompt = full_prompt.replace(escaped, placeholder)
+            user_content.append(full_prompt)
+        return user_content
 
     def _replace_attachments_with_refs(
         self,
         value: Any,
-        registry: "_AttachmentRegistry",
+        registry: _AttachmentRegistry,
     ) -> Any:
-        """Replace multimodal attachment objects with textual references.
-
-        Args:
-            value: Original field value.
-            registry: Attachment registry that tracks encountered resources.
-
-        Returns:
-            Value with multimodal content replaced by placeholder references.
-        """
         if isinstance(
             value, (ImageUrl, VideoUrl, AudioUrl, DocumentUrl, BinaryContent)
         ):
@@ -363,452 +496,77 @@ class Signature(BaseModel):
 
         return value
 
-    def _format_field_value(
-        self, field_name: str, field_value: Any
-    ) -> tuple[str, str | None]:
-        """Format a field value for inclusion in user content."""
+    def _format_field_value_xml(
+        self,
+        field_name: str,
+        field_value: Any,
+    ) -> str | None:
+        if field_value is None:
+            return None
 
-        # Lists of BaseModels retain the existing XML formatting for readability
         if self._is_list_of_models(field_value):
+            if not field_value:
+                return f"<{field_name}></{field_name}>"
+
             item_class = field_value[0].__class__
-            formatted = format_as_xml(
+            return format_as_xml(
                 field_value,
                 root_tag=field_name,
                 item_tag=item_class.__name__,
                 indent="  ",
             )
-            return "xml", formatted
 
-        # Single BaseModel values get JSON for structure
-        if isinstance(field_value, BaseModel):
-            return (
-                "json",
-                json.dumps(field_value.model_dump(), indent=2, ensure_ascii=False),
-            )
-
-        # Dictionaries: default to pretty JSON for consistency
-        if isinstance(field_value, dict):
-            return "json", json.dumps(field_value, indent=2, ensure_ascii=False)
-
-        # Lists: use bullet list if all elements are simple scalars
-        if isinstance(field_value, list):
-            if not field_value:
-                return "json", "[]"
-
-            if all(self._is_simple_scalar(item) for item in field_value):
-                lines = "\n".join(f"- {item}" for item in field_value)
-                return "list", lines
-
-            if all(isinstance(item, BaseModel) for item in field_value):
-                # Already handled above, but keep for safety
-                item_class = field_value[0].__class__
-                formatted = format_as_xml(
-                    field_value,
-                    root_tag=field_name,
-                    item_tag=item_class.__name__,
-                    indent="  ",
-                )
-                return "xml", formatted
-
-            return "json", json.dumps(field_value, indent=2, ensure_ascii=False)
-
-        # Strings get wrapped in fenced blocks if multiline
-        if isinstance(field_value, str):
-            if "\n" in field_value:
-                return "text", field_value
-            return "text", field_value
-
-        # Numbers and booleans fall back to plain text
-        if isinstance(field_value, (int, float, bool)):
-            return "text", str(field_value)
-
-        # Fallback to JSON serialization when possible
-        try:
-            return "json", json.dumps(field_value, indent=2, ensure_ascii=False)
-        except TypeError:
-            return "text", str(field_value)
-
-    @staticmethod
-    def _render_field_section(
-        field_label: str, format_label: str, formatted_value: str
-    ) -> str:
-        """Render a field section with format metadata and fenced content when needed."""
-
-        fence = Signature._choose_fence(format_label)
-
-        if format_label == "text" and "\n" not in formatted_value:
-            return f"{field_label}: {formatted_value}"
-
-        suffix = (
-            "" if format_label in {"text", "", "list"} else f" ({format_label.upper()})"
-        )
-        heading = f"{field_label}{suffix}"
-
-        if fence:
-            return (
-                f"{heading}\n"
-                f"{fence}{format_label if format_label not in {'text', ''} else ''}\n"
-                f"{formatted_value}\n{fence}"
-            )
-
-        return f"{heading}\n{formatted_value}"
-
-    @staticmethod
-    def _choose_fence(format_label: str) -> str:
-        """Choose an appropriate code fence delimiter based on the format label."""
-
-        if format_label in {"json", "jsonl", "yaml", "xml"}:
-            return "```"
-        if format_label in {"text", "list"}:
-            return ""
-        return "```"
-
-    @staticmethod
-    def _is_list_of_models(value: Any) -> bool:
-        """Check whether a value is a list of BaseModel instances."""
-
-        return (
-            isinstance(value, list)
-            and bool(value)
-            and all(isinstance(item, BaseModel) for item in value)
+        return format_as_xml(
+            field_value,
+            root_tag=field_name,
+            item_tag="item",
+            indent="  ",
         )
 
-    @staticmethod
-    def _is_simple_scalar(value: Any) -> bool:
-        """Return True if the value is a simple scalar type suitable for bullet lists."""
 
-        return isinstance(value, (str, int, float, bool)) or value is None
+class _InputClassView(_InputShared):
+    """Operations that only need the model class."""
 
-    @staticmethod
-    def _format_field_label(field_name: str) -> str:
-        """Convert a field name into a human-friendly label."""
-
-        parts = field_name.replace("_", " ").strip().split()
-        if not parts:
-            return field_name
-        return " ".join(part.capitalize() for part in parts)
-
-    @staticmethod
-    def _is_suffix_field(field_info: Any) -> bool:
-        """Check if a field is marked with SignatureSuffix annotation.
-
-        Args:
-            field_info: The Pydantic field info object
-
-        Returns:
-            True if the field is annotated with SignatureSuffix
-        """
-        # Pydantic stores the metadata from Annotated types in field_info.metadata
-        if getattr(field_info, "metadata", None):
-            # Check if SignatureSuffix is in the metadata
-            return SignatureSuffix in field_info.metadata or any(
-                isinstance(m, type) and issubclass(m, SignatureSuffix)
-                for m in field_info.metadata
-            )
-
-        return False
-
-    @staticmethod
-    def _extract_model_schema(model_class: type[BaseModel]) -> dict[str, str]:
-        """Extract field descriptions from a Pydantic model.
-
-        Args:
-            model_class: The Pydantic model class to extract schema from.
-
-        Returns:
-            A dictionary mapping field names to their descriptions.
-        """
-        schema: dict[str, str] = {}
-        for field_name, field_info in model_class.model_fields.items():
-            description = field_info.description or f"The {field_name} field"
-            note = Signature._attachment_note_for_annotation(field_info.annotation)
-            if note:
-                description = f"{description}. {note}" if description else note
-            schema[field_name] = description
-        return schema
-
-    @staticmethod
-    def _format_model_schema(
-        model_class: type[BaseModel], indent: str = "", visited: set[type] | None = None
-    ) -> str:
-        """Format a Pydantic model's schema as a readable description.
-
-        Args:
-            model_class: The Pydantic model class to format.
-            indent: Indentation string for formatting.
-            visited: Set of already visited model classes to avoid infinite recursion.
-
-        Returns:
-            A formatted string describing the model's fields.
-        """
-        if visited is None:
-            visited = set()
-
-        # Avoid infinite recursion for self-referential models
-        if model_class in visited:
-            return ""
-        visited.add(model_class)
-
-        schema = Signature._extract_model_schema(model_class)
-        if not schema:
-            return ""
-
-        # Make the connection to XML elements explicit with lowercase tag names
-        lines = [f"{indent}Each <{model_class.__name__}> element contains:"]
-
-        # Process each field and recursively handle nested models
-        lines.extend(Signature._format_fields_recursive(model_class, indent, visited))
-
-        return "\n".join(lines)
-
-    @staticmethod
-    def _format_fields_recursive(
-        model_class: type[BaseModel],
-        indent: str = "",
-        visited: set[type] | None = None,
-        base_indent: str = "",
-    ) -> list[str]:
-        """Recursively format fields of a model, handling nested models inline.
-
-        Args:
-            model_class: The Pydantic model class to format fields for.
-            indent: Current indentation level for the field list.
-            visited: Set of already visited model classes to avoid infinite recursion.
-            base_indent: Base indentation for nested fields (accumulates with depth).
-
-        Returns:
-            List of formatted field lines.
-        """
-        if visited is None:
-            visited = set()
-
-        lines: list[str] = []
-        schema = Signature._extract_model_schema(model_class)
-
-        for field_name, description in schema.items():
-            lines.append(f"{indent}- <{field_name}>: {description}")
-
-            # Check if this field is a nested Pydantic model
-            field_info = model_class.model_fields.get(field_name)
-            if field_info:
-                # Get the actual type, handling Optional and List types
-                field_type = field_info.annotation
-                origin = getattr(field_type, "__origin__", None)
-
-                nested_model_type = None
-                # Handle Optional[Model] or List[Model]
-                if origin is not None:
-                    args = getattr(field_type, "__args__", ())
-                    if args:
-                        # For Optional, Union, List, etc., get the first argument
-                        inner_type = args[0]
-                        # Check if it's a BaseModel subclass
-                        if isinstance(inner_type, type) and issubclass(
-                            inner_type, BaseModel
-                        ):
-                            nested_model_type = inner_type
-                # Handle direct Model type
-                elif isinstance(field_type, type) and issubclass(field_type, BaseModel):
-                    nested_model_type = field_type
-
-                # If we found a nested model, recursively format its fields
-                if nested_model_type and nested_model_type not in visited:
-                    visited_copy = visited.copy()
-                    visited_copy.add(nested_model_type)
-                    nested_lines = Signature._format_fields_recursive(
-                        nested_model_type,
-                        indent + "  ",  # Increase indentation for nested fields
-                        visited_copy,
-                        base_indent + "  ",
-                    )
-                    lines.extend(nested_lines)
-
-        return lines
-
-    @staticmethod
-    def _attachment_note_for_annotation(annotation: Any) -> str | None:
-        labels = Signature._collect_attachment_labels(annotation)
-        if not labels:
-            return None
-
-        placeholders = ", ".join(
-            f'<{label} ref="{label}N"/>' for label in sorted(labels)
-        )
-        return (
-            "Attached resources are referenced with placeholders like "
-            f"{placeholders} where N matches the order the resource was attached."
-        )
-
-    @staticmethod
-    def _collect_attachment_labels(annotation: Any) -> set[str]:
-        labels: set[str] = set()
-        if annotation is None:
-            return labels
-
-        if isinstance(annotation, type):
-            for attachment_type, label in ATTACHMENT_TYPE_TO_LABEL.items():
-                try:
-                    if issubclass(annotation, attachment_type):
-                        labels.add(label)
-                        return labels
-                except TypeError:
-                    continue
-
-        origin = get_origin(annotation)
-        if origin is None:
-            return labels
-
-        args = get_args(annotation)
-        if origin is Annotated and args:
-            return Signature._collect_attachment_labels(args[0])
-
-        for arg in args:
-            labels.update(Signature._collect_attachment_labels(arg))
-
-        return labels
-
-    @staticmethod
-    def _get_model_type_from_annotation(field_type: Any) -> type[BaseModel] | None:
-        """Get the Pydantic model type from a field annotation.
-
-        Args:
-            field_type: The field type annotation to check.
-
-        Returns:
-            The Pydantic model class if applicable, None otherwise.
-        """
-        if field_type is None:
-            return None
-
-        # Get the origin for generic types
-        origin = get_origin(field_type)
-
-        # Handle Optional[Model], List[Model], etc.
-        if origin is not None:
-            args = get_args(field_type)
-            if args:
-                # For Optional, Union, List, etc., check the first argument
-                inner_type = args[0]
-                # Check if it's a BaseModel subclass
-                if isinstance(inner_type, type) and issubclass(inner_type, BaseModel):
-                    return inner_type
-        # Handle direct Model type
-        elif isinstance(field_type, type) and issubclass(field_type, BaseModel):
-            return field_type
-
-        return None
-
-    @staticmethod
-    def _get_model_type(field_value: Any) -> type[BaseModel] | None:
-        """Get the Pydantic model type from a field value.
-
-        Args:
-            field_value: The field value to check.
-
-        Returns:
-            The Pydantic model class if applicable, None otherwise.
-        """
-        if isinstance(field_value, BaseModel):
-            return field_value.__class__
-        elif isinstance(field_value, list) and field_value:
-            # Check if it's a list of Pydantic models
-            first_item = field_value[0]  # type: ignore[no-any-return]
-            if isinstance(first_item, BaseModel):
-                return first_item.__class__
-        return None
-
-    @classmethod
-    def get_gepa_components(cls) -> dict[str, str]:
-        """Extract GEPA components from this signature class.
-
-        Returns:
-            Dictionary mapping component names to their default text values.
-        """
+    def get_gepa_components(self) -> dict[str, str]:
         components: dict[str, str] = {}
-        class_name = cls.__name__
 
-        if cls.__doc__:
-            # Add the instructions component with class name
-            components[f"signature:{class_name}:instructions"] = cls.__doc__ or ""
+        if self.model_cls.__doc__:
+            components[
+                f"signature:{self.model_cls.__name__}:instructions"
+            ] = self.model_cls.__doc__ or ""
 
-        # Add field description components
-        for field_name, field_info in cls.model_fields.items():
-            # Use pydantic's description field
+        for field_name, field_info in self.model_cls.model_fields.items():
             desc = field_info.description or f"The {field_name} input"
-            components[f"signature:{class_name}:{field_name}:desc"] = desc
+            components[f"signature:{self.model_cls.__name__}:{field_name}:desc"] = desc
 
         return components
 
-    @classmethod
-    def apply_candidate(cls, candidate: dict[str, str] | None) -> None:
-        """Apply a GEPA candidate to this signature class.
-
-        This modifies the class in-place with the optimized text.
-
-        Args:
-            candidate: GEPA candidate with optimized text for components.
-        """
-        class_name = cls.__name__
+    @contextmanager
+    def apply_candidate(
+        self,
+        candidate: dict[str, str] | None,
+    ) -> Iterator[None]:
         if candidate is None:
+            yield
             return
 
-        # Update instructions if present in candidate
-        instructions_key = f"signature:{class_name}:instructions"
-        if instructions_key in candidate:
-            cls.__doc__ = candidate[instructions_key]
+        original_instructions = self.model_cls.__doc__
+        original_descs: dict[str, str] = {}
 
-        # Update field descriptions
-        for field_name, field_info in cls.model_fields.items():
-            desc_key = f"signature:{class_name}:{field_name}:desc"
-            if desc_key in candidate:
-                # Update the pydantic description field
-                field_info.description = candidate[desc_key]
+        for field_name, field_info in self.model_cls.model_fields.items():
+            original_descs[field_name] = field_info.description or ""
 
+        try:
+            instructions_key = f"signature:{self.model_cls.__name__}:instructions"
+            if instructions_key in candidate:
+                self.model_cls.__doc__ = candidate[instructions_key]
 
-@contextmanager
-def apply_candidate_to_signature(
-    signature_class: type[Signature],
-    candidate: dict[str, str] | None,
-) -> Iterator[None]:
-    """Context manager to temporarily apply a GEPA candidate to a signature.
-
-    Args:
-        signature_class: The Signature class to modify.
-        candidate: GEPA candidate with optimized text.
-
-    Yields:
-        None while the candidate is applied.
-    """
-    # Save original state
-    original_instructions = signature_class.__doc__
-    original_descs: dict[str, str] = {}
-
-    for field_name, field_info in signature_class.model_fields.items():
-        original_descs[field_name] = field_info.description or ""
-
-    try:
-        # Apply the candidate
-        signature_class.apply_candidate(candidate)
-        yield
-    finally:
-        # Restore original state
-        signature_class.__doc__ = original_instructions
-        for field_name, field_info in signature_class.model_fields.items():
-            field_info.description = original_descs.get(field_name, "")
-
-
-def extract_signature_components(
-    signatures: Sequence[type[Signature]],
-) -> dict[str, str]:
-    """Extract all GEPA components from multiple signature classes.
-
-    Args:
-        signatures: List of Signature classes to extract from.
-
-    Returns:
-        Combined dictionary of all components.
-    """
-    all_components: dict[str, str] = {}
-    for sig_class in signatures:
-        all_components.update(sig_class.get_gepa_components())
-    return all_components
+            for field_name, field_info in self.model_cls.model_fields.items():
+                desc_key = f"signature:{self.model_cls.__name__}:{field_name}:desc"
+                if desc_key in candidate:
+                    field_info.description = candidate[desc_key]
+            yield
+        finally:
+            self.model_cls.__doc__ = original_instructions
+            for field_name, field_info in self.model_cls.model_fields.items():
+                field_info.description = original_descs.get(field_name, "")

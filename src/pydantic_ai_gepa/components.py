@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 
-from .signature import Signature, apply_candidate_to_signature
+from .signature import InputSpec, build_input_spec
+from .signature_agent import SignatureAgent
+from .tool_components import get_tool_optimizer
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -51,6 +54,14 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     else:
         candidate["instructions"] = ""
 
+    if isinstance(agent, SignatureAgent):
+        if agent.optimize_tools:
+            candidate.update(agent.get_tool_components())
+    else:
+        optimizer = get_tool_optimizer(agent)
+        if optimizer:
+            candidate.update(optimizer.get_seed_components())
+
     return candidate
 
 
@@ -71,21 +82,20 @@ def apply_candidate_to_agent(
     Returns:
         A context manager for the temporary override.
     """
-    instructions_raw = candidate.get("instructions", None) if candidate else None
-    instructions = (
-        normalize_component_text(instructions_raw)
-        if instructions_raw
-        else instructions_raw
-    )
-    if not instructions:
-        yield
-        return
+    instructions_raw = candidate.get("instructions") if candidate else None
+    instructions = normalize_component_text(instructions_raw) if instructions_raw else None
 
     target_agent = agent
     if isinstance(agent, WrapperAgent):
         target_agent = agent.wrapped
 
-    with target_agent.override(instructions=instructions):
+    optimizer = get_tool_optimizer(agent)
+
+    with ExitStack() as stack:
+        if optimizer:
+            stack.enter_context(optimizer.candidate_context(candidate))
+        if instructions:
+            stack.enter_context(target_agent.override(instructions=instructions))
         yield
 
 
@@ -98,12 +108,24 @@ def get_component_names(agent: AbstractAgent[Any, Any]) -> list[str]:
     Returns:
         List of component names that can be optimized.
     """
-    components: list[str] = []
+    components: list[str] = ["instructions"]
 
-    # Instructions are always optimizable (even if empty)
-    components.append("instructions")
+    optimizer = get_tool_optimizer(agent)
+    if isinstance(agent, SignatureAgent) and not agent.optimize_tools:
+        optimizer = None
 
-    return components
+    if optimizer:
+        components.extend(optimizer.get_component_keys())
+
+    # Preserve order but ensure uniqueness
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for component in components:
+        if component not in seen:
+            deduped.append(component)
+            seen.add(component)
+
+    return deduped
 
 
 def validate_components(
@@ -135,13 +157,13 @@ def validate_components(
 
 def extract_seed_candidate_with_signature(
     agent: AbstractAgent[Any, Any],
-    signature_class: type[Signature] | None = None,
+    input_type: InputSpec[BaseModel] | None = None,
 ) -> dict[str, str]:
     """Extract initial prompts from an agent and optionally a signature as a GEPA candidate.
 
     Args:
         agent: The agent to extract prompts from.
-        signature_class: Optional single Signature class to extract from.
+        input_type: Optional structured input specification to extract from.
 
     Returns:
         Combined dictionary of all components and their initial text.
@@ -152,9 +174,9 @@ def extract_seed_candidate_with_signature(
     candidate.update(extract_seed_candidate(agent))
 
     # Extract from signature if provided
-    if signature_class:
-        # Use the signature's own extraction method to ensure consistency
-        candidate.update(signature_class.get_gepa_components())
+    if input_type:
+        spec = build_input_spec(input_type)
+        candidate.update(spec.get_gepa_components())
 
     return candidate
 
@@ -163,7 +185,7 @@ def extract_seed_candidate_with_signature(
 def apply_candidate_to_agent_and_signature(
     candidate: dict[str, str] | None,
     agent: AbstractAgent[Any, Any],
-    signature_class: type[Signature] | None = None,
+    input_type: InputSpec[BaseModel] | None = None,
 ) -> Iterator[None]:
     """Apply a GEPA candidate to an agent and optionally a signature.
 
@@ -173,7 +195,7 @@ def apply_candidate_to_agent_and_signature(
     Args:
         candidate: The candidate mapping component names to text.
         agent: The agent to apply prompts to.
-        signature_class: Optional single Signature class to apply to.
+        input_type: Optional structured input specification to apply to.
 
     Yields:
         None while the candidate is applied.
@@ -185,9 +207,8 @@ def apply_candidate_to_agent_and_signature(
         stack.enter_context(apply_candidate_to_agent(agent, candidate))
 
         # Apply to signature if provided
-        if signature_class:
-            stack.enter_context(
-                apply_candidate_to_signature(signature_class, candidate)
-            )
+        if input_type:
+            spec = build_input_spec(input_type)
+            stack.enter_context(spec.apply_candidate(candidate))
 
         yield

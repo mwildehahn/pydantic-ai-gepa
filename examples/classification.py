@@ -10,9 +10,8 @@ from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModel
 from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent_prompts
-from pydantic_ai_gepa.signature import Signature
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithSignature, RolloutOutput
+from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -20,7 +19,7 @@ logfire.instrument_httpx(capture_all=True)
 
 
 # Create a basic signature for the classification task
-class ClassificationInput(Signature):
+class ClassificationInput(BaseModel):
     text: str = Field(description="The text to classify")
 
 
@@ -240,8 +239,8 @@ dataset = Dataset[ClassificationInput, ClassificationOutput](
 # Use a diverse set of challenging cases for training
 # Include examples from different categories to help the model learn the nuanced steering patterns
 signature_dataset = [
-    DataInstWithSignature[ClassificationInput](
-        signature=case.inputs,
+    DataInstWithInput[ClassificationInput](
+        input=case.inputs,
         message_history=None,
         metadata={
             "label": case.expected_output.category
@@ -258,10 +257,13 @@ agent = Agent(
     instructions="Classify text sentiment.",  # Intentionally simple to test optimization
     output_type=ClassificationOutput,
 )
-signature_agent = SignatureAgent(agent)
+signature_agent = SignatureAgent(
+    agent,
+    input_type=ClassificationInput,
+)
 
 
-class EvaluationInput(Signature):
+class EvaluationInput(BaseModel):
     """Categorized text"""
 
     text: str = Field(description="The text provided to the student model")
@@ -292,11 +294,14 @@ eval_agent = Agent(
     instructions="Provide a score between 0 and 1 for how well the model categorizes the text into positive, negative, or neutral.",
     output_type=EvaluationOutput,
 )
-eval_signature_agent = SignatureAgent(eval_agent)
+eval_signature_agent = SignatureAgent(
+    eval_agent,
+    input_type=EvaluationInput,
+)
 
 
 def metric(
-    data_inst: DataInstWithSignature[ClassificationInput],
+    data_inst: DataInstWithInput[ClassificationInput],
     output: RolloutOutput[ClassificationOutput],
 ) -> tuple[float, str | None]:
     if (
@@ -308,7 +313,7 @@ def metric(
         return 1.0, "Correct"
 
     eval_signature = EvaluationInput(
-        text=data_inst.signature.text,
+        text=data_inst.input.text,
         error_message=output.error_message,
         category=output.result.category
         if output.result
@@ -352,7 +357,7 @@ if __name__ == "__main__":
         valset=signature_dataset[15:],
         module_selector="all",
         metric=metric,
-        signature_class=ClassificationInput,
+        input_type=ClassificationInput,
         reflection_model=reflection_model,
         max_metric_calls=200,
         display_progress_bar=True,

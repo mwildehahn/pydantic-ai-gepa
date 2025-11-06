@@ -1,6 +1,6 @@
 # pydantic-ai-gepa
 
-[GEPA-driven](https://github.com/gepa-ai/gepa) prompt optimization tools for [pydantic-ai](https://github.com/pydantic/pydantic-ai). The library wraps GEPA's reflective search so agent authors can iterate on prompts, signatures, and evaluation metrics without leaving the pydantic-ai ecosystem. This is heavily influenced by [dspy](https://github.com/stanfordnlp/dspy). We've adapted their concept of a `Signature` to work with pydantic-ai's inputs / outputs.
+[GEPA-driven](https://github.com/gepa-ai/gepa) prompt optimization tools for [pydantic-ai](https://github.com/pydantic/pydantic-ai). The library wraps GEPA's reflective search so agent authors can iterate on prompts, structured inputs, and evaluation metrics without leaving the pydantic-ai ecosystem. This is heavily influenced by [dspy](https://github.com/stanfordnlp/dspy). We've adapted their concept of a structured input spec to work with pydantic-ai's inputs/outputs.
 
 This is still very much an experimental work in progress and depends on this PR awaiting to be merged to pydantic-ai: https://github.com/pydantic/pydantic-ai/pull/2926.
 
@@ -14,7 +14,8 @@ This is still very much an experimental work in progress and depends on this PR 
 
 1. Install dependencies: `uv sync --all-extras`
 2. Run the sentiment example: `uv run python examples/classification.py`
-3. Inspect outputs under `optimization_results/` to compare candidates and scores.
+3. Run the tool-using math example: `uv run python examples/math_tools.py`
+4. Inspect outputs under `optimization_results/` to compare candidates and scores.
 
 ## Project Layout
 

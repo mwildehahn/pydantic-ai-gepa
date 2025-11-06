@@ -26,6 +26,7 @@ from .components import (
     extract_seed_candidate_with_signature,
     normalize_component_text,
 )
+from .signature import InputSpec
 from .types import DataInst, RolloutOutput
 
 # Type variable for the DataInst type
@@ -34,8 +35,6 @@ DataInstT = TypeVar("DataInstT", bound=DataInst)
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
     from pydantic_ai.models import Model
-
-    from .signature import Signature
 
 
 def _normalize_candidate(
@@ -105,19 +104,19 @@ class GepaOptimizationResult(BaseModel):
         self,
         *,
         agent: AbstractAgent[Any, Any],
-        signature_class: type[Signature] | None = None,
+        input_type: InputSpec[BaseModel] | None = None,
     ) -> Iterator[None]:
         """Apply the best candidate to an agent and optional signature.
 
         Args:
             agent: The agent to apply the best candidate to.
-            signature_class: Optional Signature class to also apply the candidate to.
+            input_type: Optional structured input specification to also apply the candidate to.
 
         Yields:
             None while the context is active.
         """
         with apply_candidate_to_agent_and_signature(
-            self.best_candidate, agent=agent, signature_class=signature_class
+            self.best_candidate, agent=agent, input_type=input_type
         ):
             yield
 
@@ -139,7 +138,7 @@ def optimize_agent_prompts(
     *,
     metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
     valset: Sequence[DataInstT] | None = None,
-    signature_class: type[Signature] | None = None,
+    input_type: InputSpec[BaseModel] | None = None,
     seed_candidate: dict[str, str] | None = None,
     # Reflection-based configuration
     reflection_lm: LanguageModel | None = None,
@@ -190,8 +189,8 @@ def optimize_agent_prompts(
                 The feedback (second element of tuple) is optional but recommended.
                 If provided, it will be used to guide the optimization process.
         valset: Optional validation dataset. If not provided, trainset is used.
-        signature_class: Optional Signature class whose instructions and field descriptions
-            should be optimized alongside the agent's prompts.
+        input_type: Optional structured input specification whose instructions and
+            field descriptions should be optimized alongside the agent's prompts.
 
         # Reflection-based configuration
         reflection_lm: LanguageModel to use for reflection (proposing new prompts).
@@ -258,7 +257,7 @@ def optimize_agent_prompts(
     extracted_seed_candidate = _normalize_candidate(
         extract_seed_candidate_with_signature(
             agent=agent,
-            signature_class=signature_class,
+            input_type=input_type,
         )
     )
     if seed_candidate is None:
@@ -283,7 +282,7 @@ def optimize_agent_prompts(
     adapter = PydanticAIGEPAAdapter(
         agent=agent,
         metric=metric,
-        signature_class=signature_class,
+        input_type=input_type,
         reflection_sampler=reflection_sampler,
         reflection_model=reflection_model,
         cache_manager=cache_manager,
