@@ -46,26 +46,50 @@ EVAL_GLOBALS: dict[str, Any] = {
 }
 
 
-def evaluate_expression(expression: str) -> tuple[float, str]:
-    """Evaluate a Python expression inside the constrained math sandbox."""
-    stripped = expression.strip()
+def evaluate_code(code: str) -> tuple[float, str]:
+    """Evaluate Python code inside the constrained math sandbox.
+
+    The code can contain multiple statements. The last line should evaluate to a numeric result.
+    """
+    stripped = code.strip()
     if not stripped:
-        raise ValueError("Expression is empty.")
+        raise ValueError("Code is empty.")
+
+    # Create a local namespace for execution
+    local_namespace: dict[str, Any] = {}
 
     try:
-        compiled = compile(stripped, "<python_eval>", "eval")
+        # Try to compile as exec (allows multiple statements)
+        compiled = compile(stripped, "<python_eval>", "exec")
+        exec(compiled, EVAL_GLOBALS, local_namespace)
+
+        # Get the result from the last expression or from a 'result' variable
+        if "result" in local_namespace:
+            result = local_namespace["result"]
+        else:
+            # If no 'result' variable, try to evaluate the last line as an expression
+            lines = stripped.split("\n")
+            last_line = lines[-1].strip()
+            if last_line and not last_line.startswith("#"):
+                try:
+                    result = eval(last_line, EVAL_GLOBALS, local_namespace)
+                except Exception:
+                    raise ValueError(
+                        "Code must end with an expression or assign the final value to 'result'"
+                    )
+            else:
+                raise ValueError(
+                    "Code must end with an expression or assign the final value to 'result'"
+                )
     except SyntaxError as exc:
-        raise ValueError(
-            f"Expression must be a valid Python expression: {exc}"
-        ) from exc
-
-    try:
-        result = eval(compiled, EVAL_GLOBALS, {})
+        raise ValueError(f"Code must be valid Python: {exc}") from exc
     except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"Expression raised an error: {exc}") from exc
+        if isinstance(exc, ValueError):
+            raise
+        raise ValueError(f"Code raised an error: {exc}") from exc
 
     if isinstance(result, bool):
-        raise ValueError("Expression returned a boolean, expected a numeric result.")
+        raise ValueError("Code returned a boolean, expected a numeric result.")
 
     if isinstance(result, Decimal):
         numeric = float(result)
@@ -85,21 +109,19 @@ def evaluate_expression(expression: str) -> tuple[float, str]:
 
 
 class MathProblemInput(BaseModel):
-    """A structured math prompt describing the calculation to perform."""
-
     problem: str = Field(
-        description="The math task that needs an exact numeric answer."
+        description="A math problem that needs an exact numeric answer."
     )
 
 
 class MathProblemOutput(BaseModel):
-    """The solved value and the expression that produced it."""
+    """The solved value and the code that produced it."""
 
     explanation: str = Field(
-        description="Two sentences max summarizing how the expression solves the problem."
+        description="Two sentences max summarizing how the code solves the problem."
     )
     expression: str = Field(
-        description="The Python expression evaluated via python_eval."
+        description="The Python code evaluated via python_eval (can be multi-line)."
     )
     answer: float = Field(description="Numeric answer rounded only if necessary.")
 
@@ -112,7 +134,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.comb(100, 5)",
         "expected": 75_287_520.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 1,
         "feedback": "Use the combinatorics function from the math module to compute binomial coefficients directly.",
     },
     {
@@ -121,7 +142,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(int(d) for d in str(2 ** 200))",
         "expected": 256.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 1,
         "feedback": "Convert the large integer to a string first, then sum each digit character after converting back to int.",
     },
     {
@@ -130,7 +150,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.prod([2, 3, 5, 7, 11, 13, 17, 19, 23, 29])",
         "expected": 6_469_693_230.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 1,
         "feedback": "Use the product aggregation function from the math module to multiply list elements.",
     },
     # TIER 2: Conceptual ambiguity cases (boundary interpretation)
@@ -140,7 +159,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(11, 20))",
         "expected": 135.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "The phrase 'between A and B' typically excludes both endpoints. Verify whether the count matches your interpretation.",
     },
     {
@@ -149,7 +167,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(n**2 for n in range(5, 16)) / len(range(5, 16))",
         "expected": 110.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "The phrase 'from A through B' indicates inclusive bounds. Check that your range includes both endpoints.",
     },
     {
@@ -158,7 +175,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.prod(range(2, 13, 2))",
         "expected": 46080.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "The phrase 'up to N' is ambiguous—it may include or exclude N. Verify against the expected result which interpretation is correct.",
     },
     {
@@ -167,7 +183,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "round(math.sqrt(50))",
         "expected": 7.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "Use the rounding function explicitly when the problem requests rounding to a specific precision.",
     },
     {
@@ -176,7 +191,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.floor(100 / 7)",
         "expected": 14.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "Rounded down means floor division. Use the appropriate math function for floor operations.",
     },
     {
@@ -185,7 +199,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(6, 16))",
         "expected": 105.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "Pay attention to strict inequalities (>) versus inclusive inequalities (≤). Translate each bound correctly.",
     },
     # TIER 3: Multi-step reasoning cases
@@ -195,7 +208,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "(lambda primes: sum(primes) * max(primes))([n for n in range(2, 50) if all(n % d for d in range(2, int(n**0.5) + 1))])",
         "expected": 15416.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Break the problem into steps: first identify all primes in the range, then compute the sum and find the maximum, then multiply them.",
     },
     {
@@ -204,7 +216,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(int(d) for d in str(math.factorial(15)))",
         "expected": 45.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Compute the factorial first, convert to string, then sum the individual digit characters.",
     },
     {
@@ -213,7 +224,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "(lambda: [t := [0, 1, 1], [t.append(sum(t[-3:])) for _ in range(17)], t[-1]][2])()",
         "expected": 35890.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Iteratively compute the sequence using a list to track the last three values, updating as you progress.",
     },
     {
@@ -222,7 +232,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.gcd((lambda a, b: abs(a * b) // math.gcd(a, b))((lambda a, b: abs(a * b) // math.gcd(a, b))(12, 18), 24), 144)",
         "expected": 72.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Compute LCM step-by-step for pairs using the formula LCM(a,b) = |a*b|/GCD(a,b), then apply GCD to the final result.",
     },
     {
@@ -231,7 +240,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(1 for k in range(1, 73) if math.gcd(k, 72) == 1)",
         "expected": 24.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Count how many integers in the range have a GCD of 1 with the target number.",
     },
     {
@@ -240,7 +248,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(((-1) ** (n + 1)) * (n ** 2) for n in range(1, 21))",
         "expected": -210.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Use a sign factor that alternates based on the index: positive for odd indices, negative for even.",
     },
     # TIER 4: Adversarial edge cases
@@ -250,7 +257,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.factorial(100) // math.factorial(99)",
         "expected": 100.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "Notice the mathematical identity: n! / (n-1)! = n. Avoid computing huge factorials separately if simplification is possible.",
     },
     {
@@ -259,7 +265,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(20, 10))",
         "expected": 0.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "When the start exceeds the stop in a range, the result is an empty sequence. The sum of an empty sequence is zero.",
     },
     {
@@ -268,7 +273,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(105, 106, 7)) / max(len(range(105, 106, 7)), 1)",
         "expected": 105.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "Only one multiple exists in this narrow range. Ensure you handle single-element averages correctly.",
     },
     {
@@ -277,7 +281,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "(-1)**50 + (-1)**51 + (-1)**52",
         "expected": 1.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "Even powers of -1 yield 1, odd powers yield -1. Sum the results directly.",
     },
 ]
@@ -310,7 +313,6 @@ signature_dataset = [
             "ideal_expression": dataset_case.expected_output.expression
             if dataset_case.expected_output
             else None,
-            "difficulty_tier": CASE_DEFINITIONS[index]["difficulty_tier"],
         },
         case_id=dataset_case.name or f"case-{index}",
     )
@@ -318,10 +320,11 @@ signature_dataset = [
 ]
 
 agent = Agent(
-    model="openai:gpt-5-nano-2025-08-07",
+    model="openai:gpt-5-mini",
     instructions=(
-        "Solve deterministic math problems. Always use the python_eval tool to compute the numeric answer before "
-        "responding. Return JSON with fields: answer, expression, explanation."
+        "Solve math problems using the python_eval tool. "
+        "Write clear Python code with intermediate steps if needed (e.g., factorial = math.factorial(15), then sum digits). "
+        "Call python_eval ONCE with your code, then immediately return the final result."
     ),
     output_type=MathProblemOutput,
 )
@@ -333,14 +336,21 @@ class PythonEvalOutput(BaseModel):
 
 @agent.tool(
     name="python_eval",
-    description="Execute a pure Python expression using math helpers to recover precise numeric answers.",
+    description=(
+        "Execute Python code to compute a numeric answer. "
+        "You can write multiple lines of code with intermediate variables. "
+        "The last line should be an expression that evaluates to the final numeric result, "
+        "or assign the result to a variable named 'result'. "
+        "You have access to the math module (math.factorial, math.comb, math.sqrt, etc.), "
+        "basic built-ins (sum, min, max, range, etc.), and Decimal/Fraction types."
+    ),
 )
 def python_eval_tool(
     ctx: RunContext[Any],
-    expression: str,
+    code: str,
 ) -> PythonEvalOutput:
-    """Evaluate deterministic numeric Python expressions using the math module."""
-    numeric, _ = evaluate_expression(expression)
+    """Evaluate deterministic numeric Python code using the math module."""
+    numeric, _ = evaluate_code(code)
     return PythonEvalOutput(numeric_result=numeric)
 
 
@@ -367,17 +377,17 @@ def metric(
     ideal_expression = data_inst.metadata.get("ideal_expression")
 
     if not expression:
-        hint = "Include the python_eval expression you executed."
+        hint = "Include the python_eval code you executed."
         if ideal_expression:
             hint = f"{hint} For reference, one valid approach is `{ideal_expression}`."
         prefix = f"{base_feedback} " if base_feedback else ""
-        return 0.0, f"{prefix}Missing expression used for python_eval. {hint}"
+        return 0.0, f"{prefix}Missing code used for python_eval. {hint}"
 
     try:
-        evaluated, display = evaluate_expression(expression)
+        evaluated, display = evaluate_code(expression)
     except Exception as exc:  # noqa: BLE001
         prefix = f"{base_feedback} " if base_feedback else ""
-        return 0.0, f"{prefix}Expression could not be evaluated: {exc}"
+        return 0.0, f"{prefix}Code could not be evaluated: {exc}"
 
     answer_gap = abs(predicted - evaluated)
     max_internal_gap = max(tolerance, 1e-9)
@@ -385,7 +395,7 @@ def metric(
         prefix = f"{base_feedback} " if base_feedback else ""
         return (
             0.0,
-            f"{prefix}Reported answer {predicted} disagrees with expression result {display}.",
+            f"{prefix}Reported answer {predicted} disagrees with code result {display}.",
         )
 
     if target is None:
@@ -400,11 +410,11 @@ def metric(
     score = max(0.0, 1.0 - min(normalized_error * 10, 1.0))
     base = base_feedback or "Use python_eval to re-check the computation."
     hint = (
-        f"Expression result {display} deviates from target {target} by {target_gap:.6g}; "
+        f"Code result {display} deviates from target {target} by {target_gap:.6g}; "
         "tighten the computation or adjust rounding."
     )
     if ideal_expression and ideal_expression != expression:
-        hint += f" A reliable expression is `{ideal_expression}`."
+        hint += f" A reliable approach is `{ideal_expression}`."
     feedback = f"{base} {hint}"
     return score, feedback
 
@@ -450,6 +460,7 @@ if __name__ == "__main__":
         json.dump(result.model_dump(), file, indent=2)
 
     print(f"\n✅ Optimization result saved to: {output_file}")
+    print(f"   Original score: {result.original_score:.4f}")
     print(f"   Best score: {result.best_score:.4f}")
     print(f"   Iterations: {result.num_iterations}")
     print(f"   Metric calls: {result.num_metric_calls}")
