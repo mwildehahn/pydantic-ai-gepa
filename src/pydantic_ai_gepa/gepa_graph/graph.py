@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic_graph import Graph
+from pydantic_graph.beta import GraphBuilder, StepContext
 
 from ..adapter import PydanticAIGEPAAdapter
 from .deps import GepaDeps
