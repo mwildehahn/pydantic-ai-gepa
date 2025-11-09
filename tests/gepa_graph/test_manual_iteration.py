@@ -2,95 +2,30 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, cast
 
 import pytest
-from pydantic_ai.messages import UserPromptPart
 
 from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import StartNode
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
-
-
-def _make_dataset(size: int = 3) -> list[DataInstWithPrompt]:
-    return [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"prompt-{idx}"),
-            message_history=None,
-            metadata={},
-            case_id=str(idx),
-        )
-        for idx in range(size)
-    ]
-
-
-@dataclass
-class _EvaluationBatch:
-    outputs: list[RolloutOutput[str]]
-    scores: list[float]
-    trajectories: list[Trajectory] | None
-
-
-class _AdapterStub:
-    def __init__(self) -> None:
-        self.agent = type("Agent", (), {"_instructions": "seed instructions"})()
-        self.input_spec = None
-        self.reflection_model = "reflection-model"
-        self.reflection_sampler = None
-
-    async def evaluate(self, batch, candidate, capture_traces):
-        """Return deterministic scores based on the current candidate."""
-        text = candidate["instructions"]
-        base = 0.85 if text.startswith("improved") else 0.4
-
-        outputs = [RolloutOutput.from_success(f"{text}-{instance.case_id}") for instance in batch]
-        trajectories = (
-            [
-                Trajectory(
-                    messages=[],
-                    final_output=output.result,
-                    instructions=text,
-                )
-                for output in outputs
-            ]
-            if capture_traces
-            else None
-        )
-
-        return _EvaluationBatch(
-            outputs=outputs,
-            scores=[base for _ in batch],
-            trajectories=trajectories,
-        )
-
-
-class _StubProposalGenerator:
-    def __init__(self) -> None:
-        self.calls = 0
-
-    async def propose_texts(self, *, candidate, reflective_data, components, model):
-        self.calls += 1
-        updates: dict[str, str] = {}
-        for component in components:
-            if self.calls == 1:
-                updates[component] = f"improved {component}"
-            else:
-                updates[component] = candidate.components[component].text
-        return updates
+from tests.gepa_graph.utils import (
+    AdapterStub,
+    ProposalGeneratorStub,
+    make_dataset,
+)
 
 
 @pytest.mark.asyncio
 async def test_manual_iteration_flow() -> None:
-    adapter = cast(PydanticAIGEPAAdapter[Any], _AdapterStub())
+    adapter = cast(PydanticAIGEPAAdapter[Any], AdapterStub())
     config = GepaConfig(max_evaluations=30, minibatch_size=2, seed=17)
     deps = create_deps(adapter, config)
-    deps.proposal_generator = cast(Any, _StubProposalGenerator())
+    deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 
     graph = create_gepa_graph(adapter=adapter, config=config)
-    dataset = _make_dataset()
+    dataset = make_dataset()
     state = GepaState(config=config, training_set=dataset, validation_set=dataset)
 
     executed_nodes: list[str] = []
