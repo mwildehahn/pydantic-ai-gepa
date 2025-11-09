@@ -8,7 +8,7 @@ from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, replace
 from threading import Thread
-from typing import Any, Iterable
+from typing import Any, Coroutine, Iterable, Iterator
 
 from pydantic_ai._run_context import RunContext
 from pydantic_ai.agent import AbstractAgent
@@ -21,7 +21,7 @@ from pydantic_ai.usage import RunUsage
 ToolCandidate = dict[str, str]
 
 
-def _run_coro_sync(coro: asyncio.Future[Any] | asyncio.coroutines.Coroutine[Any, Any, Any]) -> Any:
+def _run_coro_sync(coro: Coroutine[Any, Any, Any]) -> Any:
     """Run a coroutine in sync context, even if an event loop is already running."""
     try:
         asyncio.get_running_loop()
@@ -213,7 +213,7 @@ class ToolOptimizationManager:
         return list(components.keys())
 
     @contextmanager
-    def candidate_context(self, candidate: dict[str, str] | None) -> Iterable[None]:
+    def candidate_context(self, candidate: dict[str, str] | None) -> Iterator[None]:
         """Context manager to apply a candidate during tool preparation."""
         filtered = self._filter_candidate(candidate)
         token = self._candidate_var.set(filtered)
@@ -326,4 +326,3 @@ def get_or_create_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimiza
     manager = ToolOptimizationManager(base_agent)
     setattr(base_agent, "_gepa_tool_optimizer", manager)
     return manager
-

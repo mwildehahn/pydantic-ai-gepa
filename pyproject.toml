@@ -20,7 +20,7 @@ requires-python = ">=3.10"
 dependencies = [
     "cloudpickle>=3.0.0",
     "gepa>=0.0.12",
-    "pydantic-ai @ git+file:///Users/mh/labs/pydantic-ai@bcaff91c",
+    "pydantic-ai @ git+file:///Users/mh/labs/pydantic-ai@eeeddc5ec9bb99eaa5bd986aaad2773697aaae24",
 ]
 
 [dependency-groups]
