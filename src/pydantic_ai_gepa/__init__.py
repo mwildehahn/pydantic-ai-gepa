@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
 from .cache import CacheManager, create_cached_metric
+from .openai_inspection import (
+    InspectingOpenAIModel,
+    OpenAIInspectionAborted,
+    OpenAIInspectionSnapshot,
+)
 from .runner import GepaOptimizationResult, optimize_agent_prompts
 from .signature import (
     BoundInputSpec,
@@ -38,6 +43,9 @@ __all__ = [
     "build_input_spec",
     "SignatureSuffix",
     "SignatureAgent",
+    "InspectingOpenAIModel",
+    "OpenAIInspectionAborted",
+    "OpenAIInspectionSnapshot",
 ]
 
 __version__ = "0.1.0"
