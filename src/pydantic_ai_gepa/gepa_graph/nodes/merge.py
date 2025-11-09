@@ -3,18 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, TYPE_CHECKING
 
 from ...types import DataInst
 from ..models import CandidateProgram, GepaState
 from .base import GepaNode, GepaRunContext
+
+if TYPE_CHECKING:
+    from .continue_node import ContinueNode
+    from .evaluate import EvaluateNode
 
 
 @dataclass(slots=True)
 class MergeNode(GepaNode):
     """Attempt to merge two Pareto-front candidates."""
 
-    async def run(self, ctx: GepaRunContext):
+    async def run(self, ctx: GepaRunContext) -> "EvaluateNode | ContinueNode":
         from .continue_node import ContinueNode  # Local import to avoid cycles
         from .evaluate import EvaluateNode
 

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..models import GepaState
 from .base import End, GepaNode, GepaResult, GepaRunContext
-from .merge import MergeNode
-from .reflect import ReflectNode
+
+if TYPE_CHECKING:
+    from .merge import MergeNode
+    from .reflect import ReflectNode
 
 
 @dataclass(slots=True)
@@ -15,6 +18,9 @@ class ContinueNode(GepaNode):
     """Decision point for the GEPA optimization loop."""
 
     async def run(self, ctx: GepaRunContext) -> ReflectNode | MergeNode | End[GepaResult]:
+        from .merge import MergeNode
+        from .reflect import ReflectNode
+
         state = ctx.state
 
         if self._should_stop(state):

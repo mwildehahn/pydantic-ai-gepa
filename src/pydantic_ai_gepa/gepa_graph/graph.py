@@ -9,7 +9,19 @@ from pydantic_graph import Graph
 from ..adapter import PydanticAIGEPAAdapter
 from .deps import GepaDeps
 from .models import GepaConfig, GepaResult, GepaState
-from .nodes import ContinueNode, EvaluateNode, MergeNode, ReflectNode, StartNode
+from .nodes import (
+    ContinueNode,
+    EvaluateNode,
+    MergeNode,
+    ReflectNode,
+    StartNode,
+    continue_node as continue_module,
+    evaluate as evaluate_module,
+    merge as merge_module,
+    reflect as reflect_module,
+    start as start_module,
+)
+
 
 def create_gepa_graph(
     adapter: PydanticAIGEPAAdapter[Any],
@@ -24,18 +36,16 @@ def create_gepa_graph(
     """
     _ = adapter  # Ensures the signature stays aligned with create_deps while unused for now.
 
-    nodes: list[type] = [
-        StartNode,
-        EvaluateNode,
-        ContinueNode,
-        ReflectNode,
-    ]
-
-    if config.use_merge:
-        nodes.append(MergeNode)
+    _ensure_forward_refs()
 
     return Graph(
-        nodes=tuple(nodes),
+        nodes=(
+            StartNode,
+            EvaluateNode,
+            ContinueNode,
+            ReflectNode,
+            MergeNode,
+        ),
         name="gepa_graph",
         state_type=GepaState,
         run_end_type=GepaResult,
@@ -43,3 +53,19 @@ def create_gepa_graph(
 
 
 __all__ = ["create_gepa_graph"]
+
+
+def _ensure_forward_refs() -> None:
+    """Make forward-referenced node types resolvable for typing.get_type_hints."""
+
+    setattr(start_module, "EvaluateNode", EvaluateNode)
+    setattr(evaluate_module, "ContinueNode", ContinueNode)
+
+    setattr(reflect_module, "EvaluateNode", EvaluateNode)
+    setattr(reflect_module, "ContinueNode", ContinueNode)
+
+    setattr(merge_module, "EvaluateNode", EvaluateNode)
+    setattr(merge_module, "ContinueNode", ContinueNode)
+
+    setattr(continue_module, "ReflectNode", ReflectNode)
+    setattr(continue_module, "MergeNode", MergeNode)

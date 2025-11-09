@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Mapping, Sequence, TYPE_CHECKING
 
 from pydantic_ai.models import KnownModelName, Model
 
@@ -12,6 +12,8 @@ from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaState
 from ..deps import GepaDeps
 from .base import GepaNode, GepaRunContext
+from .continue_node import ContinueNode
+from .evaluate import EvaluateNode
 
 _IMPROVEMENT_EPSILON = 1e-9
 
@@ -20,10 +22,7 @@ _IMPROVEMENT_EPSILON = 1e-9
 class ReflectNode(GepaNode):
     """Generate and evaluate reflective mutations for the current candidate."""
 
-    async def run(self, ctx: GepaRunContext):
-        from .continue_node import ContinueNode  # Local imports avoid cycles
-        from .evaluate import EvaluateNode
-
+    async def run(self, ctx: GepaRunContext) -> EvaluateNode | ContinueNode:
         state = ctx.state
         deps = ctx.deps
 
@@ -253,7 +252,9 @@ class ReflectNode(GepaNode):
             return deps.reflection_model
         adapter_model = getattr(deps.adapter, "reflection_model", None)
         if adapter_model is None:
-            raise ValueError("ReflectNode requires a reflection model to propose updates.")
+            raise ValueError(
+                "ReflectNode requires a reflection model to propose updates."
+            )
         return adapter_model
 
 

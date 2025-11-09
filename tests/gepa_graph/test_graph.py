@@ -46,8 +46,8 @@ def test_create_gepa_graph_without_merge() -> None:
         "EvaluateNode",
         "ContinueNode",
         "ReflectNode",
+        "MergeNode",
     }
-    assert "MergeNode" not in graph.node_defs
     assert graph.node_defs["StartNode"].node is StartNode
     assert graph.node_defs["ContinueNode"].node is ContinueNode
 
@@ -59,12 +59,4 @@ def test_create_gepa_graph_with_merge_enabled() -> None:
     graph = create_gepa_graph(adapter=adapter, config=config)
 
     assert isinstance(graph, Graph)
-    assert "MergeNode" in graph.node_defs
     assert graph.node_defs["MergeNode"].node is MergeNode
-    assert set(graph.node_defs) == {
-        "StartNode",
-        "EvaluateNode",
-        "ContinueNode",
-        "ReflectNode",
-        "MergeNode",
-    }
