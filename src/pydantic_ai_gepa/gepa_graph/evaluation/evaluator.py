@@ -5,12 +5,33 @@ from __future__ import annotations
 import asyncio
 import inspect
 from dataclasses import dataclass
-from typing import Any, Generic, Sequence, TypeVar
+from typing import Any, Awaitable, Generic, Protocol, Sequence, TypeVar
 
 from ...types import DataInst, RolloutOutput, Trajectory
 from ..models import CandidateProgram
 
 DataIdT = TypeVar("DataIdT")
+DataInstT = TypeVar("DataInstT", bound=DataInst)
+
+
+class EvaluationBatchLike(Protocol):
+    """Protocol describing the adapter evaluation payload."""
+
+    scores: Sequence[float]
+    outputs: Sequence[RolloutOutput[Any]]
+    trajectories: Sequence[Trajectory] | None
+
+
+class AdapterLike(Protocol[DataInstT]):
+    """Protocol for adapters used during evaluation."""
+
+    def evaluate(
+        self,
+        batch: Sequence[DataInstT],
+        candidate: dict[str, str],
+        capture_traces: bool,
+    ) -> EvaluationBatchLike | Awaitable[EvaluationBatchLike]:
+        ...
 
 
 @dataclass(slots=True, kw_only=True)
@@ -47,7 +68,7 @@ class ParallelEvaluator:
         *,
         candidate: CandidateProgram,
         batch: Sequence[DataInst],
-        adapter: Any,
+        adapter: AdapterLike[DataInst],
         max_concurrent: int = 10,
         capture_traces: bool = False,
     ) -> EvaluationResults[str]:
@@ -85,12 +106,12 @@ class ParallelEvaluator:
     async def _call_adapter(
         self,
         *,
-        adapter: Any,
+        adapter: AdapterLike[DataInst],
         instance: DataInst,
         candidate_payload: dict[str, str],
         capture_traces: bool,
-    ) -> Any:
-        evaluate_callable = getattr(adapter, "evaluate")
+    ) -> EvaluationBatchLike:
+        evaluate_callable = adapter.evaluate
         if inspect.iscoroutinefunction(evaluate_callable):
             return await evaluate_callable([instance], candidate_payload, capture_traces)
         return await asyncio.to_thread(
@@ -102,7 +123,7 @@ class ParallelEvaluator:
 
     def _merge_results(
         self,
-        results: list[tuple[str, Any]],
+        results: list[tuple[str, EvaluationBatchLike]],
         *,
         capture_traces: bool,
     ) -> EvaluationResults[str]:
@@ -112,8 +133,8 @@ class ParallelEvaluator:
         trajectories: list[Trajectory] | None = [] if capture_traces else None
 
         for data_id, batch in results:
-            batch_scores = list(getattr(batch, "scores", []))
-            batch_outputs = list(getattr(batch, "outputs", []))
+            batch_scores = list(batch.scores)
+            batch_outputs = list(batch.outputs)
 
             if len(batch_scores) != len(batch_outputs):
                 raise ValueError("Adapter returned mismatched scores and outputs.")
@@ -123,7 +144,7 @@ class ParallelEvaluator:
             outputs.extend(batch_outputs)
 
             if trajectories is not None:
-                batch_traces = getattr(batch, "trajectories", None)
+                batch_traces = batch.trajectories
                 if batch_traces is None:
                     trajectories = None
                 else:

@@ -1,5 +1,7 @@
+import asyncio
 import json
 import math
+from collections.abc import Sequence
 from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -12,7 +14,16 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
 
-from pydantic_ai_gepa.runner import optimize_agent_prompts
+from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.cache import CacheManager
+from pydantic_ai_gepa.gepa_graph import (
+    GepaConfig,
+    GepaResult,
+    GepaState,
+    create_deps,
+    create_gepa_graph,
+)
+from pydantic_ai_gepa.gepa_graph.nodes import StartNode
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
 
@@ -419,7 +430,44 @@ def metric(
     return score, feedback
 
 
-if __name__ == "__main__":
+async def run_math_tools_optimization(
+    trainset: Sequence[DataInstWithInput[MathProblemInput]],
+    valset: Sequence[DataInstWithInput[MathProblemInput]],
+    reflection_model: OpenAIResponsesModel,
+) -> GepaResult:
+    cache_manager = CacheManager(
+        cache_dir=".gepa_cache",
+        enabled=True,
+        verbose=True,
+    )
+
+    adapter = PydanticAIGEPAAdapter(
+        agent=signature_agent,
+        metric=metric,
+        input_type=MathProblemInput,
+        reflection_model=reflection_model,
+        cache_manager=cache_manager,
+    )
+    config = GepaConfig(
+        max_evaluations=150,
+        component_selector="all",
+    )
+    deps = create_deps(adapter, config)
+    graph = create_gepa_graph(adapter=adapter, config=config)
+    state = GepaState(config=config, training_set=trainset, validation_set=valset)
+
+    async with graph.iter(StartNode(), state=state, deps=deps) as run:
+        async for _ in run:
+            pass
+
+    run_result = run.result
+    if run_result is None:
+        raise RuntimeError("GEPA graph run did not complete.")
+
+    return run_result.output
+
+
+async def main() -> None:
     output_dir = Path("optimization_results")
     output_dir.mkdir(exist_ok=True)
 
@@ -437,21 +485,7 @@ if __name__ == "__main__":
     trainset = signature_dataset[:split_index]
     valset = signature_dataset[split_index:]
 
-    result = optimize_agent_prompts(
-        agent=signature_agent,
-        trainset=trainset,
-        valset=valset,
-        metric=metric,
-        input_type=MathProblemInput,
-        module_selector="all",
-        reflection_model=reflection_model,
-        max_metric_calls=150,
-        display_progress_bar=True,
-        track_best_outputs=True,
-        enable_cache=True,
-        cache_dir=".gepa_cache",
-        cache_verbose=True,
-    )
+    result = await run_math_tools_optimization(trainset, valset, reflection_model)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output_dir / f"math_tools_optimization_{timestamp}.json"
@@ -460,10 +494,22 @@ if __name__ == "__main__":
         json.dump(result.model_dump(), file, indent=2)
 
     print(f"\n✅ Optimization result saved to: {output_file}")
-    print(f"   Original score: {result.original_score:.4f}")
-    print(f"   Best score: {result.best_score:.4f}")
-    print(f"   Iterations: {result.num_iterations}")
-    print(f"   Metric calls: {result.num_metric_calls}")
-    improvement = result.improvement_ratio()
+    if result.original_score is not None:
+        print(f"   Original score: {result.original_score:.4f}")
+    else:
+        print("   Original score: N/A")
+    if result.best_score is not None:
+        print(f"   Best score: {result.best_score:.4f}")
+    else:
+        print("   Best score: N/A")
+    print(f"   Iterations: {result.iterations}")
+    print(f"   Metric calls: {result.total_evaluations}")
+    improvement = result.relative_improvement()
     if improvement is not None:
         print(f"   Improvement: {improvement * 100:.2f}%")
+    else:
+        print("   Improvement: N/A")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
