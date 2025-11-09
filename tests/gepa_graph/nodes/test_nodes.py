@@ -18,6 +18,15 @@ from pydantic_ai_gepa.gepa_graph.models import (
 )
 from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, MergeNode, ReflectNode, StartNode
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
+from pydantic_ai_gepa.gepa_graph.selectors import (
+    BatchSampler,
+    CurrentBestCandidateSelector,
+    RoundRobinComponentSelector,
+)
+from pydantic_ai_gepa.gepa_graph.proposal import (
+    LLMProposalGenerator,
+    ReflectiveDatasetBuilder,
+)
 
 
 def _make_data_inst(case_id: str) -> DataInstWithPrompt:
@@ -51,6 +60,8 @@ class _FakeAdapter:
         self.agent = type("Agent", (), {"_instructions": "seed"})()
         self.input_spec = None
         self.scores: dict[str, float] = {}
+        self.reflection_model = "test-model"
+        self.reflection_sampler = None
 
     async def evaluate(self, batch, candidate, capture_traces):
         case_id = batch[0].case_id
@@ -66,6 +77,12 @@ def _make_deps(seed_candidate: dict[str, str] | None = None) -> GepaDeps:
         adapter=_FakeAdapter(),
         evaluator=ParallelEvaluator(),
         pareto_manager=ParetoFrontManager(),
+        candidate_selector=CurrentBestCandidateSelector(),
+        component_selector=RoundRobinComponentSelector(),
+        batch_sampler=BatchSampler(),
+        proposal_generator=LLMProposalGenerator(),
+        reflective_dataset_builder=ReflectiveDatasetBuilder(),
+        reflection_model="test-model",
         seed_candidate=seed_candidate,
     )
 
