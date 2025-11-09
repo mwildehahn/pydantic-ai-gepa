@@ -309,4 +309,32 @@ def get_or_create_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimiza
 
     manager = ToolOptimizationManager(base_agent)
     setattr(base_agent, "_gepa_tool_optimizer", manager)
+    initial = _collect_registered_tool_defs(base_agent)
+    if initial:
+        manager.record_model_request(function_tools=initial)
     return manager
+
+
+def _collect_registered_tool_defs(agent: AbstractAgent[Any, Any]) -> list[ToolDefinition]:
+    """Return ToolDefinition objects for currently registered function tools."""
+    toolset = getattr(agent, "_function_toolset", None)
+    tools = getattr(toolset, "tools", None) if toolset is not None else None
+    if not isinstance(tools, dict):
+        return []
+
+    definitions: list[ToolDefinition] = []
+    for tool in tools.values():
+        schema = getattr(tool, "function_schema", None)
+        json_schema = getattr(schema, "json_schema", None)
+        if not isinstance(json_schema, dict):
+            continue
+        description = getattr(tool, "description", None)
+        name = getattr(tool, "name", getattr(tool, "__name__", "tool"))
+        definitions.append(
+            ToolDefinition(
+                name=name,
+                description=description,
+                parameters_json_schema=json_schema,
+            )
+        )
+    return definitions

@@ -65,7 +65,7 @@ def test_builder_creates_records_with_feedback() -> None:
 def test_builder_applies_sampler() -> None:
     calls: list[tuple[int, int]] = []
 
-    def sampler(records: list[dict[str, Any]], *, max_records: int) -> list[dict[str, Any]]:
+    def sampler(records: list[dict[str, Any]], max_records: int) -> list[dict[str, Any]]:
         calls.append((len(records), max_records))
         return records[:1]
 

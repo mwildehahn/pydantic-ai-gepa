@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ...types import DataInst
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, GepaState
 from .base import GepaNode, GepaRunContext
+
+if TYPE_CHECKING:
+    from .continue_node import ContinueNode
 
 
 @dataclass(slots=True)

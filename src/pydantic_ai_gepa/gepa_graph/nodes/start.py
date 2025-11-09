@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
+from typing import Mapping, TYPE_CHECKING
 
 from ...components import extract_seed_candidate_with_signature
 from ...gepa_graph.models import CandidateProgram, ComponentValue, GepaState
 from ..deps import GepaDeps
 from .base import GepaNode, GepaRunContext
+
+if TYPE_CHECKING:
+    from .evaluate import EvaluateNode
 
 
 @dataclass(slots=True)

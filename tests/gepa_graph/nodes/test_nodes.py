@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Sequence, cast
 
 import pytest
 from pydantic_graph import End, GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
+from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -25,6 +27,7 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
 )
 from pydantic_ai_gepa.gepa_graph.proposal import (
     LLMProposalGenerator,
+    MergeProposalBuilder,
     ReflectiveDatasetBuilder,
 )
 
@@ -74,7 +77,7 @@ class _FakeAdapter:
 
 def _make_deps(seed_candidate: dict[str, str] | None = None) -> GepaDeps:
     return GepaDeps(
-        adapter=_FakeAdapter(),
+        adapter=cast(PydanticAIGEPAAdapter[Any], _FakeAdapter()),
         evaluator=ParallelEvaluator(),
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
@@ -82,6 +85,7 @@ def _make_deps(seed_candidate: dict[str, str] | None = None) -> GepaDeps:
         batch_sampler=BatchSampler(),
         proposal_generator=LLMProposalGenerator(),
         reflective_dataset_builder=ReflectiveDatasetBuilder(),
+        merge_builder=MergeProposalBuilder(),
         reflection_model="test-model",
         seed_candidate=seed_candidate,
     )
@@ -143,28 +147,31 @@ async def test_evaluate_node_updates_candidate_scores_and_state() -> None:
     result = await node.run(ctx)
 
     assert isinstance(result, ContinueNode)
-    assert len(candidate.validation_scores) == len(state.validation_set)
+    validation_set = state.validation_set
+    assert validation_set is not None
+    assert len(candidate.validation_scores) == len(validation_set)
     assert state.best_candidate_idx == 0
-    assert state.total_evaluations == len(state.validation_set)
+    assert state.total_evaluations == len(validation_set)
     assert state.full_validations == 1
     assert state.pareto_front
 
 
-def test_continue_node_returns_end_when_budget_spent() -> None:
+@pytest.mark.asyncio
+async def test_continue_node_returns_end_when_budget_spent() -> None:
     state = _make_state()
     state.total_evaluations = state.config.max_evaluations
     deps = _make_deps()
     ctx = GraphRunContext(state=state, deps=deps)
 
     node = ContinueNode()
-
-    result = node.run(ctx)
+    result = await node.run(ctx)
 
     assert isinstance(result, End)
     assert state.stop_reason == "Max evaluations reached"
 
 
-def test_continue_node_triggers_merge_when_scheduled() -> None:
+@pytest.mark.asyncio
+async def test_continue_node_triggers_merge_when_scheduled() -> None:
     config = GepaConfig(max_evaluations=10, use_merge=True)
     state = _make_state(config=config)
     state.iteration = 0
@@ -174,21 +181,22 @@ def test_continue_node_triggers_merge_when_scheduled() -> None:
     ctx = GraphRunContext(state=state, deps=deps)
 
     node = ContinueNode()
-    next_node = node.run(ctx)
+    next_node = await node.run(ctx)
 
     assert isinstance(next_node, MergeNode)
     assert state.merge_scheduled == 1
     assert state.iteration == 1
 
 
-def test_continue_node_defaults_to_reflect() -> None:
+@pytest.mark.asyncio
+async def test_continue_node_defaults_to_reflect() -> None:
     state = _make_state()
     state.iteration = 0
     deps = _make_deps()
     ctx = GraphRunContext(state=state, deps=deps)
 
     node = ContinueNode()
-    next_node = node.run(ctx)
+    next_node = await node.run(ctx)
 
     assert isinstance(next_node, ReflectNode)
     assert state.iteration == 1

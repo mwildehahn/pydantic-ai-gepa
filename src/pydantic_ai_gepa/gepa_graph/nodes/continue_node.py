@@ -14,7 +14,7 @@ from .reflect import ReflectNode
 class ContinueNode(GepaNode):
     """Decision point for the GEPA optimization loop."""
 
-    def run(self, ctx: GepaRunContext) -> ReflectNode | MergeNode | End[GepaResult]:
+    async def run(self, ctx: GepaRunContext) -> ReflectNode | MergeNode | End[GepaResult]:
         state = ctx.state
 
         if self._should_stop(state):

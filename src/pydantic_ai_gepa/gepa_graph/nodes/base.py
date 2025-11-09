@@ -12,7 +12,7 @@ from ..deps import GepaDeps
 GepaRunContext: TypeAlias = GraphRunContext[GepaState, GepaDeps]
 
 
-class GepaNode(BaseNode[GepaState, GepaDeps, None]):
+class GepaNode(BaseNode[GepaState, GepaDeps, GepaResult]):
     """Base class for GEPA graph nodes."""
 
 

@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Any, cast
+
 import pytest
 from pydantic_graph import GraphRunContext
 from pydantic_ai.messages import UserPromptPart
+
+from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
 
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationResults, ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue, GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, ReflectNode
-from pydantic_ai_gepa.gepa_graph.proposal import LLMProposalGenerator, ReflectiveDatasetBuilder
+from pydantic_ai_gepa.gepa_graph.proposal import LLMProposalGenerator, MergeProposalBuilder, ReflectiveDatasetBuilder
 from pydantic_ai_gepa.gepa_graph.selectors import BatchSampler, CurrentBestCandidateSelector, RoundRobinComponentSelector
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
 
@@ -123,7 +127,7 @@ def _make_deps(
     reflection_model: str | None = "reflection-model",
 ) -> GepaDeps:
     return GepaDeps(
-        adapter=_StubAdapter(reflection_model=reflection_model),
+        adapter=cast(PydanticAIGEPAAdapter[Any], _StubAdapter(reflection_model=reflection_model)),
         evaluator=evaluator,
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
@@ -131,6 +135,7 @@ def _make_deps(
         batch_sampler=batch_sampler,
         proposal_generator=proposal_generator,
         reflective_dataset_builder=dataset_builder,
+        merge_builder=MergeProposalBuilder(),
         reflection_model=reflection_model,
     )
 
