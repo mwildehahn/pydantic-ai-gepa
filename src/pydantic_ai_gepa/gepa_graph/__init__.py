@@ -1,5 +1,12 @@
 """GEPA graph-based implementation package."""
 
-from . import models
+from . import evaluation, models
+from .evaluation import EvaluationResults, ParallelEvaluator, ParetoFrontManager
 
-__all__ = ["models"]
+__all__ = [
+    "evaluation",
+    "models",
+    "EvaluationResults",
+    "ParallelEvaluator",
+    "ParetoFrontManager",
+]
