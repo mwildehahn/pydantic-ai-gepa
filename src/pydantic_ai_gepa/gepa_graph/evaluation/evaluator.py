@@ -95,10 +95,7 @@ class ParallelEvaluator:
             data_id = self._data_id(instance, index)
             return data_id, eval_batch
 
-        tasks = [
-            asyncio.create_task(run_one(idx, instance))
-            for idx, instance in enumerate(batch)
-        ]
+        tasks = [run_one(idx, instance) for idx, instance in enumerate(batch)]
 
         results = await asyncio.gather(*tasks)
         return self._merge_results(results, capture_traces=capture_traces)
