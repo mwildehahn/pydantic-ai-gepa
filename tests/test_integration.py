@@ -2,7 +2,7 @@
 
 from typing import Any
 from inline_snapshot import snapshot
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
@@ -54,7 +54,7 @@ def test_process_data_instance():
             return (0.8, "Good")
         return (0.0, "Failed")
 
-    adapter = PydanticAIGEPAAdapter(agent, metric)
+    adapter = AgentAdapter(agent, metric)
 
     # Test without traces
     data_inst = DataInstWithPrompt(
@@ -96,7 +96,7 @@ def test_make_reflective_dataset():
             return (0.8, "Good")
         return (0.0, "Failed")
 
-    adapter = PydanticAIGEPAAdapter(agent, metric)
+    adapter = AgentAdapter(agent, metric)
     candidate = extract_seed_candidate(agent)
 
     data_inst = DataInstWithPrompt(
@@ -125,7 +125,7 @@ def test_make_reflective_dataset():
                                     "type": "user_prompt",
                                     "role": "user",
                                     "content": "Hello",
-                                    "timestamp": '2023-01-01T08:00:00+00:00',
+                                    "timestamp": "2023-01-01T08:00:00+00:00",
                                 }
                             ],
                             "instructions": "Be helpful",
@@ -133,7 +133,7 @@ def test_make_reflective_dataset():
                         {
                             "kind": "response",
                             "model_name": "test",
-                            "timestamp": '2023-01-01T08:00:00+00:00',
+                            "timestamp": "2023-01-01T08:00:00+00:00",
                             "parts": [
                                 {
                                     "type": "text",

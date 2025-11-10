@@ -50,7 +50,7 @@ class ReflectionSampler(Protocol):
         ...
 
 
-class PydanticAIGEPAAdapter(
+class AgentAdapter(
     Generic[DataInstT], GEPAAdapter[DataInstT, Trajectory, RolloutOutput[Any]]
 ):
     """GEPA adapter for optimizing a single pydantic-ai agent with an optional signature.
@@ -251,7 +251,8 @@ class PydanticAIGEPAAdapter(
             raise
         except Exception as e:
             logger.exception(
-                "Failed to process data instance %s", getattr(data_inst, "case_id", "unknown")
+                "Failed to process data instance %s",
+                getattr(data_inst, "case_id", "unknown"),
             )
             output = RolloutOutput.from_error(e)
             trajectory = (

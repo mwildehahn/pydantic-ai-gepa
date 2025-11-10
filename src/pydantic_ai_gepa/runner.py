@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
-from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
+from .adapter import AgentAdapter, ReflectionSampler
 from .cache import CacheManager
 from .components import (
     apply_candidate_to_agent,
@@ -42,10 +42,7 @@ def _normalize_candidate(
 ) -> dict[str, str]:
     if not candidate:
         return {}
-    return {
-        key: normalize_component_text(value)
-        for key, value in candidate.items()
-    }
+    return {key: normalize_component_text(value) for key, value in candidate.items()}
 
 
 class GepaOptimizationResult(BaseModel):
@@ -279,7 +276,7 @@ def optimize_agent_prompts(
         )
 
     # Create adapter
-    adapter = PydanticAIGEPAAdapter(
+    adapter = AgentAdapter(
         agent=agent,
         metric=metric,
         input_type=input_type,
@@ -345,18 +342,12 @@ def optimize_agent_prompts(
     original_score = None
     if raw_result.candidates and len(raw_result.candidates) > 0:
         # Check if the first candidate is the seed candidate
-        if (
-            _normalize_candidate(raw_result.candidates[0])
-            == normalized_seed_candidate
-        ):
+        if _normalize_candidate(raw_result.candidates[0]) == normalized_seed_candidate:
             original_score = raw_result.val_aggregate_scores[0]
         else:
             # Search through all candidates for the seed
             for i, candidate in enumerate(raw_result.candidates):
-                if (
-                    _normalize_candidate(candidate)
-                    == normalized_seed_candidate
-                ):
+                if _normalize_candidate(candidate) == normalized_seed_candidate:
                     original_score = raw_result.val_aggregate_scores[i]
                     break
 

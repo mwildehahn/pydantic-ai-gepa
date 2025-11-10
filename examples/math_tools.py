@@ -16,7 +16,7 @@ from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModel
 from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa import InspectingOpenAIModel, OpenAIInspectionAborted
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.gepa_graph import (
     GepaConfig,
@@ -446,7 +446,7 @@ async def run_math_tools_optimization(
         verbose=True,
     )
 
-    adapter = PydanticAIGEPAAdapter(
+    adapter = AgentAdapter(
         agent=signature_agent,
         metric=metric,
         input_type=MathProblemInput,

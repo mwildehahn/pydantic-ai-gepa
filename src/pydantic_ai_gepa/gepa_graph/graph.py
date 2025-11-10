@@ -7,7 +7,7 @@ from typing import Any
 from pydantic_graph import Graph
 from pydantic_graph.beta import GraphBuilder, StepContext
 
-from ..adapter import PydanticAIGEPAAdapter
+from ..adapter import AgentAdapter
 from .deps import GepaDeps
 from .models import GepaConfig, GepaResult, GepaState
 from .nodes import (
@@ -25,7 +25,7 @@ from .nodes import (
 
 
 def create_gepa_graph(
-    adapter: PydanticAIGEPAAdapter[Any],
+    adapter: AgentAdapter[Any],
     config: GepaConfig,
 ) -> Graph[GepaState, GepaDeps, GepaResult]:
     """Create the GEPA graph definition based on the provided configuration.

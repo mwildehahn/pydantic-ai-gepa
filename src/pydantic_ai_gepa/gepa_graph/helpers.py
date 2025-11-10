@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..adapter import PydanticAIGEPAAdapter
+from ..adapter import AgentAdapter
 from .deps import GepaDeps
 from .evaluation import ParallelEvaluator, ParetoFrontManager
 from .models import GepaConfig
-from .proposal import LLMProposalGenerator, MergeProposalBuilder, ReflectiveDatasetBuilder
+from .proposal import (
+    InstructionProposalGenerator,
+    MergeProposalBuilder,
+    ReflectiveDatasetBuilder,
+)
 from .selectors import (
     AllComponentSelector,
     BatchSampler,
@@ -21,7 +25,7 @@ from .selectors import (
 
 
 def create_deps(
-    adapter: PydanticAIGEPAAdapter[Any],
+    adapter: AgentAdapter[Any],
     config: GepaConfig,
 ) -> GepaDeps:
     """Construct :class:`GepaDeps` instances for a GEPA run."""
@@ -36,7 +40,7 @@ def create_deps(
         candidate_selector=candidate_selector,
         component_selector=component_selector,
         batch_sampler=batch_sampler,
-        proposal_generator=LLMProposalGenerator(),
+        proposal_generator=InstructionProposalGenerator(),
         reflective_dataset_builder=ReflectiveDatasetBuilder(
             sampler=getattr(adapter, "reflection_sampler", None)
         ),

@@ -7,9 +7,13 @@ from typing import Any
 
 from pydantic_ai.models import KnownModelName, Model
 
-from ..adapter import PydanticAIGEPAAdapter
+from ..adapter import AgentAdapter
 from .evaluation import ParallelEvaluator, ParetoFrontManager
-from .proposal import LLMProposalGenerator, MergeProposalBuilder, ReflectiveDatasetBuilder
+from .proposal import (
+    InstructionProposalGenerator,
+    MergeProposalBuilder,
+    ReflectiveDatasetBuilder,
+)
 from .selectors import BatchSampler, CandidateSelector, ComponentSelector
 
 
@@ -17,13 +21,13 @@ from .selectors import BatchSampler, CandidateSelector, ComponentSelector
 class GepaDeps:
     """Runtime dependencies shared across GEPA graph nodes."""
 
-    adapter: PydanticAIGEPAAdapter[Any]
+    adapter: AgentAdapter[Any]
     evaluator: ParallelEvaluator
     pareto_manager: ParetoFrontManager
     candidate_selector: CandidateSelector
     component_selector: ComponentSelector
     batch_sampler: BatchSampler
-    proposal_generator: LLMProposalGenerator
+    proposal_generator: InstructionProposalGenerator
     reflective_dataset_builder: ReflectiveDatasetBuilder
     merge_builder: MergeProposalBuilder
     reflection_model: Model | KnownModelName | str | None = None

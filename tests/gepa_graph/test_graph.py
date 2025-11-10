@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from pydantic_graph import Graph
 
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph.graph import create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig
 from pydantic_ai_gepa.gepa_graph.nodes import (
@@ -29,8 +29,8 @@ class _AdapterStub:
     agent: _AgentStub
 
 
-def _make_adapter(name: str | None = None) -> PydanticAIGEPAAdapter[Any]:
-    return cast(PydanticAIGEPAAdapter[Any], _AdapterStub(agent=_AgentStub(name=name)))
+def _make_adapter(name: str | None = None) -> AgentAdapter[Any]:
+    return cast(AgentAdapter[Any], _AdapterStub(agent=_AgentStub(name=name)))
 
 
 def test_create_gepa_graph_without_merge() -> None:

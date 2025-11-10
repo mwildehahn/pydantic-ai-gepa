@@ -27,7 +27,7 @@ DEFAULT_REFLECTION_PROMPT = (
 _CODE_BLOCK_RE = re.compile(r"```(?:[^\n]*\n)?(.*?)```", re.DOTALL)
 
 
-class LLMProposalGenerator:
+class InstructionProposalGenerator:
     """Generate improved component texts via LLM calls."""
 
     def __init__(self, prompt_template: str | None = None) -> None:
@@ -45,7 +45,9 @@ class LLMProposalGenerator:
         if not components:
             return {}
         if model is None:
-            raise ValueError("A reflection model must be provided to generate proposals.")
+            raise ValueError(
+                "A reflection model must be provided to generate proposals."
+            )
 
         tasks = [
             asyncio.create_task(
@@ -166,4 +168,4 @@ class LLMProposalGenerator:
         return response_text.strip()
 
 
-__all__ = ["LLMProposalGenerator", "DEFAULT_REFLECTION_PROMPT"]
+__all__ = ["InstructionProposalGenerator", "DEFAULT_REFLECTION_PROMPT"]

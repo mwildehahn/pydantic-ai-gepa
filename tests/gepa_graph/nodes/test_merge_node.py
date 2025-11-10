@@ -9,13 +9,30 @@ from pydantic_graph import GraphRunContext
 from typing import Any, Literal, Sequence, cast
 
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
-from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationResults, ParetoFrontManager, ParallelEvaluator
-from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue, GepaConfig, GepaState
+from pydantic_ai_gepa.gepa_graph.evaluation import (
+    EvaluationResults,
+    ParetoFrontManager,
+    ParallelEvaluator,
+)
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateProgram,
+    ComponentValue,
+    GepaConfig,
+    GepaState,
+)
 from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, MergeNode
-from pydantic_ai_gepa.gepa_graph.proposal import LLMProposalGenerator, MergeProposalBuilder, ReflectiveDatasetBuilder
-from pydantic_ai_gepa.gepa_graph.selectors import BatchSampler, CurrentBestCandidateSelector, RoundRobinComponentSelector
+from pydantic_ai_gepa.gepa_graph.proposal import (
+    InstructionProposalGenerator,
+    MergeProposalBuilder,
+    ReflectiveDatasetBuilder,
+)
+from pydantic_ai_gepa.gepa_graph.selectors import (
+    BatchSampler,
+    CurrentBestCandidateSelector,
+    RoundRobinComponentSelector,
+)
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 
 
 def _make_data_inst(case_id: str) -> DataInstWithPrompt:
@@ -50,7 +67,9 @@ def _add_candidate(
     candidate = CandidateProgram(
         idx=idx,
         components={
-            "instructions": ComponentValue(name="instructions", text=instructions, version=iteration),
+            "instructions": ComponentValue(
+                name="instructions", text=instructions, version=iteration
+            ),
             "tools": ComponentValue(name="tools", text=tools, version=iteration),
         },
         creation_type=creation_type,
@@ -139,10 +158,14 @@ class _StubMergeBuilder(MergeProposalBuilder):
         self._subsample = [cast(DataInst, inst) for inst in subsample]
         self._register_returns = register_returns
 
-    def find_merge_pair(self, state: GepaState, dominators: Sequence[int]) -> tuple[int, int] | None:  # noqa: D401
+    def find_merge_pair(
+        self, state: GepaState, dominators: Sequence[int]
+    ) -> tuple[int, int] | None:  # noqa: D401
         return self._pair
 
-    def find_common_ancestor(self, state: GepaState, idx1: int, idx2: int) -> int | None:  # noqa: D401
+    def find_common_ancestor(
+        self, state: GepaState, idx1: int, idx2: int
+    ) -> int | None:  # noqa: D401
         return self._ancestor_idx
 
     def build_merged_candidate(  # noqa: D401
@@ -178,20 +201,22 @@ def _make_deps(
     evaluator: ParallelEvaluator,
 ) -> GepaDeps:
     return GepaDeps(
-        adapter=cast(PydanticAIGEPAAdapter[Any], _StubAdapter()),
+        adapter=cast(AgentAdapter[Any], _StubAdapter()),
         evaluator=evaluator,
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
         component_selector=RoundRobinComponentSelector(),
         batch_sampler=BatchSampler(),
-        proposal_generator=LLMProposalGenerator(),
+        proposal_generator=InstructionProposalGenerator(),
         reflective_dataset_builder=ReflectiveDatasetBuilder(),
         merge_builder=merge_builder,
         reflection_model="test-model",
     )
 
 
-def _evaluation_results(subsample: Sequence[DataInstWithPrompt], scores: list[float]) -> EvaluationResults[str]:
+def _evaluation_results(
+    subsample: Sequence[DataInstWithPrompt], scores: list[float]
+) -> EvaluationResults[str]:
     return EvaluationResults(
         data_ids=[inst.case_id for inst in subsample],
         scores=list(scores),
@@ -210,7 +235,9 @@ async def test_merge_node_accepts_when_scores_non_strictly_better() -> None:
     merged_candidate = CandidateProgram(
         idx=len(state.candidates),
         components={
-            "instructions": ComponentValue(name="instructions", text="Parent1 instructions", version=3),
+            "instructions": ComponentValue(
+                name="instructions", text="Parent1 instructions", version=3
+            ),
             "tools": ComponentValue(name="tools", text="Parent2 tools", version=3),
         },
         creation_type="merge",
@@ -254,7 +281,9 @@ async def test_merge_node_rejects_when_merged_scores_lower() -> None:
     merged_candidate = CandidateProgram(
         idx=len(state.candidates),
         components={
-            "instructions": ComponentValue(name="instructions", text="Parent1 instructions", version=3),
+            "instructions": ComponentValue(
+                name="instructions", text="Parent1 instructions", version=3
+            ),
             "tools": ComponentValue(name="tools", text="Parent2 tools", version=3),
         },
         creation_type="merge",
@@ -293,7 +322,9 @@ async def test_merge_node_skips_when_duplicate_detected() -> None:
     merged_candidate = CandidateProgram(
         idx=len(state.candidates),
         components={
-            "instructions": ComponentValue(name="instructions", text="Parent1 instructions", version=3),
+            "instructions": ComponentValue(
+                name="instructions", text="Parent1 instructions", version=3
+            ),
             "tools": ComponentValue(name="tools", text="Parent2 tools", version=3),
         },
         creation_type="merge",

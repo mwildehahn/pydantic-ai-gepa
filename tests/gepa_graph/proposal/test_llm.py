@@ -9,14 +9,16 @@ from pydantic_ai.messages import ModelResponse, TextPart
 from pydantic_ai.models.function import FunctionModel
 
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue
-from pydantic_ai_gepa.gepa_graph.proposal import LLMProposalGenerator
+from pydantic_ai_gepa.gepa_graph.proposal import InstructionProposalGenerator
 
 
 def _make_candidate() -> CandidateProgram:
     return CandidateProgram(
         idx=0,
         components={
-            "instructions": ComponentValue(name="instructions", text="Seed instructions"),
+            "instructions": ComponentValue(
+                name="instructions", text="Seed instructions"
+            ),
             "tools": ComponentValue(name="tools", text="Seed tools"),
         },
         creation_type="seed",
@@ -51,7 +53,7 @@ async def test_llm_generator_updates_components() -> None:
             content = "```Better tools```"
         return ModelResponse(parts=[TextPart(content=content)])
 
-    generator = LLMProposalGenerator()
+    generator = InstructionProposalGenerator()
     model = FunctionModel(function=fake_model)
     result = await generator.propose_texts(
         candidate=candidate,
@@ -78,7 +80,7 @@ async def test_llm_generator_parallelizes_calls() -> None:
         await asyncio.sleep(0.1)
         return ModelResponse(parts=[TextPart(content="```done```")])
 
-    generator = LLMProposalGenerator()
+    generator = InstructionProposalGenerator()
     model = FunctionModel(function=slow_model)
     start = time.perf_counter()
     await generator.propose_texts(
@@ -102,7 +104,7 @@ async def test_llm_generator_skips_empty_records() -> None:
         call_count += 1
         return ModelResponse(parts=[TextPart(content="```unused```")])
 
-    generator = LLMProposalGenerator()
+    generator = InstructionProposalGenerator()
     model = FunctionModel(function=tracking_model)
     result = await generator.propose_texts(
         candidate=candidate,
@@ -113,4 +115,3 @@ async def test_llm_generator_skips_empty_records() -> None:
 
     assert result["instructions"] == "Seed instructions"
     assert call_count == 0
-

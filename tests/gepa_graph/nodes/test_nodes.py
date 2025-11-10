@@ -9,7 +9,7 @@ import pytest
 from pydantic_graph import End, GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -18,7 +18,13 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
-from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, MergeNode, ReflectNode, StartNode
+from pydantic_ai_gepa.gepa_graph.nodes import (
+    ContinueNode,
+    EvaluateNode,
+    MergeNode,
+    ReflectNode,
+    StartNode,
+)
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
@@ -26,7 +32,7 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     RoundRobinComponentSelector,
 )
 from pydantic_ai_gepa.gepa_graph.proposal import (
-    LLMProposalGenerator,
+    InstructionProposalGenerator,
     MergeProposalBuilder,
     ReflectiveDatasetBuilder,
 )
@@ -77,13 +83,13 @@ class _FakeAdapter:
 
 def _make_deps(seed_candidate: dict[str, str] | None = None) -> GepaDeps:
     return GepaDeps(
-        adapter=cast(PydanticAIGEPAAdapter[Any], _FakeAdapter()),
+        adapter=cast(AgentAdapter[Any], _FakeAdapter()),
         evaluator=ParallelEvaluator(),
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
         component_selector=RoundRobinComponentSelector(),
         batch_sampler=BatchSampler(),
-        proposal_generator=LLMProposalGenerator(),
+        proposal_generator=InstructionProposalGenerator(),
         reflective_dataset_builder=ReflectiveDatasetBuilder(),
         merge_builder=MergeProposalBuilder(),
         reflection_model="test-model",
@@ -114,7 +120,9 @@ async def test_start_node_is_idempotent_when_candidates_exist() -> None:
     state.add_candidate(
         CandidateProgram(
             idx=0,
-            components={"instructions": ComponentValue(name="instructions", text="existing")},
+            components={
+                "instructions": ComponentValue(name="instructions", text="existing")
+            },
             creation_type="seed",
             discovered_at_iteration=0,
             discovered_at_evaluation=0,

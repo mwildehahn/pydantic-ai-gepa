@@ -1,11 +1,11 @@
 """Proposal helpers for the GEPA graph implementation."""
 
-from .llm import LLMProposalGenerator
+from .llm import InstructionProposalGenerator
 from .merge import MergeProposalBuilder
 from .reflective import ReflectiveDatasetBuilder
 
 __all__ = [
-    "LLMProposalGenerator",
+    "InstructionProposalGenerator",
     "MergeProposalBuilder",
     "ReflectiveDatasetBuilder",
 ]

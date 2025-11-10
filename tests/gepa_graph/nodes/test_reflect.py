@@ -8,14 +8,31 @@ import pytest
 from pydantic_graph import GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
-from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationResults, ParallelEvaluator, ParetoFrontManager
-from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue, GepaConfig, GepaState
+from pydantic_ai_gepa.gepa_graph.evaluation import (
+    EvaluationResults,
+    ParallelEvaluator,
+    ParetoFrontManager,
+)
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateProgram,
+    ComponentValue,
+    GepaConfig,
+    GepaState,
+)
 from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, ReflectNode
-from pydantic_ai_gepa.gepa_graph.proposal import LLMProposalGenerator, MergeProposalBuilder, ReflectiveDatasetBuilder
-from pydantic_ai_gepa.gepa_graph.selectors import BatchSampler, CurrentBestCandidateSelector, RoundRobinComponentSelector
+from pydantic_ai_gepa.gepa_graph.proposal import (
+    InstructionProposalGenerator,
+    MergeProposalBuilder,
+    ReflectiveDatasetBuilder,
+)
+from pydantic_ai_gepa.gepa_graph.selectors import (
+    BatchSampler,
+    CurrentBestCandidateSelector,
+    RoundRobinComponentSelector,
+)
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
 
 
@@ -41,7 +58,9 @@ def _make_state(*, minibatch_size: int = 2) -> GepaState:
     seed = CandidateProgram(
         idx=0,
         components={
-            "instructions": ComponentValue(name="instructions", text="Seed instructions"),
+            "instructions": ComponentValue(
+                name="instructions", text="Seed instructions"
+            ),
         },
         creation_type="seed",
         discovered_at_iteration=0,
@@ -53,7 +72,9 @@ def _make_state(*, minibatch_size: int = 2) -> GepaState:
 
 
 def _eval_results(scores: list[float]) -> EvaluationResults[str]:
-    outputs = [RolloutOutput.from_success(f"result-{idx}") for idx, _ in enumerate(scores)]
+    outputs = [
+        RolloutOutput.from_success(f"result-{idx}") for idx, _ in enumerate(scores)
+    ]
     case_ids = [f"case-{idx}" for idx in range(len(scores))]
     return EvaluationResults(
         data_ids=case_ids,
@@ -92,7 +113,7 @@ class _StubDatasetBuilder(ReflectiveDatasetBuilder):
         return {component: [{"feedback": "needs work"}] for component in components}
 
 
-class _StubProposalGenerator(LLMProposalGenerator):
+class _StubProposalGenerator(InstructionProposalGenerator):
     def __init__(self, updates: dict[str, str]) -> None:
         super().__init__()
         self._updates = updates
@@ -101,7 +122,9 @@ class _StubProposalGenerator(LLMProposalGenerator):
     async def propose_texts(self, *, candidate, reflective_data, components, model):
         self.calls += 1
         return {
-            component: self._updates.get(component, candidate.components[component].text)
+            component: self._updates.get(
+                component, candidate.components[component].text
+            )
             for component in components
         }
 
@@ -122,12 +145,14 @@ def _make_deps(
     *,
     evaluator: ParallelEvaluator,
     batch_sampler: BatchSampler,
-    proposal_generator: LLMProposalGenerator,
+    proposal_generator: InstructionProposalGenerator,
     dataset_builder: ReflectiveDatasetBuilder,
     reflection_model: str | None = "reflection-model",
 ) -> GepaDeps:
     return GepaDeps(
-        adapter=cast(PydanticAIGEPAAdapter[Any], _StubAdapter(reflection_model=reflection_model)),
+        adapter=cast(
+            AgentAdapter[Any], _StubAdapter(reflection_model=reflection_model)
+        ),
         evaluator=evaluator,
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),

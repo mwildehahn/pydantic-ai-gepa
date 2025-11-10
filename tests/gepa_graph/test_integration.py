@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 from pydantic_graph import FullStatePersistence
 
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import EvaluateNode, StartNode
@@ -16,7 +16,7 @@ from tests.gepa_graph.utils import AdapterStub, ProposalGeneratorStub, make_data
 
 @pytest.mark.asyncio
 async def test_checkpoint_resume_restores_progress() -> None:
-    adapter = cast(PydanticAIGEPAAdapter[Any], AdapterStub())
+    adapter = cast(AgentAdapter[Any], AdapterStub())
     config = GepaConfig(max_evaluations=40, minibatch_size=2, seed=42)
     deps = create_deps(adapter, config)
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
@@ -28,7 +28,9 @@ async def test_checkpoint_resume_restores_progress() -> None:
     persistence = FullStatePersistence()
 
     executed_before: list[str] = []
-    async with graph.iter(StartNode(), state=state, deps=deps, persistence=persistence) as run:
+    async with graph.iter(
+        StartNode(), state=state, deps=deps, persistence=persistence
+    ) as run:
         async for node in run:
             executed_before.append(node.__class__.__name__)
             if isinstance(node, EvaluateNode) and state.iteration >= 1:
@@ -50,4 +52,6 @@ async def test_checkpoint_resume_restores_progress() -> None:
     assert outcome.best_score is not None
     assert outcome.original_score is not None
     assert outcome.best_score > outcome.original_score
-    assert any(name == "ContinueNode" for name in resumed_nodes), "resumed run should continue past saved node"
+    assert any(name == "ContinueNode" for name in resumed_nodes), (
+        "resumed run should continue past saved node"
+    )

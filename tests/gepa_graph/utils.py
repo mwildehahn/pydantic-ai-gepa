@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
 
 __all__ = [
@@ -54,7 +54,10 @@ class AdapterStub:
         text = candidate["instructions"]
         base = 0.85 if text.startswith("improved") else 0.4
 
-        outputs = [RolloutOutput.from_success(f"{text}-{instance.case_id}") for instance in batch]
+        outputs = [
+            RolloutOutput.from_success(f"{text}-{instance.case_id}")
+            for instance in batch
+        ]
         trajectories = (
             [
                 Trajectory(
@@ -92,6 +95,6 @@ class ProposalGeneratorStub:
         return updates
 
 
-def make_adapter_stub() -> PydanticAIGEPAAdapter[Any]:
+def make_adapter_stub() -> AgentAdapter[Any]:
     """Return the adapter stub typed as a PydanticAIGEPAAdapter."""
-    return cast(PydanticAIGEPAAdapter[Any], AdapterStub())
+    return cast(AgentAdapter[Any], AdapterStub())

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, cast
 import random
 
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph import create_deps
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
@@ -33,8 +33,8 @@ class _AdapterStub:
         self.reflection_sampler = object()
 
 
-def _make_adapter() -> PydanticAIGEPAAdapter[Any]:
-    return cast(PydanticAIGEPAAdapter[Any], _AdapterStub())
+def _make_adapter() -> AgentAdapter[Any]:
+    return cast(AgentAdapter[Any], _AdapterStub())
 
 
 def _make_state(config: GepaConfig) -> GepaState:

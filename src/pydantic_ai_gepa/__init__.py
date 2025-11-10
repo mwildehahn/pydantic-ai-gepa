@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .adapter import PydanticAIGEPAAdapter, ReflectionSampler
+from .adapter import AgentAdapter, ReflectionSampler
 from .cache import CacheManager, create_cached_metric
 from .openai_inspection import (
     InspectingOpenAIModel,
@@ -26,7 +26,7 @@ from .types import DataInst, RolloutOutput, Trajectory, OutputT
 __all__ = [
     "optimize_agent_prompts",
     "GepaOptimizationResult",
-    "PydanticAIGEPAAdapter",
+    "AgentAdapter",
     "ReflectionSampler",
     "CacheManager",
     "create_cached_metric",

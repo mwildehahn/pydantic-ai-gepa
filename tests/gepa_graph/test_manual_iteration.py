@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import StartNode
@@ -19,7 +19,7 @@ from tests.gepa_graph.utils import (
 
 @pytest.mark.asyncio
 async def test_manual_iteration_flow() -> None:
-    adapter = cast(PydanticAIGEPAAdapter[Any], AdapterStub())
+    adapter = cast(AgentAdapter[Any], AdapterStub())
     config = GepaConfig(max_evaluations=30, minibatch_size=2, seed=17)
     deps = create_deps(adapter, config)
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())

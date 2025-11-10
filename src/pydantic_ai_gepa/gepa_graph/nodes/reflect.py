@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence, TYPE_CHECKING
+from typing import Mapping, Sequence
 
 from pydantic_ai.models import KnownModelName, Model
 
