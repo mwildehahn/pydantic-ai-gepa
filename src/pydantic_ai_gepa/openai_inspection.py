@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, Sequence, cast
+from typing import Any, Sequence, cast
+
+from openai import NOT_GIVEN as OPENAI_NOT_GIVEN
 
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models import Model, ModelRequestParameters, ModelSettings
-from pydantic_ai.models.openai import OpenAIChatModelSettings
+from pydantic_ai.models.openai import (
+    OpenAIChatModel,
+    OpenAIChatModelSettings,
+    OpenAIResponsesModel,
+    OpenAIResponsesModelSettings,
+)
 from pydantic_ai.models.wrapper import WrapperModel
 
 
@@ -27,11 +34,12 @@ class OpenAIInspectionSnapshot:
         """Return a dict mirroring the OpenAI client payload."""
         payload: dict[str, Any] = {
             "model": self.model_name,
-            "messages": self.provider_messages,
+            "messages": _json_safe(self.provider_messages),
         }
         if self.model_settings:
-            payload["settings"] = dict(self.model_settings)
-        payload.update(self.extra)
+            payload["settings"] = _json_safe(dict(self.model_settings))
+        if self.extra:
+            payload["metadata"] = _json_safe(self.extra)
         return payload
 
 
@@ -43,33 +51,14 @@ class OpenAIInspectionAborted(RuntimeError):
         self.snapshot = snapshot
 
 
-class _SupportsOpenAIIntrospection(Protocol):
-    """Subset of OpenAIChatModel surface relied on for inspection."""
-
-    model_name: str
-    system: str
-
-    def prepare_request(
-        self,
-        model_settings: ModelSettings | None,
-        model_request_parameters: ModelRequestParameters,
-    ) -> tuple[ModelSettings | None, ModelRequestParameters]:
-        ...
-
-    async def _map_messages(
-        self,
-        messages: list[ModelMessage],
-        model_request_parameters: ModelRequestParameters,
-    ) -> list[Any]:
-        ...
-
-
 class InspectingOpenAIModel(WrapperModel):
     """Wrap an OpenAI model and surface payloads via exceptions."""
 
     def __init__(self, wrapped: Model) -> None:
         super().__init__(wrapped)
-        self._openai = self._ensure_openai_model(self.wrapped)
+        self._openai: OpenAIChatModel | OpenAIResponsesModel = (
+            self._ensure_openai_model(self.wrapped)
+        )
 
     async def request(
         self,
@@ -77,7 +66,9 @@ class InspectingOpenAIModel(WrapperModel):
         model_settings: ModelSettings | None,
         model_request_parameters: ModelRequestParameters,
     ):
-        snapshot = await self._build_snapshot(messages, model_settings, model_request_parameters)
+        snapshot = await self._build_snapshot(
+            messages, model_settings, model_request_parameters
+        )
         raise OpenAIInspectionAborted(snapshot)
 
     async def _build_snapshot(
@@ -90,7 +81,9 @@ class InspectingOpenAIModel(WrapperModel):
             model_settings,
             model_request_parameters,
         )
-        provider_messages = await self._openai._map_messages(messages, prepared_params)
+        provider_messages = await self._map_provider_messages(
+            messages, prepared_settings, prepared_params
+        )
         settings_dict = cast(OpenAIChatModelSettings, prepared_settings or {})
         return OpenAIInspectionSnapshot(
             model_name=self._openai.model_name,
@@ -102,16 +95,26 @@ class InspectingOpenAIModel(WrapperModel):
         )
 
     @staticmethod
-    def _ensure_openai_model(model: Model) -> _SupportsOpenAIIntrospection:
-        required = ("prepare_request", "_map_messages", "model_name", "system")
-        missing = [attr for attr in required if not hasattr(model, attr)]
-        if missing:
-            names = ", ".join(missing)
-            raise TypeError(
-                "InspectingOpenAIModel requires an OpenAI-compatible model "
-                f"implementing: {names}"
+    def _ensure_openai_model(model: Model) -> OpenAIChatModel | OpenAIResponsesModel:
+        if isinstance(model, (OpenAIChatModel, OpenAIResponsesModel)):
+            return cast(OpenAIChatModel | OpenAIResponsesModel, model)
+        raise TypeError(
+            "InspectingOpenAIModel requires an OpenAIChatModel or OpenAIResponsesModel."
+        )
+
+    async def _map_provider_messages(
+        self,
+        messages: list[ModelMessage],
+        model_settings: ModelSettings | None,
+        model_request_parameters: ModelRequestParameters,
+    ) -> list[Any]:
+        if isinstance(self._openai, OpenAIResponsesModel):
+            settings = cast(OpenAIResponsesModelSettings, model_settings or {})
+            return await self._openai._map_messages(
+                messages, settings, model_request_parameters
             )
-        return cast(_SupportsOpenAIIntrospection, model)
+
+        return await self._openai._map_messages(messages, model_request_parameters)
 
 
 __all__ = [
@@ -119,3 +122,13 @@ __all__ = [
     "OpenAIInspectionAborted",
     "OpenAIInspectionSnapshot",
 ]
+
+
+def _json_safe(value: Any) -> Any:
+    if value is OPENAI_NOT_GIVEN:
+        return None
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe(v) for v in value]
+    return value

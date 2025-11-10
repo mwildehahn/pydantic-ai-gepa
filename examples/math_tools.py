@@ -11,9 +11,11 @@ from typing import Any
 import logfire
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models import infer_model
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
 
+from pydantic_ai_gepa import InspectingOpenAIModel, OpenAIInspectionAborted
 from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.gepa_graph import (
@@ -330,8 +332,11 @@ signature_dataset = [
     for index, dataset_case in enumerate(dataset.cases)
 ]
 
+# agent_model = InspectingOpenAIModel(infer_model("openai:gpt-5-mini"))
+agent_model = infer_model("openai:gpt-5-mini")
+
 agent = Agent(
-    model="openai:gpt-5-mini",
+    model=agent_model,
     instructions=(
         "Solve math problems using the python_eval tool. "
         "Write clear Python code with intermediate steps if needed (e.g., factorial = math.factorial(15), then sum digits). "
@@ -451,6 +456,10 @@ async def run_math_tools_optimization(
     config = GepaConfig(
         max_evaluations=150,
         component_selector="all",
+        max_concurrent_evaluations=10,
+        enable_parallel_evaluation=True,
+        enable_parallel_minibatch=True,
+        enable_parallel_reflection=False,
     )
     deps = create_deps(adapter, config)
     graph = create_gepa_graph(adapter=adapter, config=config)
@@ -471,7 +480,7 @@ async def main() -> None:
     output_dir = Path("optimization_results")
     output_dir.mkdir(exist_ok=True)
 
-    reflection_model = OpenAIResponsesModel(
+    base_reflection_model = OpenAIResponsesModel(
         model_name="gpt-5",
         settings=OpenAIResponsesModelSettings(
             openai_reasoning_effort="medium",
@@ -479,13 +488,20 @@ async def main() -> None:
             openai_text_verbosity="medium",
         ),
     )
+    reflection_model = InspectingOpenAIModel(base_reflection_model)
 
     # 60/40 train/val split to better detect overfitting
     split_index = int(len(signature_dataset) * 0.6)
     trainset = signature_dataset[:split_index]
     valset = signature_dataset[split_index:]
 
-    result = await run_math_tools_optimization(trainset, valset, reflection_model)
+    try:
+        result = await run_math_tools_optimization(trainset, valset, reflection_model)
+    except OpenAIInspectionAborted as exc:
+        snapshot = exc.snapshot
+        print("\n🔎 OpenAI request intercepted for inspection. Payload:")
+        print(json.dumps(snapshot.payload(), indent=2))
+        return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output_dir / f"math_tools_optimization_{timestamp}.json"

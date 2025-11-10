@@ -16,6 +16,7 @@ from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
 from .reflection import propose_new_texts
+from .openai_inspection import OpenAIInspectionAborted
 from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
@@ -246,6 +247,8 @@ class PydanticAIGEPAAdapter(
 
             return result
 
+        except OpenAIInspectionAborted:
+            raise
         except Exception as e:
             logger.exception(
                 "Failed to process data instance %s", getattr(data_inst, "case_id", "unknown")
@@ -316,6 +319,8 @@ class PydanticAIGEPAAdapter(
             output = RolloutOutput.from_success(final_output)
 
             return trajectory, output
+        except OpenAIInspectionAborted:
+            raise
         except Exception as e:
             logger.exception(
                 "Failed to run agent with traces for instance %s",
@@ -348,6 +353,8 @@ class PydanticAIGEPAAdapter(
                 )
 
             return RolloutOutput.from_success(result.output)
+        except OpenAIInspectionAborted:
+            raise
         except Exception as e:
             logger.exception(
                 "Failed to run agent without traces for instance %s",
