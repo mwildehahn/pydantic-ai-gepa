@@ -35,7 +35,10 @@ from pydantic_ai.messages import (
 )
 
 from ..cache import CacheManager
-from ..components import apply_candidate_to_agent, extract_seed_candidate_with_input_type
+from ..components import (
+    apply_candidate_to_agent,
+    extract_seed_candidate_with_input_type,
+)
 from ..evaluation_models import EvaluationBatch
 from ..inspection import InspectionAborted
 from ..signature import BoundInputSpec, InputSpec, build_input_spec
@@ -50,8 +53,11 @@ from ..types import (
 )
 from ..adapter import Adapter
 
-logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from pydantic_ai.agent import AbstractAgent
+
+logger = logging.getLogger(__name__)
 
 
 def _truncate_text(value: str, limit: int = 2000) -> str:
@@ -101,7 +107,9 @@ def _serialize_user_prompt_content(content: str | Sequence[UserContent]) -> str:
     return "\n".join(described)
 
 
-def _serialize_tool_return(part: ToolReturnPart | BuiltinToolReturnPart) -> dict[str, Any]:
+def _serialize_tool_return(
+    part: ToolReturnPart | BuiltinToolReturnPart,
+) -> dict[str, Any]:
     content_str = _truncate_text(part.model_response_str())
     serialized = {
         "type": "tool_return",
@@ -124,31 +132,37 @@ def _serialize_retry_part(part: RetryPromptPart) -> dict[str, Any]:
         reason = part.content
     else:
         reason = json.dumps(part.content, ensure_ascii=False, default=str)
-    return _compact_dict({
-        "type": "retry_prompt",
-        "tool_name": part.tool_name,
-        "tool_call_id": part.tool_call_id,
-        "content": _truncate_text(reason),
-        "timestamp": _timestamp_iso(part.timestamp),
-    })
+    return _compact_dict(
+        {
+            "type": "retry_prompt",
+            "tool_name": part.tool_name,
+            "tool_call_id": part.tool_call_id,
+            "content": _truncate_text(reason),
+            "timestamp": _timestamp_iso(part.timestamp),
+        }
+    )
 
 
 def _serialize_request_part(part: Any) -> dict[str, Any]:
     """Serialize a ModelRequest part."""
     if isinstance(part, SystemPromptPart):
-        return _compact_dict({
-            "type": "system_prompt",
-            "role": "system",
-            "content": _truncate_text(part.content),
-            "timestamp": _timestamp_iso(part.timestamp),
-        })
+        return _compact_dict(
+            {
+                "type": "system_prompt",
+                "role": "system",
+                "content": _truncate_text(part.content),
+                "timestamp": _timestamp_iso(part.timestamp),
+            }
+        )
     if isinstance(part, UserPromptPart):
-        return _compact_dict({
-            "type": "user_prompt",
-            "role": "user",
-            "content": _truncate_text(_serialize_user_prompt_content(part.content)),
-            "timestamp": _timestamp_iso(part.timestamp),
-        })
+        return _compact_dict(
+            {
+                "type": "user_prompt",
+                "role": "user",
+                "content": _truncate_text(_serialize_user_prompt_content(part.content)),
+                "timestamp": _timestamp_iso(part.timestamp),
+            }
+        )
     if isinstance(part, (ToolReturnPart, BuiltinToolReturnPart)):
         return _serialize_tool_return(part)
     if isinstance(part, RetryPromptPart):
@@ -162,20 +176,24 @@ def _serialize_request_part(part: Any) -> dict[str, Any]:
 def _serialize_response_part(part: Any) -> dict[str, Any]:
     """Serialize a ModelResponse part."""
     if isinstance(part, TextPart):
-        return _compact_dict({
-            "type": "text",
-            "role": "assistant",
-            "content": _truncate_text(part.content),
-            "id": part.id,
-        })
+        return _compact_dict(
+            {
+                "type": "text",
+                "role": "assistant",
+                "content": _truncate_text(part.content),
+                "id": part.id,
+            }
+        )
     if isinstance(part, ThinkingPart):
-        return _compact_dict({
-            "type": "thinking",
-            "role": "assistant",
-            "content": _truncate_text(part.content),
-            "id": part.id,
-            "provider_name": part.provider_name,
-        })
+        return _compact_dict(
+            {
+                "type": "thinking",
+                "role": "assistant",
+                "content": _truncate_text(part.content),
+                "id": part.id,
+                "provider_name": part.provider_name,
+            }
+        )
     if isinstance(part, (ToolCallPart, BuiltinToolCallPart)):
         serialized = {
             "type": "tool_call",
@@ -192,24 +210,30 @@ def _serialize_response_part(part: Any) -> dict[str, Any]:
     if isinstance(part, BuiltinToolReturnPart):
         return _serialize_tool_return(part)
     if isinstance(part, FilePart):
-        return _compact_dict({
-            "type": "file",
-            "role": "assistant",
-            "description": _describe_binary_content(part.content),
-            "id": part.id,
-            "provider_name": getattr(part, "provider_name", None),
-        })
+        return _compact_dict(
+            {
+                "type": "file",
+                "role": "assistant",
+                "description": _describe_binary_content(part.content),
+                "id": part.id,
+                "provider_name": getattr(part, "provider_name", None),
+            }
+        )
     if hasattr(part, "content"):
-        return _compact_dict({
+        return _compact_dict(
+            {
+                "type": getattr(part, "part_kind", type(part).__name__),
+                "role": "assistant",
+                "content": _truncate_text(str(part.content)),
+            }
+        )
+    return _compact_dict(
+        {
             "type": getattr(part, "part_kind", type(part).__name__),
             "role": "assistant",
-            "content": _truncate_text(str(part.content)),
-        })
-    return _compact_dict({
-        "type": getattr(part, "part_kind", type(part).__name__),
-        "role": "assistant",
-        "repr": repr(part),
-    })
+            "repr": repr(part),
+        }
+    )
 
 
 def _serialize_model_message(
@@ -241,10 +265,12 @@ def _serialize_model_message(
         if message.usage and hasattr(message.usage, "__dataclass_fields__"):
             base["usage"] = asdict(message.usage)
         return _compact_dict(base)
-    return _compact_dict({
-        "kind": getattr(message, "kind", type(message).__name__),
-        "repr": repr(message),
-    })
+    return _compact_dict(
+        {
+            "kind": getattr(message, "kind", type(message).__name__),
+            "repr": repr(message),
+        }
+    )
 
 
 @dataclass
@@ -327,10 +353,6 @@ class AgentAdapterTrajectory(Trajectory):
         }
 
 
-if TYPE_CHECKING:
-    from pydantic_ai.agent import AbstractAgent
-
-
 class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
     """GEPA adapter for optimizing a single pydantic-ai agent with an optional input_type.
 
@@ -384,7 +406,9 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         """
         outputs: list[RolloutOutput[Any]] = []
         scores: list[float] = []
-        trajectories: list[AgentAdapterTrajectory] | None = [] if capture_traces else None
+        trajectories: list[AgentAdapterTrajectory] | None = (
+            [] if capture_traces else None
+        )
 
         with self._apply_candidate(candidate):
             results = await asyncio.gather(
@@ -403,7 +427,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             scores.append(result["score"])
 
             if trajectories is not None and "trajectory" in result:
-                    trajectories.append(result["trajectory"])
+                trajectories.append(result["trajectory"])
 
         return EvaluationBatch(
             outputs=outputs,
@@ -425,10 +449,11 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         # Apply to agent
         stack.enter_context(apply_candidate_to_agent(self.agent, candidate))
 
-        # Apply to signature if provided
+        # Apply to input if provided
         if self.input_spec:
             stack.enter_context(self.input_spec.apply_candidate(candidate))
 
+        # TODO: look at applying to output_spec too (optimizing output docs)
         return stack
 
     async def process_data_instance(
@@ -516,7 +541,9 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             result: dict[str, Any] = {
                 "output": output,
                 "score": score,
+                "feedback": metric_feedback,
             }
+
             if trajectory is not None:
                 result["trajectory"] = trajectory
 
@@ -650,7 +677,6 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 getattr(instance, "case_id", "unknown"),
             )
             return RolloutOutput.from_error(e)
-
 
     def make_reflective_dataset(
         self,
