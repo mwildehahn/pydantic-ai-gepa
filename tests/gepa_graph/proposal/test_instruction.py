@@ -206,8 +206,13 @@ components_to_update:
 - `instructions`
 - `tools`
 
+Goal for this call:
+- Rewrite only the listed components.
+- Tie every change directly to the reflection evidence.
+- Preserve useful structure and successful patterns unless the evidence contradicts them.
+
 Component details and reflective evidence:
-### Shared Reflective Dataset
+### Reflection evidence pack
 ### Example 1
 - **User Prompt:** Hello
 - **Assistant Response:** Hi
@@ -215,21 +220,29 @@ Component details and reflective evidence:
 - **Success:** true
 - **Feedback:** Needs more detail
 
-### Component `instructions`
+### Component work order: `instructions`
 Current text:
 ```
 Seed instructions
 ```
 
-Reflective dataset:
-Refer to the shared reflective dataset above.
+Rewrite focus:
+- Ensure `instructions` addresses the issues surfaced in the evidence.
+- Keep any framing or examples that demonstrably still work.
 
-### Component `tools`
+Evidence to use:
+Refer to the reflection evidence pack above.
+
+### Component work order: `tools`
 Current text:
 ```
 Seed tools
 ```
 
-Reflective dataset:
-Refer to the shared reflective dataset above.\
+Rewrite focus:
+- Ensure `tools` addresses the issues surfaced in the evidence.
+- Keep any framing or examples that demonstrably still work.
+
+Evidence to use:
+Refer to the reflection evidence pack above.\
 """)
