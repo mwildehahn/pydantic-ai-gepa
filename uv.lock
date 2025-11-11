@@ -1435,7 +1435,7 @@ wheels = [
 
 [[package]]
 name = "logfire"
-version = "4.7.0"
+version = "4.14.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "executing" },
@@ -1447,9 +1447,9 @@ dependencies = [
     { name = "tomli", marker = "python_full_version < '3.11'" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/fb/59b3a1b4a93fc7151b235da337810ade1e093ef0749b5bca810f427630aa/logfire-4.7.0.tar.gz", hash = "sha256:57a94fa5198c494c94850d966b167c41514e002864d36a8f1bbeddf84a94125d", size = 533310, upload-time = "2025-09-12T15:18:49.383Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/5c/89/d26951b6b21790641720c12cfd6dca0cf7ead0f5ddd7de4299837b90b8b1/logfire-4.14.2.tar.gz", hash = "sha256:8dcedbd59c3d06a8794a93bbf09add788de3b74c45afa821750992f0c822c628", size = 548291, upload-time = "2025-10-24T20:14:39.115Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/cd/66/01e8b2cff6a90daf579b4efee653544e3ba719b8b555b8937348c3e79e83/logfire-4.7.0-py3-none-any.whl", hash = "sha256:7f451648a5532249223ea0f886c1b0295cdfa7bd1336824803cf7415cd9f04d8", size = 219841, upload-time = "2025-09-12T15:18:45.322Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/92/4fba7b8f4f56f721ad279cb0c08164bffa14e93cfd184d1a4cc7151c52a2/logfire-4.14.2-py3-none-any.whl", hash = "sha256:caa8111b20f263f4ebb0ae380a62f2a214aeb07d5e2f03c9300fa096d0a8e692", size = 228364, upload-time = "2025-10-24T20:14:34.495Z" },
 ]
 
 [package.optional-dependencies]
@@ -2126,8 +2126,10 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cloudpickle" },
+    { name = "logfire" },
     { name = "pydantic-ai" },
     { name = "pydantic-graph" },
+    { name = "rich" },
 ]
 
 [package.dev-dependencies]
@@ -2145,15 +2147,17 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cloudpickle", specifier = ">=3.0.0" },
+    { name = "logfire", specifier = ">=4.14.2" },
     { name = "pydantic-ai", git = "file:///Users/mh/labs/pydantic-ai?rev=eeeddc5ec9bb99eaa5bd986aaad2773697aaae24" },
     { name = "pydantic-graph", git = "file:///Users/mh/labs/pydantic-ai?subdirectory=pydantic_graph&rev=eeeddc5ec9bb99eaa5bd986aaad2773697aaae24" },
+    { name = "rich", specifier = ">=13.7.1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "inline-snapshot", specifier = ">=0.29.0" },
     { name = "ipdb", specifier = ">=0.13.13" },
-    { name = "logfire", specifier = ">=4.7.0" },
+    { name = "logfire", specifier = ">=4.14.2" },
     { name = "pyright", specifier = ">=1.1.405" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", specifier = ">=1.2.0" },

@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,9 +28,11 @@ from .gepa_graph.models import (
     GepaState,
 )
 from .gepa_graph.nodes import StartNode
+from .logging_utils import StructuredLogger, get_structured_logger, log_structured
 from .signature import InputSpec
 from .reflection import ReflectionSampler
 from .types import DataInstT, MetricResult, RolloutOutput
+from .progress import OptimizationProgress
 ComponentSelectorLiteral = Literal["round_robin", "all"]
 
 if TYPE_CHECKING:
@@ -39,13 +41,6 @@ if TYPE_CHECKING:
 
 
 module_logger = logging.getLogger(__name__)
-
-
-class LoggerProtocol(Protocol):
-    """Minimal logger interface used by the optimization runner."""
-
-    def log(self, message: str) -> None:
-        ...
 
 
 def _normalize_candidate(
@@ -152,7 +147,8 @@ async def optimize_agent(
     cache_dir: str | None = None,
     cache_verbose: bool = False,
     # Logging
-    logger: LoggerProtocol | None = None,
+    logger: StructuredLogger | None = None,
+    show_progress: bool = False,
     # Reproducibility
     seed: int = 0,
     raise_on_exception: bool = True,
@@ -201,7 +197,9 @@ async def optimize_agent(
         cache_verbose: Whether to log cache hits and misses.
 
         # Logging
-        logger: Logger instance for tracking progress.
+        logger: Optional logger to override the default ``logfire`` usage for
+            structured progress/error messages.
+        show_progress: Display a Rich progress bar tied to the evaluation budget.
         # Reproducibility
         seed: Random seed for reproducibility.
         raise_on_exception: Whether to raise exceptions or continue on errors.
@@ -246,6 +244,8 @@ async def optimize_agent(
             verbose=cache_verbose,
         )
 
+    active_logger = get_structured_logger(logger)
+
     adapter = AgentAdapter(
         agent=agent,
         metric=metric,
@@ -285,9 +285,22 @@ async def optimize_agent(
     )
 
     try:
-        async with graph.iter(StartNode(), state=state, deps=deps) as run:
-            async for _ in run:
-                pass
+        with OptimizationProgress(
+            total=config.max_evaluations,
+            description="Optimizing agent",
+            enabled=show_progress,
+        ) as progress_bar:
+            previous_node_name: str | None = None
+            async with graph.iter(StartNode(), state=state, deps=deps) as run:
+                async for node in run:
+                    current_node_name = node.__class__.__name__
+                    progress_bar.update(
+                        state.total_evaluations,
+                        current_node=current_node_name,
+                        previous_node=previous_node_name,
+                    )
+                    previous_node_name = current_node_name
+            progress_bar.update(state.total_evaluations)
         run_result = run.result
         if run_result is None:
             raise RuntimeError("GEPA graph run did not produce a result.")
@@ -295,10 +308,13 @@ async def optimize_agent(
     except Exception as exc:
         if raise_on_exception:
             raise
-        if logger:
-            logger.log(f"Optimization failed: {exc}")
-        else:
-            module_logger.exception("Optimization failed", exc_info=exc)
+        log_structured(
+            active_logger,
+            "error",
+            "Optimization failed",
+            exception=exc,
+        )
+        module_logger.exception("Optimization failed", exc_info=exc)
         return _fallback_result(normalized_seed_candidate)
 
     best_candidate_model = gepa_result.best_candidate or state.get_best_candidate()
@@ -333,9 +349,8 @@ async def optimize_agent(
 
     if cache_manager and cache_verbose:
         stats = cache_manager.get_cache_stats()
-        if logger:
-            logger.log(f"Cache stats: {stats}")
-        else:
+        log_structured(active_logger, "info", "Cache stats", stats=stats)
+        if active_logger is not module_logger:
             module_logger.info("Cache stats: %s", stats)
 
     return result

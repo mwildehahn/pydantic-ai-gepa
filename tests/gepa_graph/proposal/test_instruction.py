@@ -302,6 +302,8 @@ Each trace contains:
 - Are components misaligned (e.g., instructions referencing tools that don't exist)?
 - Which successful patterns should be preserved or extended?
 - What domain knowledge should be codified in the prompts?
+- Are there patterns of inefficient tool usage (redundant calls, speculative calls, lack of planning)?
+- How can prompts guide the student to gather what's needed in fewer, well-targeted tool calls?
 
 ---
 
@@ -752,6 +754,8 @@ Each trace contains:
 - Are components misaligned (e.g., instructions referencing tools that don't exist)?
 - Which successful patterns should be preserved or extended?
 - What domain knowledge should be codified in the prompts?
+- Are there patterns of inefficient tool usage (redundant calls, speculative calls, lack of planning)?
+- How can prompts guide the student to gather what's needed in fewer, well-targeted tool calls?
 
 ---
 

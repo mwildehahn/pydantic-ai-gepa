@@ -5,7 +5,7 @@ from typing import Any
 import pytest
 from inline_snapshot import snapshot
 from pydantic_ai import Agent
-from pydantic_ai.messages import UserPromptPart
+from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
 import time_machine
 
@@ -89,6 +89,34 @@ async def test_process_data_instance():
     assert result_with_trace["output"].success is True
     assert result_with_trace["score"] == 0.8
     assert result_with_trace["trajectory"].final_output == "Test response"
+
+
+@pytest.mark.asyncio
+async def test_process_data_instance_captures_messages_on_tool_error():
+    """Ensure traces include prompt/response history even when tools fail."""
+    agent = Agent(TestModel(), instructions="Be helpful")
+
+    @agent.tool
+    async def broken_tool(ctx, code: str) -> str:
+        raise ValueError("boom")
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        return MetricResult(score=0.0, feedback="failed")
+
+    adapter = AgentAdapter(agent, metric)
+    data_inst = DataInstWithPrompt(
+        user_prompt=UserPromptPart(content="Hello"),
+        message_history=None,
+        metadata={},
+        case_id="tool-error",
+    )
+
+    result = await adapter.process_data_instance(data_inst, capture_traces=True)
+
+    assert result["output"].success is False
+    trajectory = result["trajectory"]
+    assert trajectory.messages, "expected captured messages for debugging"
+    assert any(isinstance(message, ModelRequest) for message in trajectory.messages)
 
 
 @pytest.mark.asyncio

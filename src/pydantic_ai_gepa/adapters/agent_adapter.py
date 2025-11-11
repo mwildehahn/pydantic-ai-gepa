@@ -11,6 +11,7 @@ import json
 from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import BaseModel
+from pydantic_ai import capture_run_messages
 from pydantic_ai._tool_types import ToolDefinition
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import (
@@ -532,9 +533,11 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     trajectory, output = cached_agent_result
                 else:
                     if capture_traces:
-                        trajectory, output = await self._run_with_trace(data_inst)
+                        trajectory, output = await self._run_with_trace(
+                            data_inst, candidate
+                        )
                     else:
-                        output = await self._run_simple(data_inst)
+                        output = await self._run_simple(data_inst, candidate)
                         trajectory = None
 
                     self.cache_manager.cache_agent_run(
@@ -546,9 +549,11 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     )
             else:
                 if capture_traces:
-                    trajectory, output = await self._run_with_trace(data_inst)
+                    trajectory, output = await self._run_with_trace(
+                        data_inst, candidate
+                    )
                 else:
-                    output = await self._run_simple(data_inst)
+                    output = await self._run_simple(data_inst, candidate)
                     trajectory = None
 
             # Compute score using the metric and capture optional feedback
@@ -627,7 +632,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             return error_result
 
     async def _run_with_trace(
-        self, instance: DataInstT
+        self, instance: DataInstT, candidate: dict[str, str] | None
     ) -> tuple[AgentAdapterTrajectory, RolloutOutput[Any]]:
         """Run the agent and capture the trajectory.
 
@@ -638,46 +643,26 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             Tuple of (trajectory, output).
         """
         messages: list[ModelMessage] = []
+        captured_messages: list[ModelMessage] = []
+        run_result: Any | None = None
 
         try:
-            if isinstance(instance, DataInstWithPrompt):
-                result = await self.agent.run(
-                    instance.user_prompt.content,
-                    message_history=instance.message_history,
-                )
-            else:
-                assert isinstance(self.agent, SignatureAgent)
-                result = await self.agent.run_signature(
-                    instance.input,
-                    message_history=instance.message_history,
-                )
+            with capture_run_messages() as run_messages:
+                captured_messages = run_messages
+                if isinstance(instance, DataInstWithPrompt):
+                    run_result = await self.agent.run(
+                        instance.user_prompt.content,
+                        message_history=instance.message_history,
+                    )
+                else:
+                    assert isinstance(self.agent, SignatureAgent)
+                    run_result = await self.agent.run_signature(
+                        instance.input,
+                        message_history=instance.message_history,
+                        candidate=candidate,
+                    )
 
-            messages = result.new_messages()
-            final_output = result.output
-            target_agent = self.agent
-            if isinstance(target_agent, WrapperAgent):
-                target_agent = target_agent.wrapped
-
-            instructions_text = None
-            function_tools = None
-            for message in messages:
-                if isinstance(message, ModelRequest):
-                    instructions_text = message.instructions
-                    function_tools = message.function_tools
-                    break
-
-            trajectory = AgentAdapterTrajectory(
-                messages=messages,
-                instructions=instructions_text,
-                function_tools=function_tools,
-                final_output=final_output,
-                error=None,
-                usage=asdict(result.usage()),  # Convert RunUsage to dict
-                data_inst=instance,
-            )
-            output = RolloutOutput.from_success(final_output)
-
-            return trajectory, output
+                messages = run_result.new_messages()
         except InspectionAborted:
             raise
         except Exception as e:
@@ -685,19 +670,54 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 "Failed to run agent with traces for instance %s",
                 getattr(instance, "case_id", "unknown"),
             )
+            all_messages = list(messages or captured_messages)
             trajectory = AgentAdapterTrajectory(
-                messages=messages,
+                messages=all_messages,
                 instructions=None,
                 function_tools=None,
                 final_output=None,
                 error=str(e),
+                # TODO: handle usage properly
                 usage={},
                 data_inst=instance,
             )
             output = RolloutOutput.from_error(e)
             return trajectory, output
 
-    async def _run_simple(self, instance: DataInstT) -> RolloutOutput[Any]:
+        assert run_result is not None
+        final_messages = list(messages or captured_messages)
+        final_output = run_result.output
+        target_agent = self.agent
+        if isinstance(target_agent, WrapperAgent):
+            target_agent = target_agent.wrapped
+
+        instructions_text = None
+        function_tools = None
+        for message in final_messages:
+            if not isinstance(message, ModelRequest):
+                continue
+            if message.instructions is None:
+                continue
+            instructions_text = message.instructions
+            function_tools = message.function_tools
+            break
+
+        trajectory = AgentAdapterTrajectory(
+            messages=final_messages,
+            instructions=instructions_text,
+            function_tools=function_tools,
+            final_output=final_output,
+            error=None,
+            usage=asdict(run_result.usage()),  # Convert RunUsage to dict
+            data_inst=instance,
+        )
+        output = RolloutOutput.from_success(final_output)
+
+        return trajectory, output
+
+    async def _run_simple(
+        self, instance: DataInstT, candidate: dict[str, str] | None
+    ) -> RolloutOutput[Any]:
         """Run the agent without capturing traces.
 
         Args:
@@ -717,6 +737,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 result = await self.agent.run_signature(
                     instance.input,
                     message_history=instance.message_history,
+                    candidate=candidate,
                 )
 
             return RolloutOutput.from_success(result.output)

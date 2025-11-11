@@ -23,7 +23,7 @@ from pydantic_ai_gepa.gepa_graph import GepaConfig, GepaResult, optimize
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
 
-logfire.configure()
+logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
 logfire.instrument_httpx(capture_all=True)
 
@@ -326,8 +326,8 @@ signature_dataset = [
     for index, dataset_case in enumerate(dataset.cases)
 ]
 
-agent_model = InspectingModel(infer_model("openai:gpt-5-mini"))
-# agent_model = infer_model("openai:gpt-5-mini")
+# agent_model = InspectingModel(infer_model("openai:gpt-5-nano"))
+agent_model = infer_model("openai:gpt-5-mini")
 
 agent = Agent(
     model=agent_model,
@@ -459,10 +459,10 @@ async def run_math_tools_optimization(
     )
 
     config = GepaConfig(
-        max_evaluations=150,
+        max_evaluations=50,
         component_selector="all",
         max_concurrent_evaluations=10,
-        enable_parallel_reflection=False,
+        enable_parallel_reflection=True,
         reflection_model=reflection_model,
     )
 
@@ -471,6 +471,7 @@ async def run_math_tools_optimization(
         config=config,
         trainset=trainset,
         valset=valset,
+        show_progress=True,
     )
 
 
@@ -478,7 +479,7 @@ async def main() -> None:
     output_dir = Path("optimization_results")
     output_dir.mkdir(exist_ok=True)
 
-    base_reflection_model = OpenAIResponsesModel(
+    reflection_model = OpenAIResponsesModel(
         model_name="gpt-5",
         settings=OpenAIResponsesModelSettings(
             openai_reasoning_effort="medium",
@@ -486,7 +487,7 @@ async def main() -> None:
             openai_text_verbosity="medium",
         ),
     )
-    reflection_model = InspectingModel(base_reflection_model)
+    # reflection_model = InspectingModel(reflection_model)
 
     # 60/40 train/val split to better detect overfitting
     split_index = int(len(signature_dataset) * 0.6)

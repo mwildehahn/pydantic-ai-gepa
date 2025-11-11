@@ -10,6 +10,8 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
+from pydantic_ai_gepa.inspection import InspectionAborted
+
 from ...adapter import (
     ComponentReflectiveDataset,
     ReflectiveDataset,
@@ -31,6 +33,13 @@ Your task is to:
 
 Focus on making prompts clearer, more specific, and better aligned with successful outcomes.
 When updating multiple components, ensure they work together cohesively.
+
+**Efficiency guidance:**
+- Guide the student towards accurate, efficient tool usage
+- Tool calls aren't necessarily wrong, but unnecessary calls waste resources
+- Encourage the student to gather sufficient information in fewer, well-planned calls
+- Promote patterns where the student thinks through what's needed before acting
+- Avoid patterns that lead to redundant or speculative tool calls
 
 Always respond using the structured schema with an entry for each component you were asked to update."""
 
@@ -99,6 +108,8 @@ class InstructionProposalGenerator:
 
         try:
             result = await self._agent.run(prompt, model=model)
+        except InspectionAborted:
+            raise
         except Exception:
             # Fall back to the existing component texts when the agent fails.
             return {
@@ -213,6 +224,8 @@ class InstructionProposalGenerator:
                 "- Are components misaligned (e.g., instructions referencing tools that don't exist)?",
                 "- Which successful patterns should be preserved or extended?",
                 "- What domain knowledge should be codified in the prompts?",
+                "- Are there patterns of inefficient tool usage (redundant calls, speculative calls, lack of planning)?",
+                "- How can prompts guide the student to gather what's needed in fewer, well-targeted tool calls?",
                 "",
                 "---",
                 "",

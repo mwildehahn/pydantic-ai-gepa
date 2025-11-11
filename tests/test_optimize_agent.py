@@ -247,3 +247,74 @@ async def test_optimize_agent_minimal_flow_with_signature():
     assert result.original_candidate == seed
     assert result.num_metric_calls > 0
     assert result.num_metric_calls <= 30
+
+
+@pytest.mark.asyncio
+async def test_optimize_agent_reports_progress(monkeypatch: pytest.MonkeyPatch):
+    """Ensure enabling show_progress triggers progress updates."""
+
+    agent = Agent(
+        TestModel(custom_output_text="ok"),
+        instructions="Say ok.",
+    )
+
+    trainset: list[DataInst] = [
+        DataInstWithPrompt(
+            user_prompt=UserPromptPart(content="Hello"),
+            message_history=None,
+            metadata={"label": "ok"},
+            case_id="case-0",
+        )
+    ]
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        del data_inst  # unused
+        return MetricResult(score=1.0, feedback="Fine")
+
+    reflection_output = InstructionProposalOutput(
+        updated_components=[
+            ComponentUpdate(
+                component_name="instructions",
+                optimized_value="Better instructions",
+            )
+        ]
+    )
+    reflection_model = TestModel(
+        custom_output_args=reflection_output.model_dump(mode="python")
+    )
+
+    updates: list[int] = []
+
+    class _StubProgress:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            self._updates = updates
+
+        def __enter__(self) -> "_StubProgress":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def add_task(self, description: str, total: int) -> int:
+            self.description = description
+            self.total = total
+            return 7
+
+        def update(self, task_id: int, **kwargs: Any) -> None:
+            self._updates.append(kwargs.get("completed", 0))
+
+    monkeypatch.setattr("pydantic_ai_gepa.progress.Progress", _StubProgress)
+
+    result = await optimize_agent(
+        agent=agent,
+        trainset=trainset,
+        metric=metric,
+        reflection_model=reflection_model,
+        max_metric_calls=5,
+        show_progress=True,
+        seed=0,
+    )
+
+    assert result.num_metric_calls > 0
+    assert updates, "Expected at least one progress update"
+    assert updates[-1] == min(result.num_metric_calls, 5)

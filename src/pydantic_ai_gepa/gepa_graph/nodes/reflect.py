@@ -13,6 +13,7 @@ from ...adapter import (
     SharedReflectiveDataset,
 )
 from ...evaluation_models import EvaluationBatch
+from ...logging_utils import get_structured_logger, log_structured
 from ...types import DataInst
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaConfig, GepaState
@@ -22,6 +23,7 @@ from .continue_node import ContinueNode
 from .evaluate import EvaluateNode
 
 _IMPROVEMENT_EPSILON = 1e-9
+_structured_logger = get_structured_logger()
 
 
 @dataclass(slots=True)
@@ -34,6 +36,14 @@ class ReflectNode(GepaNode):
 
         parent_idx, parent = self._select_parent(state, deps)
         minibatch = self._sample_minibatch(state, deps)
+        log_structured(
+            _structured_logger,
+            "debug",
+            "ReflectNode evaluating parent",
+            parent_idx=parent_idx,
+            component_versions=self._component_versions(parent),
+            minibatch_size=len(minibatch),
+        )
 
         parent_results = await self._evaluate_minibatch(
             deps=deps,
@@ -50,6 +60,13 @@ class ReflectNode(GepaNode):
             return ContinueNode()
 
         components = self._select_components(state, deps, parent_idx)
+        log_structured(
+            _structured_logger,
+            "debug",
+            "ReflectNode selected components",
+            components=components,
+            parent_idx=parent_idx,
+        )
         reflective_dataset = self._build_reflective_dataset(
             deps=deps,
             state=state,
@@ -70,6 +87,19 @@ class ReflectNode(GepaNode):
             parent=parent,
             parent_idx=parent_idx,
             new_texts=proposed_texts,
+        )
+        log_structured(
+            _structured_logger,
+            "debug",
+            "ReflectNode proposed candidate",
+            candidate_idx=new_candidate.idx,
+            parent_idx=parent_idx,
+            updated_components=sorted(
+                name
+                for name, value in new_candidate.components.items()
+                if value.text != parent.components[name].text
+            )
+            or components,
         )
 
         new_results = await self._evaluate_minibatch(
@@ -292,6 +322,10 @@ class ReflectNode(GepaNode):
                 continue
             sampled_map[component] = sampler(list(records), max_records=max_records)
         return ComponentReflectiveDataset(records_by_component=sampled_map)
+
+    @staticmethod
+    def _component_versions(candidate: CandidateProgram) -> dict[str, int]:
+        return {name: component.version for name, component in candidate.components.items()}
 
 
 __all__ = ["ReflectNode"]

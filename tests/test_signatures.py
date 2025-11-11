@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import DataInst, AgentAdapter, MetricResult
+from pydantic_ai_gepa import DataInst, AgentAdapter, MetricResult, SignatureAgent
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
 from pydantic_ai_gepa.signature import (
     apply_candidate_to_input_model,
@@ -14,6 +15,7 @@ from pydantic_ai_gepa.signature import (
     generate_user_content,
     get_gepa_components,
 )
+from pydantic_ai_gepa.types import DataInstWithInput
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
@@ -322,6 +324,65 @@ def test_gepa_adapter_with_signatures():
     assert adapter.input_spec.model_cls is EmailSupportSignature
     assert adapter.agent == agent
     assert adapter.metric == support_metric
+
+
+@pytest.mark.asyncio
+async def test_agent_adapter_applies_candidate_to_signature_agent():
+    """Ensure AgentAdapter forwards candidates into SignatureAgent runs."""
+    base_agent = Agent(
+        TestModel(
+            custom_output_args=SupportResponse(
+                priority="low",
+                category="general",
+                suggested_response="Default",
+                needs_escalation=False,
+            )
+        ),
+        instructions="Base instructions",
+        output_type=SupportResponse,
+    )
+    signature_agent = SignatureAgent(
+        base_agent,
+        input_type=EmailSupportSignature,
+        output_type=SupportResponse,
+    )
+
+    adapter = AgentAdapter(
+        agent=signature_agent,
+        metric=lambda data_inst, output: MetricResult(score=1.0, feedback=None),
+    )
+
+    sig_input = EmailSupportSignature(
+        emails=[
+            Email(
+                header=EmailHeader(
+                    sender=EmailSender(name="User", address="user@example.com"),
+                    subject="Help",
+                ),
+                contents="Need assistance",
+            )
+        ],
+        previous_interactions=None,
+        company_policies="Policy",
+    )
+    instance = DataInstWithInput(
+        input=sig_input,
+        message_history=None,
+        metadata={},
+        case_id="case-1",
+    )
+
+    candidate = {"instructions": "Reflected instructions"}
+    batch = await adapter.evaluate(
+        [instance],
+        candidate=candidate,
+        capture_traces=True,
+    )
+
+    assert batch.trajectories is not None
+    trajectory = batch.trajectories[0]
+    assert trajectory.instructions is not None
+    assert trajectory.instructions.splitlines()[0] == candidate["instructions"]
 
 
 def test_extract_seed_candidate_with_signatures():

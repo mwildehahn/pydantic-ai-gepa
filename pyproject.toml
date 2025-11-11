@@ -21,6 +21,8 @@ dependencies = [
     "cloudpickle>=3.0.0",
     "pydantic-ai @ git+file:///Users/mh/labs/pydantic-ai@eeeddc5ec9bb99eaa5bd986aaad2773697aaae24",
     "pydantic-graph @ git+file:///Users/mh/labs/pydantic-ai@eeeddc5ec9bb99eaa5bd986aaad2773697aaae24#subdirectory=pydantic_graph",
+    "rich>=13.7.1",
+    "logfire>=4.14.2",
 ]
 
 [dependency-groups]
@@ -30,7 +32,7 @@ dev = [
     "inline-snapshot>=0.29.0",
     "pytest-asyncio>=1.2.0",
     "ipdb>=0.13.13",
-    "logfire>=4.7.0",
+    "logfire>=4.14.2",
     "pyright>=1.1.405",
     "time-machine>=2.19.0",
 ]
