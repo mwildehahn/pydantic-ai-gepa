@@ -14,8 +14,10 @@ from pydantic import (
     field_validator,
     model_validator,
 )
+from pydantic_ai.models import KnownModelName, Model
 
 from ...types import DataInst
+from ...reflection import ReflectionSampler
 from .candidate import CandidateProgram
 from .pareto import ParetoFrontEntry
 
@@ -85,6 +87,18 @@ class GepaConfig(BaseModel):
         default=True,
         description="Whether to stop reflecting once a candidate meets or exceeds perfect_score.",
     )
+    reflection_model: Model | KnownModelName | str | None = Field(
+        default=None,
+        description="LLM used to propose new component text during reflection.",
+    )
+    reflection_sampler: ReflectionSampler | None = Field(
+        default=None,
+        description="Optional sampler applied to reflection records before LLM calls.",
+    )
+    reflection_sampler_max_records: int = Field(
+        default=10,
+        description="Maximum records passed to the reflection sampler/model per component.",
+    )
 
     # Component selection
     component_selector: Literal["round_robin", "all"] = Field(
@@ -138,9 +152,14 @@ class GepaConfig(BaseModel):
     # Reproducibility
     seed: int = Field(default=0, description="Seed used for deterministic randomness.")
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
-    @field_validator("max_evaluations", "minibatch_size", "max_concurrent_evaluations")
+    @field_validator(
+        "max_evaluations",
+        "minibatch_size",
+        "max_concurrent_evaluations",
+        "reflection_sampler_max_records",
+    )
     @classmethod
     def _validate_positive_int(cls, value: int, info: ValidationInfo) -> int:
         if value <= 0:
@@ -190,14 +209,15 @@ class GepaState(BaseModel):
     )
 
     last_accepted: bool = Field(
-        default=False, description="Whether the most recent reflection or merge was accepted."
+        default=False,
+        description="Whether the most recent reflection or merge was accepted.",
     )
     merge_scheduled: int = Field(
         default=0,
         description="Number of pending merge operations left to schedule after acceptance.",
     )
     stopped: bool = Field(
-        False,
+        default=False,
         description="Set to True when ContinueNode determines the run should stop.",
     )
     stop_reason: str | None = Field(
@@ -209,7 +229,8 @@ class GepaState(BaseModel):
         default=0, description="Total metric evaluations performed across the run."
     )
     full_validations: int = Field(
-        default=0, description="Number of full validation passes that have been executed."
+        default=0,
+        description="Number of full validation passes that have been executed.",
     )
 
     best_candidate_idx: int | None = Field(

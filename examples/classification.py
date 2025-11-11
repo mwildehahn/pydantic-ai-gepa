@@ -12,7 +12,7 @@ from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
+from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -304,14 +304,14 @@ eval_signature_agent = SignatureAgent(
 def metric(
     data_inst: DataInstWithInput[ClassificationInput],
     output: RolloutOutput[ClassificationOutput],
-) -> tuple[float, str | None]:
+) -> MetricResult:
     if (
         output.success
         and output.result
         and output.result.category == data_inst.metadata["label"]
     ):
         print("Correct")
-        return 1.0, "Correct"
+        return MetricResult(score=1.0, feedback="Correct")
 
     eval_signature = EvaluationInput(
         text=data_inst.input.text,
@@ -329,7 +329,7 @@ def metric(
 
     score = eval_output.output.score
     feedback = eval_output.output.feedback
-    return score, feedback
+    return MetricResult(score=score, feedback=feedback)
 
 
 async def main() -> None:

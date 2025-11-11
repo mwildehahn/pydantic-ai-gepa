@@ -18,7 +18,12 @@ from tests.gepa_graph.utils import AdapterStub, ProposalGeneratorStub, make_data
 @pytest.mark.asyncio
 async def test_checkpoint_resume_restores_progress() -> None:
     adapter = cast(AgentAdapter[DataInst], AdapterStub())
-    config = GepaConfig(max_evaluations=40, minibatch_size=2, seed=42)
+    config = GepaConfig(
+        max_evaluations=40,
+        minibatch_size=2,
+        seed=42,
+        reflection_model="reflection-model",
+    )
     deps = create_deps(adapter, config)
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 

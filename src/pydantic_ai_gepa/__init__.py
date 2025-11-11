@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from .adapter import AdapterTrajectory, AgentAdapter, ReflectionSampler
+from .adapter import AdapterTrajectory, AgentAdapter
+from .reflection import ReflectionSampler
 from .cache import CacheManager, create_cached_metric
 from .inspection import (
     InspectingModel,
@@ -21,7 +22,7 @@ from .signature import (
     get_gepa_components,
 )
 from .signature_agent import SignatureAgent
-from .types import DataInst, OutputT, RolloutOutput, Trajectory
+from .types import DataInst, MetricResult, OutputT, RolloutOutput, Trajectory
 
 __all__ = [
     "optimize_agent",
@@ -34,6 +35,7 @@ __all__ = [
     "AdapterTrajectory",
     "Trajectory",
     "RolloutOutput",
+    "MetricResult",
     "OutputT",
     "BoundInputSpec",
     "InputSpec",

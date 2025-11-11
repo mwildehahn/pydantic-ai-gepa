@@ -10,7 +10,7 @@ from pydantic_ai.models import KnownModelName, Model
 from ...evaluation_models import EvaluationBatch
 from ...types import DataInst
 from ..evaluation import EvaluationResults
-from ..models import CandidateProgram, ComponentValue, GepaState
+from ..models import CandidateProgram, ComponentValue, GepaConfig, GepaState
 from ..deps import GepaDeps
 from .base import GepaNode, GepaRunContext
 from .continue_node import ContinueNode
@@ -47,6 +47,7 @@ class ReflectNode(GepaNode):
         components = self._select_components(state, deps, parent_idx)
         reflective_dataset = self._build_reflective_dataset(
             deps=deps,
+            state=state,
             candidate=parent,
             eval_results=parent_results,
             components=components,
@@ -173,6 +174,7 @@ class ReflectNode(GepaNode):
         self,
         *,
         deps: GepaDeps,
+        state: GepaState,
         candidate: CandidateProgram,
         eval_results: EvaluationResults[str],
         components: Sequence[str],
@@ -182,11 +184,12 @@ class ReflectNode(GepaNode):
             scores=list(eval_results.scores),
             trajectories=eval_results.trajectories,
         )
-        return deps.adapter.make_reflective_dataset(
+        dataset = deps.adapter.make_reflective_dataset(
             candidate=candidate.to_dict_str(),
             eval_batch=eval_batch,
             components_to_update=list(components),
         )
+        return self._apply_reflection_sampler(dataset, state.config)
 
     async def _propose_new_texts(
         self,
@@ -257,14 +260,30 @@ class ReflectNode(GepaNode):
 
     @staticmethod
     def _resolve_reflection_model(deps: GepaDeps) -> Model | KnownModelName | str:
-        if deps.reflection_model is not None:
-            return deps.reflection_model
-        adapter_model = getattr(deps.adapter, "reflection_model", None)
-        if adapter_model is None:
+        if deps.reflection_model is None:
             raise ValueError(
-                "ReflectNode requires a reflection model to propose updates."
+                "ReflectNode requires `reflection_model` to be set on GepaConfig."
             )
-        return adapter_model
+        return deps.reflection_model
+
+    @staticmethod
+    def _apply_reflection_sampler(
+        dataset: dict[str, list[dict]],
+        config: GepaConfig,
+    ) -> dict[str, list[dict]]:
+        sampler = config.reflection_sampler
+        if sampler is None:
+            return dataset
+
+        max_records = config.reflection_sampler_max_records
+        sampled: dict[str, list[dict]] = {}
+        for component, records in dataset.items():
+            if not records:
+                sampled[component] = []
+                continue
+            sampled_records = sampler(list(records), max_records=max_records)
+            sampled[component] = sampled_records
+        return sampled
 
 
 __all__ = ["ReflectNode"]

@@ -20,7 +20,7 @@ from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.gepa_graph import GepaConfig, GepaResult, optimize
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
+from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -373,9 +373,12 @@ signature_agent = SignatureAgent(
 def metric(
     data_inst: DataInstWithInput[MathProblemInput],
     output: RolloutOutput[MathProblemOutput],
-) -> tuple[float, str | None]:
+) -> MetricResult:
     if not output.success or output.result is None:
-        return 0.0, output.error_message or "Agent failed to produce an output."
+        return MetricResult(
+            score=0.0,
+            feedback=output.error_message or "Agent failed to produce an output.",
+        )
 
     predicted_output = output.result
     predicted = predicted_output.answer
@@ -390,30 +393,38 @@ def metric(
         if ideal_expression:
             hint = f"{hint} For reference, one valid approach is `{ideal_expression}`."
         prefix = f"{base_feedback} " if base_feedback else ""
-        return 0.0, f"{prefix}Missing code used for python_eval. {hint}"
+        return MetricResult(
+            score=0.0,
+            feedback=f"{prefix}Missing code used for python_eval. {hint}",
+        )
 
     try:
         evaluated, display = evaluate_code(expression)
     except Exception as exc:  # noqa: BLE001
         prefix = f"{base_feedback} " if base_feedback else ""
-        return 0.0, f"{prefix}Code could not be evaluated: {exc}"
+        return MetricResult(
+            score=0.0,
+            feedback=f"{prefix}Code could not be evaluated: {exc}",
+        )
 
     answer_gap = abs(predicted - evaluated)
     max_internal_gap = max(tolerance, 1e-9)
     if answer_gap > max_internal_gap:
         prefix = f"{base_feedback} " if base_feedback else ""
-        return (
-            0.0,
-            f"{prefix}Reported answer {predicted} disagrees with code result {display}.",
+        return MetricResult(
+            score=0.0,
+            feedback=(
+                f"{prefix}Reported answer {predicted} disagrees with code result {display}."
+            ),
         )
 
     if target is None:
-        return 0.0, "Missing reference target."
+        return MetricResult(score=0.0, feedback="Missing reference target.")
 
     target_gap = abs(evaluated - target)
     effective_tolerance = max(tolerance, 1e-9)
     if target_gap <= effective_tolerance:
-        return 1.0, "Exact match within tolerance."
+        return MetricResult(score=1.0, feedback="Exact match within tolerance.")
 
     normalized_error = target_gap / max(abs(target), 1.0)
     score = max(0.0, 1.0 - min(normalized_error * 10, 1.0))
@@ -425,7 +436,7 @@ def metric(
     if ideal_expression and ideal_expression != expression:
         hint += f" A reliable approach is `{ideal_expression}`."
     feedback = f"{base} {hint}"
-    return score, feedback
+    return MetricResult(score=score, feedback=feedback)
 
 
 async def run_math_tools_optimization(
@@ -443,7 +454,6 @@ async def run_math_tools_optimization(
         agent=signature_agent,
         metric=metric,
         input_type=MathProblemInput,
-        reflection_model=reflection_model,
         cache_manager=cache_manager,
     )
 
@@ -454,6 +464,7 @@ async def run_math_tools_optimization(
         enable_parallel_evaluation=True,
         enable_parallel_minibatch=True,
         enable_parallel_reflection=False,
+        reflection_model=reflection_model,
     )
 
     return await optimize(

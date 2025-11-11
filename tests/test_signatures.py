@@ -6,7 +6,7 @@ from typing import Any
 
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import DataInst, AgentAdapter
+from pydantic_ai_gepa import DataInst, AgentAdapter, MetricResult
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
 from pydantic_ai_gepa.signature import (
     apply_candidate_to_input_model,
@@ -308,8 +308,8 @@ def test_gepa_adapter_with_signatures():
     )
 
     # Define a simple metric
-    def support_metric(data_inst: DataInst, output: Any) -> tuple[float, str]:
-        return 0.8, "Good response"
+    def support_metric(data_inst: DataInst, output: Any) -> MetricResult:
+        return MetricResult(score=0.8, feedback="Good response")
 
     # Create adapter with signatures
     adapter = AgentAdapter(

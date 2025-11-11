@@ -8,7 +8,7 @@ from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 import logging
 import json
-from typing import TYPE_CHECKING, Any, Generic, Protocol
+from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
@@ -33,7 +33,6 @@ from pydantic_ai.messages import (
     UserPromptPart,
     VideoUrl,
 )
-from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
 from .evaluation_models import EvaluationBatch
@@ -41,7 +40,14 @@ from .inspection import InspectionAborted
 from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
-from .types import DataInst, DataInstT, DataInstWithPrompt, RolloutOutput, Trajectory
+from .types import (
+    DataInst,
+    DataInstT,
+    DataInstWithPrompt,
+    MetricResult,
+    RolloutOutput,
+    Trajectory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -323,24 +329,6 @@ if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
 
 
-class ReflectionSampler(Protocol):
-    """Protocol for sampling reflection records."""
-
-    def __call__(
-        self, records: list[dict[str, Any]], max_records: int
-    ) -> list[dict[str, Any]]:
-        """Sample records for reflection.
-
-        Args:
-            records: All reflection records available.
-            max_records: Maximum number of records to return.
-
-        Returns:
-            Sampled list of records (up to max_records).
-        """
-        ...
-
-
 class AgentAdapter(Generic[DataInstT]):
     """GEPA adapter for optimizing a single pydantic-ai agent with an optional input_type.
 
@@ -353,11 +341,9 @@ class AgentAdapter(Generic[DataInstT]):
     def __init__(
         self,
         agent: AbstractAgent[Any, Any],
-        metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
+        metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
         *,
         input_type: InputSpec[BaseModel] | None = None,
-        reflection_sampler: ReflectionSampler | None = None,
-        reflection_model: Model | KnownModelName | str | None = None,
         cache_manager: CacheManager | None = None,
     ):
         """Initialize the adapter.
@@ -369,10 +355,6 @@ class AgentAdapter(Generic[DataInstT]):
                    (second element) is optional but recommended for better optimization.
             input_type: Optional structured input specification whose instructions and field
                             descriptions will be optimized alongside the agent's prompts.
-            reflection_sampler: Optional sampler for reflection records. If provided,
-                               it will be called to sample records when needed. If None,
-                               all reflection records are kept without sampling.
-            reflection_model: The model to use for reflection.
             cache_manager: The cache manager to use for caching.
         """
         self.agent = agent
@@ -380,8 +362,6 @@ class AgentAdapter(Generic[DataInstT]):
         self.input_spec: BoundInputSpec[BaseModel] | None = (
             build_input_spec(input_type) if input_type else None
         )
-        self.reflection_sampler = reflection_sampler
-        self.reflection_model = reflection_model
         self.cache_manager = cache_manager
 
     async def evaluate(
@@ -466,6 +446,8 @@ class AgentAdapter(Generic[DataInstT]):
         """
         try:
             # Check cache first for agent run (if we have a current candidate)
+            metric_result: MetricResult | None = None
+
             if self.cache_manager and candidate:
                 cached_agent_result = self.cache_manager.get_cached_agent_run(
                     data_inst,
@@ -507,24 +489,27 @@ class AgentAdapter(Generic[DataInstT]):
                 )
 
                 if cached_result is not None:
-                    score, metric_feedback = cached_result
+                    metric_result = cached_result
                 else:
                     # Call metric and cache result
-                    score, metric_feedback = self.metric(data_inst, output)
+                    metric_result = self.metric(data_inst, output)
                     self.cache_manager.cache_metric_result(
                         data_inst,
                         output,
                         candidate,
-                        score,
-                        metric_feedback,
+                        metric_result,
                     )
             else:
                 # No caching, call metric directly
-                score, metric_feedback = self.metric(data_inst, output)
+                metric_result = self.metric(data_inst, output)
 
             # Attach metric-provided feedback to the trajectory if captured
-            if trajectory is not None:
-                trajectory.metric_feedback = metric_feedback
+            if trajectory is not None and metric_result is not None:
+                trajectory.metric_feedback = metric_result.feedback
+
+            assert metric_result is not None
+            score = metric_result.score
+            metric_feedback = metric_result.feedback
 
             result: dict[str, Any] = {
                 "output": output,
@@ -719,14 +704,6 @@ class AgentAdapter(Generic[DataInstT]):
 
             record["feedback"] = feedback_text
             reflection_records.append(record)
-
-        # Apply sampling if a sampler is configured
-        if self.reflection_sampler and reflection_records:
-            # Let the sampler determine its own max_records internally
-            # For backward compatibility, we can use a reasonable default
-            reflection_records = self.reflection_sampler(
-                reflection_records, max_records=10
-            )
 
         # For pydantic-ai, all components work together, so they all need
         # the same reflection data to understand the full context

@@ -33,8 +33,6 @@ class _AdapterStub:
     def __init__(self) -> None:
         self.agent = _AgentStub()
         self.input_spec = None
-        self.reflection_model = "reflection-model"
-        self.reflection_sampler = object()
 
 
 def _make_adapter() -> AgentAdapter[DataInst]:
@@ -56,7 +54,7 @@ def _make_state(config: GepaConfig) -> GepaState:
 
 def test_create_deps_defaults() -> None:
     adapter = _make_adapter()
-    config = GepaConfig(seed=7)
+    config = GepaConfig(seed=7, reflection_model="reflection-model")
 
     deps = create_deps(adapter, config)
 
@@ -67,7 +65,7 @@ def test_create_deps_defaults() -> None:
     assert isinstance(deps.batch_sampler, BatchSampler)
     assert isinstance(deps.merge_builder.seed, int)
     assert deps.merge_builder.seed == config.seed
-    assert deps.reflection_model == adapter.reflection_model
+    assert deps.reflection_model == config.reflection_model
 
     # Batch sampler should respect the config seed for determinism.
     sampler_rng = getattr(deps.batch_sampler, "_rng")

@@ -16,7 +16,12 @@ from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
     InstructionProposalOutput,
 )
 from pydantic_ai_gepa.runner import optimize_agent
-from pydantic_ai_gepa.types import DataInstWithInput, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import (
+    DataInstWithInput,
+    DataInstWithPrompt,
+    MetricResult,
+    RolloutOutput,
+)
 from pydantic_ai_gepa.adapter import AdapterTrajectory
 
 
@@ -41,12 +46,17 @@ def test_cache_manager_basic():
         assert result is None
 
         # Cache a result
-        cache.cache_metric_result(data_inst, output, candidate, 0.95, "Good job")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            MetricResult(score=0.95, feedback="Good job"),
+        )
 
         # Now cache should hit
         result = cache.get_cached_metric_result(data_inst, output, candidate)
         assert result is not None
-        assert result == (0.95, "Good job")
+        assert result == MetricResult(score=0.95, feedback="Good job")
 
         # Different candidate should miss
         different_candidate = {"instructions": "Different instructions"}
@@ -93,11 +103,16 @@ def test_cache_manager_with_signature():
         }
 
         # Cache a result
-        cache.cache_metric_result(data_inst, output, candidate, 1.0, "Correct")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            MetricResult(score=1.0, feedback="Correct"),
+        )
 
         # Should get cache hit with same inputs
         result = cache.get_cached_metric_result(data_inst, output, candidate)
-        assert result == (1.0, "Correct")
+        assert result == MetricResult(score=1.0, feedback="Correct")
 
         # Different signature value should miss
         data_inst2 = DataInstWithInput(
@@ -128,7 +143,12 @@ def test_cache_manager_disabled():
     assert result is None
 
     # Caching should be no-op
-    cache.cache_metric_result(data_inst, output, candidate, 0.5, "Feedback")
+    cache.cache_metric_result(
+        data_inst,
+        output,
+        candidate,
+        MetricResult(score=0.5, feedback="Feedback"),
+    )
     result = cache.get_cached_metric_result(data_inst, output, candidate)
     assert result is None
 
@@ -148,7 +168,7 @@ def test_create_cached_metric():
         def mock_metric(data_inst, output):
             nonlocal call_count
             call_count += 1
-            return 0.8, f"Call {call_count}"
+            return MetricResult(score=0.8, feedback=f"Call {call_count}")
 
         # Create cached version
         candidate = {"instructions": "Test"}
@@ -164,15 +184,15 @@ def test_create_cached_metric():
         output = RolloutOutput.from_success("Result")
 
         # First call should invoke the metric
-        score, feedback = cached_metric(data_inst, output)
-        assert score == 0.8
-        assert feedback == "Call 1"
+        result = cached_metric(data_inst, output)
+        assert result.score == 0.8
+        assert result.feedback == "Call 1"
         assert call_count == 1
 
         # Second call with same inputs should use cache
-        score, feedback = cached_metric(data_inst, output)
-        assert score == 0.8
-        assert feedback == "Call 1"  # Same feedback
+        result = cached_metric(data_inst, output)
+        assert result.score == 0.8
+        assert result.feedback == "Call 1"  # Same feedback
         assert call_count == 1  # Metric not called again
 
         # Different inputs should invoke metric again
@@ -182,9 +202,9 @@ def test_create_cached_metric():
             metadata={},
             case_id="test-2",
         )
-        score, feedback = cached_metric(data_inst2, output)
-        assert score == 0.8
-        assert feedback == "Call 2"
+        result = cached_metric(data_inst2, output)
+        assert result.score == 0.8
+        assert result.feedback == "Call 2"
         assert call_count == 2
 
 
@@ -211,7 +231,7 @@ async def test_optimize_agent_with_caching():
             predicted = str(output.result).lower() if output.success else ""
             expected = data_inst.metadata.get("label", "").lower()
             score = 1.0 if predicted == expected else 0.0
-            return score, f"Score: {score}"
+            return MetricResult(score=score, feedback=f"Score: {score}")
 
         # Create agent
         agent = Agent(
@@ -290,12 +310,15 @@ def test_cache_handles_errors():
 
         # Should be able to cache error results
         cache.cache_metric_result(
-            data_inst, error_output, candidate, 0.0, "Error occurred"
+            data_inst,
+            error_output,
+            candidate,
+            MetricResult(score=0.0, feedback="Error occurred"),
         )
 
         # Should retrieve cached error result
         result = cache.get_cached_metric_result(data_inst, error_output, candidate)
-        assert result == (0.0, "Error occurred")
+        assert result == MetricResult(score=0.0, feedback="Error occurred")
 
         # Success output with same data should be different cache key
         success_output = RolloutOutput.from_success("Result")
@@ -383,11 +406,16 @@ def test_cache_key_stability():
         }
 
         # Cache with first candidate
-        cache.cache_metric_result(data_inst, output, candidate1, 0.9, "Good")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate1,
+            MetricResult(score=0.9, feedback="Good"),
+        )
 
         # Should get cache hit with reordered candidate
         result = cache.get_cached_metric_result(data_inst, output, candidate2)
-        assert result == (0.9, "Good")
+        assert result == MetricResult(score=0.9, feedback="Good")
 
         # Test with reordered metadata
         data_inst2 = DataInstWithPrompt(
@@ -399,4 +427,4 @@ def test_cache_key_stability():
 
         # Should still get cache hit
         result = cache.get_cached_metric_result(data_inst2, output, candidate1)
-        assert result == (0.9, "Good")
+        assert result == MetricResult(score=0.9, feedback="Good")

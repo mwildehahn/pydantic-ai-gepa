@@ -21,7 +21,12 @@ from tests.gepa_graph.utils import (
 @pytest.mark.asyncio
 async def test_manual_iteration_flow() -> None:
     adapter = cast(AgentAdapter[DataInst], AdapterStub())
-    config = GepaConfig(max_evaluations=30, minibatch_size=2, seed=17)
+    config = GepaConfig(
+        max_evaluations=30,
+        minibatch_size=2,
+        seed=17,
+        reflection_model="reflection-model",
+    )
     deps = create_deps(adapter, config)
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 

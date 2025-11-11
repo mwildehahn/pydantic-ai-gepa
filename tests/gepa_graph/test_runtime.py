@@ -15,7 +15,12 @@ from tests.gepa_graph.utils import AdapterStub, make_dataset
 @pytest.mark.asyncio
 async def test_optimize_completes_successfully() -> None:
     adapter = cast(AgentAdapter[DataInst], AdapterStub())
-    config = GepaConfig(max_evaluations=30, minibatch_size=2, seed=11)
+    config = GepaConfig(
+        max_evaluations=30,
+        minibatch_size=2,
+        seed=11,
+        reflection_model="reflection-model",
+    )
     dataset = make_dataset()
 
     result = await optimize(

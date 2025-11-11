@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Mapping, Sequence, cast
 
 import pytest
 from pydantic_graph import GraphRunContext
@@ -44,14 +44,19 @@ def _make_data(case_id: str) -> DataInstWithPrompt:
     )
 
 
-def _make_state(*, minibatch_size: int = 2) -> GepaState:
-    config = GepaConfig(
-        max_evaluations=100,
-        minibatch_size=minibatch_size,
-        merges_per_accept=2,
-        perfect_score=1.0,
-        skip_perfect_score=True,
-    )
+def _make_state(
+    *,
+    minibatch_size: int = 2,
+    config: GepaConfig | None = None,
+) -> GepaState:
+    if config is None:
+        config = GepaConfig(
+            max_evaluations=100,
+            minibatch_size=minibatch_size,
+            merges_per_accept=2,
+            perfect_score=1.0,
+            skip_perfect_score=True,
+        )
     training = [_make_data("a"), _make_data("b")]
     state = GepaState(config=config, training_set=training, validation_set=training)
     seed = CandidateProgram(
@@ -87,13 +92,10 @@ class _StubAdapter:
     def __init__(
         self,
         *,
-        reflection_model: str | None = "reflection-model",
         dataset: dict[str, list[dict[str, str]]] | None = None,
     ) -> None:
         self.agent = type("Agent", (), {"_instructions": "seed"})()
         self.input_spec = None
-        self.reflection_model = reflection_model
-        self.reflection_sampler = None
         self._dataset = dataset or {"instructions": [{"feedback": "needs work"}]}
         self.dataset_calls = 0
 
@@ -121,9 +123,11 @@ class _StubProposalGenerator(InstructionProposalGenerator):
         super().__init__()
         self._updates = updates
         self.calls = 0
+        self.last_reflective_data: Mapping[str, Sequence[Mapping[str, object]]] | None = None
 
     async def propose_texts(self, *, candidate, reflective_data, components, model):
         self.calls += 1
+        self.last_reflective_data = {k: list(v) for k, v in reflective_data.items()}
         return {
             component: self._updates.get(
                 component, candidate.components[component].text
@@ -202,6 +206,49 @@ async def test_reflect_node_accepts_strict_improvement() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reflect_node_applies_config_sampler() -> None:
+    sampler_calls: list[tuple[int, int]] = []
+
+    def sampler(records: list[dict[str, object]], max_records: int) -> list[dict[str, object]]:
+        sampler_calls.append((len(records), max_records))
+        return records[:max_records]
+
+    config = GepaConfig(
+        max_evaluations=50,
+        minibatch_size=2,
+        merges_per_accept=1,
+        perfect_score=1.0,
+        skip_perfect_score=True,
+        reflection_sampler=sampler,
+        reflection_sampler_max_records=1,
+    )
+    state = _make_state(config=config)
+    minibatch = list(state.training_set)
+    evaluator = _StubEvaluator(
+        [_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])]
+    )
+    batch_sampler = _StubBatchSampler(minibatch)
+    dataset = {"instructions": [{"feedback": "a"}, {"feedback": "b"}]}
+    stub_adapter = _StubAdapter(dataset=dataset)
+    adapter = cast(AgentAdapter[DataInst], stub_adapter)
+    generator = _StubProposalGenerator({"instructions": "Improved text"})
+    deps = _make_deps(
+        adapter=adapter,
+        evaluator=evaluator,
+        batch_sampler=batch_sampler,
+        proposal_generator=generator,
+    )
+    ctx = GraphRunContext(state=state, deps=deps)
+
+    node = ReflectNode()
+    await node.run(ctx)
+
+    assert sampler_calls == [(2, 1)]
+    assert generator.last_reflective_data is not None
+    assert len(generator.last_reflective_data["instructions"]) == 1
+
+
+@pytest.mark.asyncio
 async def test_reflect_node_rejects_when_not_improved() -> None:
     state = _make_state()
     minibatch = list(state.training_set)
@@ -263,10 +310,7 @@ async def test_reflect_node_requires_reflection_model() -> None:
     minibatch = list(state.training_set)
     evaluator = _StubEvaluator([_eval_results([0.3, 0.4])])
     batch_sampler = _StubBatchSampler(minibatch)
-    adapter = cast(
-        AgentAdapter[DataInst],
-        _StubAdapter(reflection_model=None),
-    )
+    adapter = cast(AgentAdapter[DataInst], _StubAdapter())
     generator = _StubProposalGenerator({"instructions": "Improved"})
     deps = _make_deps(
         adapter=adapter,
@@ -278,5 +322,5 @@ async def test_reflect_node_requires_reflection_model() -> None:
     ctx = GraphRunContext(state=state, deps=deps)
 
     node = ReflectNode()
-    with pytest.raises(ValueError, match="reflection model"):
+    with pytest.raises(ValueError, match="reflection_model"):
         await node.run(ctx)

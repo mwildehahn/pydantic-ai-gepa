@@ -47,8 +47,6 @@ class AdapterStub:
     def __init__(self) -> None:
         self.agent = type("Agent", (), {"_instructions": "seed instructions"})()
         self.input_spec = None
-        self.reflection_model = "reflection-model"
-        self.reflection_sampler = None
 
     async def evaluate(self, batch, candidate, capture_traces):
         text = candidate["instructions"]

@@ -14,7 +14,12 @@ from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import (
+    DataInst,
+    DataInstWithPrompt,
+    MetricResult,
+    RolloutOutput,
+)
 
 
 def test_extract_seed_candidate():
@@ -52,10 +57,10 @@ async def test_process_data_instance():
 
     def metric(
         data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> tuple[float, str | None]:
+    ) -> MetricResult:
         if output.success:
-            return (0.8, "Good")
-        return (0.0, "Failed")
+            return MetricResult(score=0.8, feedback="Good")
+        return MetricResult(score=0.0, feedback="Failed")
 
     adapter = AgentAdapter(agent, metric)
 
@@ -97,10 +102,10 @@ async def test_make_reflective_dataset():
 
     def metric(
         data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> tuple[float, str | None]:
+    ) -> MetricResult:
         if output.success:
-            return (0.8, "Good")
-        return (0.0, "Failed")
+            return MetricResult(score=0.8, feedback="Good")
+        return MetricResult(score=0.0, feedback="Failed")
 
     adapter = AgentAdapter(agent, metric)
     candidate = extract_seed_candidate(agent)

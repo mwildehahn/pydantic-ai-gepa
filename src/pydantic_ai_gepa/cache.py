@@ -14,6 +14,7 @@ from .types import (
     DataInst,
     DataInstWithPrompt,
     DataInstWithInput,
+    MetricResult,
     RolloutOutput,
     Trajectory,
 )
@@ -160,7 +161,7 @@ class CacheManager:
         data_inst: DataInst,
         output: RolloutOutput[Any],
         candidate: dict[str, str],
-    ) -> tuple[float, str | None] | None:
+    ) -> MetricResult | None:
         """Get cached metric result if available.
 
         Args:
@@ -180,11 +181,11 @@ class CacheManager:
         if cache_file.exists():
             try:
                 with open(cache_file, "rb") as f:
-                    cached_result = cloudpickle.load(f)
+                    cached_result: MetricResult = cloudpickle.load(f)
 
                 if self.verbose:
                     logger.info(
-                        f"Cache hit for case {data_inst.case_id}: score={cached_result[0]}"
+                        f"Cache hit for case {data_inst.case_id}: score={cached_result.score}"
                     )
 
                 return cached_result
@@ -202,8 +203,7 @@ class CacheManager:
         data_inst: DataInst,
         output: RolloutOutput[Any],
         candidate: dict[str, str],
-        score: float,
-        feedback: str | None,
+        metric_result: MetricResult,
     ) -> None:
         """Cache a metric evaluation result.
 
@@ -211,8 +211,7 @@ class CacheManager:
             data_inst: The data instance that was evaluated.
             output: The output from the agent run.
             candidate: The candidate prompts that were evaluated.
-            score: The computed score.
-            feedback: Optional feedback string.
+            metric_result: The computed metric result.
         """
         if not self.enabled:
             return
@@ -222,11 +221,11 @@ class CacheManager:
 
         try:
             with open(cache_file, "wb") as f:
-                cloudpickle.dump((score, feedback), f)
+                cloudpickle.dump(metric_result, f)
 
             if self.verbose:
                 logger.debug(
-                    f"Cached result for case {data_inst.case_id}: score={score}"
+                    f"Cached result for case {data_inst.case_id}: score={metric_result.score}"
                 )
         except Exception as e:
             logger.warning(f"Failed to cache result: {e}")
@@ -344,10 +343,10 @@ class CacheManager:
 
 
 def create_cached_metric(
-    metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
+    metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
     cache_manager: CacheManager,
     candidate: dict[str, str],
-) -> Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]]:
+) -> Callable[[DataInstT, RolloutOutput[Any]], MetricResult]:
     """Create a cached version of a metric function.
 
     This wrapper function checks the cache before calling the actual metric,
@@ -365,7 +364,7 @@ def create_cached_metric(
     def cached_metric(
         data_inst: DataInstT,
         output: RolloutOutput[Any],
-    ) -> tuple[float, str | None]:
+    ) -> MetricResult:
         # Check cache first
         cached_result = cache_manager.get_cached_metric_result(
             data_inst, output, candidate
@@ -375,11 +374,16 @@ def create_cached_metric(
             return cached_result
 
         # Call the actual metric
-        score, feedback = metric(data_inst, output)
+        metric_result = metric(data_inst, output)
 
         # Cache the result
-        cache_manager.cache_metric_result(data_inst, output, candidate, score, feedback)
+        cache_manager.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            metric_result,
+        )
 
-        return score, feedback
+        return metric_result
 
     return cached_metric

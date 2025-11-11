@@ -22,7 +22,13 @@ from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
 )
 from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInst, DataInstWithInput, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import (
+    DataInst,
+    DataInstWithInput,
+    DataInstWithPrompt,
+    MetricResult,
+    RolloutOutput,
+)
 
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
@@ -90,7 +96,7 @@ async def test_optimize_agent_minimal_flow():
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(
         data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> tuple[float, str | None]:
+    ) -> MetricResult:
         predicted = (
             str(output.result).strip().lower()
             if output.success and output.result is not None
@@ -98,7 +104,10 @@ async def test_optimize_agent_minimal_flow():
         )
         expected = str(data_inst.metadata.get("label", "")).strip().lower()
         score = 1.0 if predicted == expected else 0.0
-        return score, ("Correct" if score == 1.0 else "Incorrect")
+        return MetricResult(
+            score=score,
+            feedback="Correct" if score == 1.0 else "Incorrect",
+        )
 
     reflection_output = InstructionProposalOutput(
         updated_components=[
@@ -195,7 +204,7 @@ async def test_optimize_agent_minimal_flow_with_signature():
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(
         data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> tuple[float, str | None]:
+    ) -> MetricResult:
         predicted = (
             str(output.result).strip().lower()
             if output.success and output.result is not None
@@ -203,7 +212,10 @@ async def test_optimize_agent_minimal_flow_with_signature():
         )
         expected = str(data_inst.metadata.get("label", "")).strip().lower()
         score = 1.0 if predicted == expected else 0.0
-        return score, ("Correct" if score == 1.0 else "Incorrect")
+        return MetricResult(
+            score=score,
+            feedback="Correct" if score == 1.0 else "Incorrect",
+        )
 
     reflection_output = InstructionProposalOutput(
         updated_components=[

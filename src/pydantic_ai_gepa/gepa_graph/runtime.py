@@ -15,6 +15,7 @@ from .models import GepaConfig, GepaResult, GepaState
 from .nodes import StartNode
 from .nodes.base import GepaNode
 
+
 async def optimize(
     *,
     adapter: AgentAdapter[DataInstT],
@@ -28,8 +29,10 @@ async def optimize(
     """Execute the GEPA graph end-to-end and return the resulting GepaResult."""
 
     resolved_deps = deps if deps is not None else create_deps(adapter, config)
-    resolved_graph = graph if graph is not None else create_gepa_graph(
-        adapter=adapter, config=config
+    resolved_graph = (
+        graph
+        if graph is not None
+        else create_gepa_graph(adapter=adapter, config=config)
     )
     state = GepaState(config=config, training_set=trainset, validation_set=valset)
     start = start_node if start_node is not None else StartNode()

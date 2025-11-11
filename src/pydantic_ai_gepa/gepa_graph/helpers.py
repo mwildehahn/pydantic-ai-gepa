@@ -36,7 +36,7 @@ def create_deps(
         batch_sampler=batch_sampler,
         proposal_generator=InstructionProposalGenerator(),
         merge_builder=MergeProposalBuilder(seed=config.seed),
-        reflection_model=getattr(adapter, "reflection_model", None),
+        reflection_model=config.reflection_model,
     )
 
 

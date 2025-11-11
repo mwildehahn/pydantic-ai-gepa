@@ -9,18 +9,23 @@ from pydantic_ai.models.test import TestModel
 
 from pydantic_ai_gepa.adapter import AdapterTrajectory, AgentAdapter
 from pydantic_ai_gepa.evaluation_models import EvaluationBatch
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import (
+    DataInst,
+    DataInstWithPrompt,
+    MetricResult,
+    RolloutOutput,
+)
 
 
-def _make_adapter(*, sampler=None) -> AgentAdapter[DataInst]:
+def _make_adapter() -> AgentAdapter[DataInst]:
     agent = Agent(TestModel(), instructions="Base instructions")
 
     def metric(
         data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> tuple[float, str | None]:
-        return 0.5, "feedback"
+    ) -> MetricResult:
+        return MetricResult(score=0.5, feedback="feedback")
 
-    return AgentAdapter(agent, metric, reflection_sampler=sampler)
+    return AgentAdapter(agent, metric)
 
 
 def _make_trajectory(
@@ -78,22 +83,16 @@ def test_make_reflective_dataset_includes_feedback_and_errors() -> None:
     assert records[0]["instructions"] == "Base instructions"
 
 
-def test_make_reflective_dataset_applies_sampler() -> None:
-    calls: list[tuple[int, int]] = []
-
-    def sampler(records: list[dict[str, Any]], max_records: int) -> list[dict[str, Any]]:
-        calls.append((len(records), max_records))
-        return records[:1]
-
-    adapter = _make_adapter(sampler=sampler)
+def test_make_reflective_dataset_returns_full_records() -> None:
+    adapter = _make_adapter()
+    batch = _build_batch()
     dataset = adapter.make_reflective_dataset(
         candidate={"instructions": "seed"},
-        eval_batch=_build_batch(),
+        eval_batch=batch,
         components_to_update=["instructions"],
     )
 
-    assert len(dataset["instructions"]) == 1
-    assert calls == [(2, 10)]
+    assert len(dataset["instructions"]) == len(batch.outputs)
 
 
 def test_make_reflective_dataset_handles_missing_trajectories() -> None:

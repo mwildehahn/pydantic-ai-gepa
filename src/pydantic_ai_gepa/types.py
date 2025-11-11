@@ -125,6 +125,14 @@ DataInstT = TypeVar("DataInstT", bound=DataInst)
 
 
 @dataclass
+class MetricResult:
+    """Standardized result returned by metric functions."""
+
+    score: float
+    feedback: str | None = None
+
+
+@dataclass
 class RolloutOutput(Generic[OutputT]):
     """Output from a single agent execution.
 

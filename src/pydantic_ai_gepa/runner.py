@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
-from .adapter import AgentAdapter, ReflectionSampler
+from .adapter import AgentAdapter
 from .cache import CacheManager
 from .components import (
     apply_candidate_to_agent,
@@ -29,7 +29,8 @@ from .gepa_graph.models import (
 )
 from .gepa_graph.nodes import StartNode
 from .signature import InputSpec
-from .types import DataInstT, RolloutOutput
+from .reflection import ReflectionSampler
+from .types import DataInstT, MetricResult, RolloutOutput
 ComponentSelectorLiteral = Literal["round_robin", "all"]
 
 if TYPE_CHECKING:
@@ -130,7 +131,7 @@ async def optimize_agent(
     agent: AbstractAgent[Any, Any],
     trainset: Sequence[DataInstT],
     *,
-    metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
+    metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
     valset: Sequence[DataInstT] | None = None,
     input_type: InputSpec[BaseModel] | None = None,
     seed_candidate: dict[str, str] | None = None,
@@ -243,8 +244,6 @@ async def optimize_agent(
         agent=agent,
         metric=metric,
         input_type=input_type,
-        reflection_sampler=reflection_sampler,
-        reflection_model=reflection_model,
         cache_manager=cache_manager,
     )
 
@@ -259,6 +258,8 @@ async def optimize_agent(
         use_merge=use_merge,
         max_merge_invocations=max_merge_invocations,
         seed=seed,
+        reflection_model=reflection_model,
+        reflection_sampler=reflection_sampler,
     )
 
     deps = create_deps(adapter, config)
@@ -342,6 +343,8 @@ def _build_gepa_config(
     use_merge: bool,
     max_merge_invocations: int,
     seed: int,
+    reflection_model: Model | KnownModelName | str | None,
+    reflection_sampler: ReflectionSampler | None,
 ) -> GepaConfig:
     component_selector: ComponentSelectorLiteral = _resolve_component_selector(
         module_selector, len(seed_candidate)
@@ -360,6 +363,8 @@ def _build_gepa_config(
         use_merge=use_merge,
         max_total_merges=max_merge_invocations,
         seed=seed,
+        reflection_model=reflection_model,
+        reflection_sampler=reflection_sampler,
     )
 
 
