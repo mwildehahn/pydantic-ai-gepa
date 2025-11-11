@@ -7,7 +7,7 @@ from typing import cast
 
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 
@@ -78,18 +78,16 @@ class AdapterStub:
 
     def make_reflective_dataset(
         self, *, candidate, eval_batch, components_to_update
-    ):
-        return {
-            component: [
-                {
-                    "feedback": "stub feedback",
-                    "score": score,
-                    "success": output.success,
-                }
-                for score, output in zip(eval_batch.scores, eval_batch.outputs)
-            ]
-            for component in components_to_update
-        }
+    ) -> SharedReflectiveDataset:
+        records = [
+            {
+                "feedback": "stub feedback",
+                "score": score,
+                "success": output.success,
+            }
+            for score, output in zip(eval_batch.scores, eval_batch.outputs)
+        ]
+        return SharedReflectiveDataset(records=records)
 
     def get_components(self) -> dict[str, str]:
         return {"instructions": "seed instructions"}

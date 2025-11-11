@@ -51,7 +51,7 @@ from ..types import (
     RolloutOutput,
     Trajectory,
 )
-from ..adapter import Adapter
+from ..adapter import Adapter, ReflectiveDataset, SharedReflectiveDataset
 
 
 if TYPE_CHECKING:
@@ -684,7 +684,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         candidate: dict[str, str],
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> ReflectiveDataset:
         """Build a reflective dataset for instruction refinement.
 
         Args:
@@ -693,13 +693,11 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             components_to_update: Component names to update.
 
         Returns:
-            Mapping from component name to list of reflection records.
+            ReflectiveDataset containing shared reflection records for all components.
         """
         if not eval_batch.trajectories:
-            # No trajectories available, return empty dataset
-            return {comp: [] for comp in components_to_update}
+            return SharedReflectiveDataset(records=[])
 
-        # Build reflection records from trajectories
         reflection_records: list[dict[str, Any]] = []
         for trajectory, output, score in zip(
             eval_batch.trajectories,
@@ -707,8 +705,6 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             eval_batch.scores,
         ):
             record: dict[str, Any] = trajectory.to_reflective_record()
-
-            # Add score and success information
             record["score"] = score
             record["success"] = output.success
             if output.error_message:
@@ -717,11 +713,8 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             if trajectory.instructions:
                 record["instructions"] = trajectory.instructions
 
-            # Use metric feedback if available, otherwise use a simple fallback
             feedback_text = trajectory.metric_feedback
-
             if not feedback_text:
-                # Simple fallback when metric doesn't provide feedback
                 if score >= 0.8:
                     feedback_text = "Good response"
                 elif score >= 0.5:
@@ -734,9 +727,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             record["feedback"] = feedback_text
             reflection_records.append(record)
 
-        # For pydantic-ai, all components work together, so they all need
-        # the same reflection data to understand the full context
-        return {comp: reflection_records for comp in components_to_update}
+        return SharedReflectiveDataset(records=reflection_records)
 
     def get_components(self) -> dict[str, str]:
         """Return the current components extracted from the agent and signature."""

@@ -2,11 +2,30 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from .evaluation_models import EvaluationBatch
 from .types import DataInstT
+
+
+@dataclass(slots=True)
+class SharedReflectiveDataset:
+    """Reflection records shared by all components."""
+
+    records: list[dict[str, Any]]
+
+
+@dataclass(slots=True)
+class ComponentReflectiveDataset:
+    """Reflection records keyed by component name."""
+
+    records_by_component: Mapping[str, list[dict[str, Any]]]
+
+
+ReflectiveDataset = SharedReflectiveDataset | ComponentReflectiveDataset
+
 
 
 class Adapter(Protocol[DataInstT]):
@@ -26,7 +45,7 @@ class Adapter(Protocol[DataInstT]):
         candidate: dict[str, str],
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
-    ) -> dict[str, list[dict[str, Any]]]:
+    ) -> ReflectiveDataset:
         ...
 
     def get_components(self) -> dict[str, str]:
@@ -34,4 +53,9 @@ class Adapter(Protocol[DataInstT]):
         ...
 
 
-__all__ = ["Adapter"]
+__all__ = [
+    "Adapter",
+    "ReflectiveDataset",
+    "SharedReflectiveDataset",
+    "ComponentReflectiveDataset",
+]

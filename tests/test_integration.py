@@ -14,6 +14,7 @@ from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
+from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.types import (
     DataInst,
     DataInstWithPrompt,
@@ -55,9 +56,7 @@ async def test_process_data_instance():
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(
-        data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> MetricResult:
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
         if output.success:
             return MetricResult(score=0.8, feedback="Good")
         return MetricResult(score=0.0, feedback="Failed")
@@ -100,9 +99,7 @@ async def test_make_reflective_dataset():
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(
-        data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> MetricResult:
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
         if output.success:
             return MetricResult(score=0.8, feedback="Good")
         return MetricResult(score=0.0, feedback="Failed")
@@ -124,8 +121,8 @@ async def test_make_reflective_dataset():
         components_to_update=["instructions"],
     )
     assert reflective_dataset == snapshot(
-        {
-            "instructions": [
+        SharedReflectiveDataset(
+            records=[
                 {
                     "user_prompt": "Hello",
                     "assistant_response": "Test response",
@@ -184,5 +181,5 @@ async def test_make_reflective_dataset():
                     "feedback": "Good",
                 }
             ]
-        }
+        )
     )

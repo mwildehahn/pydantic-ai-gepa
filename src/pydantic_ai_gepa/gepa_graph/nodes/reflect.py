@@ -7,6 +7,11 @@ from typing import Mapping, Sequence
 
 from pydantic_ai.models import KnownModelName, Model
 
+from ...adapter import (
+    ComponentReflectiveDataset,
+    ReflectiveDataset,
+    SharedReflectiveDataset,
+)
 from ...evaluation_models import EvaluationBatch
 from ...types import DataInst
 from ..evaluation import EvaluationResults
@@ -178,7 +183,7 @@ class ReflectNode(GepaNode):
         candidate: CandidateProgram,
         eval_results: EvaluationResults[str],
         components: Sequence[str],
-    ) -> dict[str, list[dict]]:
+    ) -> ReflectiveDataset:
         eval_batch = EvaluationBatch(
             outputs=list(eval_results.outputs),
             scores=list(eval_results.scores),
@@ -196,7 +201,7 @@ class ReflectNode(GepaNode):
         *,
         deps: GepaDeps,
         parent: CandidateProgram,
-        reflective_dataset: Mapping[str, Sequence[Mapping[str, object]]],
+        reflective_dataset: ReflectiveDataset,
         components: Sequence[str],
         model: Model | KnownModelName | str,
     ) -> dict[str, str]:
@@ -268,22 +273,25 @@ class ReflectNode(GepaNode):
 
     @staticmethod
     def _apply_reflection_sampler(
-        dataset: dict[str, list[dict]],
+        dataset: ReflectiveDataset,
         config: GepaConfig,
-    ) -> dict[str, list[dict]]:
+    ) -> ReflectiveDataset:
         sampler = config.reflection_sampler
         if sampler is None:
             return dataset
 
         max_records = config.reflection_sampler_max_records
-        sampled: dict[str, list[dict]] = {}
-        for component, records in dataset.items():
+        if isinstance(dataset, SharedReflectiveDataset):
+            sampled = sampler(list(dataset.records), max_records=max_records)
+            return SharedReflectiveDataset(records=sampled)
+
+        sampled_map: dict[str, list[dict]] = {}
+        for component, records in dataset.records_by_component.items():
             if not records:
-                sampled[component] = []
+                sampled_map[component] = []
                 continue
-            sampled_records = sampler(list(records), max_records=max_records)
-            sampled[component] = sampled_records
-        return sampled
+            sampled_map[component] = sampler(list(records), max_records=max_records)
+        return ComponentReflectiveDataset(records_by_component=sampled_map)
 
 
 __all__ = ["ReflectNode"]

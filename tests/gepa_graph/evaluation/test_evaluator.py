@@ -10,6 +10,7 @@ from pydantic_ai.messages import UserPromptPart
 from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationBatch, ParallelEvaluator
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
+from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
 
 
@@ -60,7 +61,7 @@ class _RecordingAdapter:
             self.inflight -= 1
 
     def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
-        return {component: [] for component in components_to_update}
+        return SharedReflectiveDataset(records=[])
 
     def get_components(self) -> dict[str, str]:
         return {"instructions": "seed"}
@@ -87,7 +88,7 @@ class _CachingAdapter:
         return batch_result
 
     def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
-        return {component: [] for component in components_to_update}
+        return SharedReflectiveDataset(records=[])
 
     def get_components(self) -> dict[str, str]:
         return {"instructions": "seed"}

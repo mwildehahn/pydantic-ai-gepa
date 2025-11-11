@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence, cast
+from typing import Sequence, cast
 
 import pytest
 from pydantic_graph import GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.adapter import (
+    Adapter,
+    ComponentReflectiveDataset,
+    ReflectiveDataset,
+    SharedReflectiveDataset,
+)
 
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import (
@@ -102,12 +107,19 @@ class _StubAdapter:
     async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover
         raise RuntimeError("evaluate should not be called in ReflectNode tests")
 
-    def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update,
+    ) -> ComponentReflectiveDataset:
         self.dataset_calls += 1
-        return {
+        data = {
             component: list(self._dataset.get(component, self._dataset["instructions"]))
             for component in components_to_update
         }
+        return ComponentReflectiveDataset(records_by_component=data)
 
     def get_components(self) -> dict[str, str]:
         return {"instructions": "seed"}
@@ -129,11 +141,11 @@ class _StubProposalGenerator(InstructionProposalGenerator):
         super().__init__()
         self._updates = updates
         self.calls = 0
-        self.last_reflective_data: Mapping[str, Sequence[Mapping[str, object]]] | None = None
+        self.last_reflective_data: ReflectiveDataset | None = None
 
     async def propose_texts(self, *, candidate, reflective_data, components, model):
         self.calls += 1
-        self.last_reflective_data = {k: list(v) for k, v in reflective_data.items()}
+        self.last_reflective_data = reflective_data
         return {
             component: self._updates.get(
                 component, candidate.components[component].text
@@ -250,8 +262,8 @@ async def test_reflect_node_applies_config_sampler() -> None:
     await node.run(ctx)
 
     assert sampler_calls == [(2, 1)]
-    assert generator.last_reflective_data is not None
-    assert len(generator.last_reflective_data["instructions"]) == 1
+    assert isinstance(generator.last_reflective_data, ComponentReflectiveDataset)
+    assert len(generator.last_reflective_data.records_by_component["instructions"]) == 1
 
 
 @pytest.mark.asyncio

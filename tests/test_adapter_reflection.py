@@ -8,6 +8,7 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 from pydantic_ai.models.test import TestModel
 
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter, AgentAdapterTrajectory
+from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.evaluation_models import EvaluationBatch
 from pydantic_ai_gepa.types import (
     DataInst,
@@ -73,9 +74,9 @@ def test_make_reflective_dataset_includes_feedback_and_errors() -> None:
         eval_batch=_build_batch(),
         components_to_update=["instructions", "tools"],
     )
+    assert isinstance(dataset, SharedReflectiveDataset)
 
-    assert dataset["instructions"] is dataset["tools"]
-    records = dataset["instructions"]
+    records = dataset.records
     assert len(records) == 2
     assert records[0]["feedback"] == "Detailed feedback"
     assert records[1]["feedback"].startswith("Poor response (score: 0.20)")
@@ -92,7 +93,8 @@ def test_make_reflective_dataset_returns_full_records() -> None:
         components_to_update=["instructions"],
     )
 
-    assert len(dataset["instructions"]) == len(batch.outputs)
+    assert isinstance(dataset, SharedReflectiveDataset)
+    assert len(dataset.records) == len(batch.outputs)
 
 
 def test_make_reflective_dataset_handles_missing_trajectories() -> None:
@@ -103,4 +105,5 @@ def test_make_reflective_dataset_handles_missing_trajectories() -> None:
         eval_batch=batch,
         components_to_update=["instructions"],
     )
-    assert dataset == {"instructions": []}
+    assert isinstance(dataset, SharedReflectiveDataset)
+    assert dataset.records == []

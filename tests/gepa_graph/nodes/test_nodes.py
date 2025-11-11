@@ -9,7 +9,7 @@ import pytest
 from pydantic_graph import End, GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
@@ -86,8 +86,8 @@ class _FakeAdapter:
         candidate,
         eval_batch,
         components_to_update: Sequence[str],
-    ) -> dict[str, list[dict]]:
-        return {component: [] for component in components_to_update}
+    ) -> SharedReflectiveDataset:
+        return SharedReflectiveDataset(records=[])
 
     def get_components(self) -> dict[str, str]:
         return {"instructions": "seed"}

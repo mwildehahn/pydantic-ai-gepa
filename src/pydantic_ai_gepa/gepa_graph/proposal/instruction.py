@@ -9,6 +9,11 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
+from ...adapter import (
+    ComponentReflectiveDataset,
+    ReflectiveDataset,
+    SharedReflectiveDataset,
+)
 from ..models import CandidateProgram
 
 DEFAULT_AGENT_INSTRUCTIONS = """Analyze agent performance data and propose improved prompt components.
@@ -62,18 +67,13 @@ class InstructionProposalGenerator:
         self,
         *,
         candidate: CandidateProgram,
-        reflective_data: Mapping[str, Sequence[Mapping[str, Any]]],
+        reflective_data: ReflectiveDataset,
         components: Sequence[str],
-        model: Model | KnownModelName | str | None,
+        model: Model | KnownModelName | str,
     ) -> dict[str, str]:
         """Propose new texts for each component via the structured agent."""
         if not components:
             return {}
-
-        if model is None:
-            raise ValueError(
-                "A reflection model must be provided to generate proposals."
-            )
 
         untouched: dict[str, str] = {}
         actionable: list[str] = []
@@ -81,7 +81,7 @@ class InstructionProposalGenerator:
             if component not in candidate.components:
                 raise KeyError(f"Component '{component}' not found in candidate.")
 
-            records = list(reflective_data.get(component, ()))
+            records = list(self._records_for_component(reflective_data, component))
             if records:
                 actionable.append(component)
             else:
@@ -125,7 +125,7 @@ class InstructionProposalGenerator:
         self,
         *,
         candidate: CandidateProgram,
-        reflective_data: Mapping[str, Sequence[Mapping[str, Any]]],
+        reflective_data: ReflectiveDataset,
         components: Sequence[str],
     ) -> str:
         header_lines = [
@@ -136,11 +136,19 @@ class InstructionProposalGenerator:
         ]
 
         sections: list[str] = []
+        shared_markdown = None
+        if isinstance(reflective_data, SharedReflectiveDataset):
+            shared_markdown = self._format_dataset(reflective_data.records)
+            sections.append(f"### Shared Reflective Dataset\n{shared_markdown}")
+
         for component in components:
             component_value = candidate.components[component]
-            dataset_markdown = self._format_dataset(
-                reflective_data.get(component, ()),
-            )
+            if isinstance(reflective_data, SharedReflectiveDataset):
+                dataset_markdown = "Refer to the shared reflective dataset above."
+            else:
+                dataset_markdown = self._format_dataset(
+                    reflective_data.records_by_component.get(component, ())
+                )
             section = (
                 f"### Component `{component}`\n"
                 f"Current text:\n```\n{component_value.text.strip()}\n```\n\n"
@@ -191,6 +199,15 @@ class InstructionProposalGenerator:
             return lines
 
         return [f"{prefix}- **{label}:** {self._format_scalar(value)}"]
+
+    @staticmethod
+    def _records_for_component(
+        dataset: ReflectiveDataset,
+        component: str,
+    ) -> Sequence[Mapping[str, Any]]:
+        if isinstance(dataset, SharedReflectiveDataset):
+            return dataset.records
+        return dataset.records_by_component.get(component, ())
 
     @staticmethod
     def _is_scalar(value: Any) -> bool:

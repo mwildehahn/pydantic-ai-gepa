@@ -31,7 +31,7 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     RoundRobinComponentSelector,
 )
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
-from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 
 
 def _make_data_inst(case_id: str) -> DataInstWithPrompt:
@@ -138,8 +138,8 @@ class _StubAdapter:
         candidate,
         eval_batch,
         components_to_update: Sequence[str],
-    ) -> dict[str, list[dict]]:  # pragma: no cover
-        return {component: [] for component in components_to_update}
+    ) -> SharedReflectiveDataset:  # pragma: no cover
+        return SharedReflectiveDataset(records=[])
 
     def get_components(self) -> dict[str, str]:  # pragma: no cover
         return {"instructions": "seed"}

@@ -7,7 +7,7 @@ from typing import Sequence, cast
 
 from pydantic_graph import Graph
 
-from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.gepa_graph.graph import create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig
 from pydantic_ai_gepa.gepa_graph.nodes import (
@@ -39,8 +39,8 @@ class _AdapterStub:
         candidate,
         eval_batch,
         components_to_update: Sequence[str],
-    ) -> dict[str, list[dict]]:  # pragma: no cover - unused
-        return {component: [] for component in components_to_update}
+    ) -> SharedReflectiveDataset:  # pragma: no cover - unused
+        return SharedReflectiveDataset(records=[])
 
     def get_components(self) -> dict[str, str]:  # pragma: no cover - unused
         return {"instructions": "seed"}
