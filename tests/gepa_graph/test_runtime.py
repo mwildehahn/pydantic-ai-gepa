@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 import pytest
 
 from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph import GepaConfig, optimize
+from pydantic_ai_gepa.types import DataInst
 from tests.gepa_graph.utils import AdapterStub, make_dataset
 
 
 @pytest.mark.asyncio
 async def test_optimize_completes_successfully() -> None:
-    adapter = cast(AgentAdapter[Any], AdapterStub())
+    adapter = cast(AgentAdapter[DataInst], AdapterStub())
     config = GepaConfig(max_evaluations=30, minibatch_size=2, seed=11)
     dataset = make_dataset()
 

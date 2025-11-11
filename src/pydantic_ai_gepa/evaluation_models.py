@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -14,7 +15,7 @@ class EvaluationBatch:
 
     outputs: list[RolloutOutput[Any]]
     scores: list[float]
-    trajectories: list[Trajectory] | None = None
+    trajectories: Sequence[Trajectory] | None = None
 
 
 __all__ = ["EvaluationBatch"]

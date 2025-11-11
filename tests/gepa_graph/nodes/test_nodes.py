@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Sequence, cast
 
 import pytest
 from pydantic_graph import End, GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapter import AdapterTrajectory, AgentAdapter
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -25,7 +25,7 @@ from pydantic_ai_gepa.gepa_graph.nodes import (
     ReflectNode,
     StartNode,
 )
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
+from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
@@ -34,7 +34,6 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
-    ReflectiveDatasetBuilder,
 )
 
 
@@ -61,7 +60,7 @@ def _make_state(
 class _FakeEvaluationBatch:
     outputs: list[RolloutOutput[str]]
     scores: list[float]
-    trajectories: list[Trajectory] | None = None
+    trajectories: list[AdapterTrajectory] | None = None
 
 
 class _FakeAdapter:
@@ -81,16 +80,17 @@ class _FakeAdapter:
         )
 
 
-def _make_deps(seed_candidate: dict[str, str] | None = None) -> GepaDeps:
+def _make_deps(
+    seed_candidate: dict[str, str] | None = None,
+) -> GepaDeps[DataInst]:
     return GepaDeps(
-        adapter=cast(AgentAdapter[Any], _FakeAdapter()),
+        adapter=cast(AgentAdapter[DataInst], _FakeAdapter()),
         evaluator=ParallelEvaluator(),
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
         component_selector=RoundRobinComponentSelector(),
         batch_sampler=BatchSampler(),
         proposal_generator=InstructionProposalGenerator(),
-        reflective_dataset_builder=ReflectiveDatasetBuilder(),
         merge_builder=MergeProposalBuilder(),
         reflection_model="test-model",
         seed_candidate=seed_candidate,

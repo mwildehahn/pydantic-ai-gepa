@@ -446,6 +446,7 @@ async def run_math_tools_optimization(
         reflection_model=reflection_model,
         cache_manager=cache_manager,
     )
+
     config = GepaConfig(
         max_evaluations=150,
         component_selector="all",
@@ -454,6 +455,7 @@ async def run_math_tools_optimization(
         enable_parallel_minibatch=True,
         enable_parallel_reflection=False,
     )
+
     return await optimize(
         adapter=adapter,
         config=config,

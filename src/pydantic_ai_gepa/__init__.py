@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .adapter import AgentAdapter, ReflectionSampler
+from .adapter import AdapterTrajectory, AgentAdapter, ReflectionSampler
 from .cache import CacheManager, create_cached_metric
 from .inspection import (
     InspectingModel,
@@ -21,7 +21,7 @@ from .signature import (
     get_gepa_components,
 )
 from .signature_agent import SignatureAgent
-from .types import DataInst, RolloutOutput, Trajectory, OutputT
+from .types import DataInst, OutputT, RolloutOutput, Trajectory
 
 __all__ = [
     "optimize_agent",
@@ -31,6 +31,7 @@ __all__ = [
     "CacheManager",
     "create_cached_metric",
     "DataInst",
+    "AdapterTrajectory",
     "Trajectory",
     "RolloutOutput",
     "OutputT",

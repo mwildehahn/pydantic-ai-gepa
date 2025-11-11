@@ -9,7 +9,8 @@ from pydantic_ai.messages import UserPromptPart
 
 from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationBatch, ParallelEvaluator
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
+from pydantic_ai_gepa.adapter import AdapterTrajectory
+from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
 
 
 def _make_candidate() -> CandidateProgram:
@@ -47,7 +48,7 @@ class _RecordingAdapter:
             trajectories = None
             if capture_traces:
                 trajectories = [
-                    Trajectory(messages=[], final_output=None, data_inst=batch[0])
+                    AdapterTrajectory(messages=[], final_output=None, data_inst=batch[0])
                 ]
 
             return EvaluationBatch(

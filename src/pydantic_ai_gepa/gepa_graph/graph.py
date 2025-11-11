@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic_graph import Graph
 from pydantic_graph.beta import GraphBuilder, StepContext
 
 from ..adapter import AgentAdapter
+from ..types import DataInstT
 from .deps import GepaDeps
 from .models import GepaConfig, GepaResult, GepaState
 from .nodes import (
@@ -23,11 +22,10 @@ from .nodes import (
     start as start_module,
 )
 
-
 def create_gepa_graph(
-    adapter: AgentAdapter[Any],
+    adapter: AgentAdapter[DataInstT],
     config: GepaConfig,
-) -> Graph[GepaState, GepaDeps, GepaResult]:
+) -> Graph[GepaState, GepaDeps[DataInstT], GepaResult]:
     """Create the GEPA graph definition based on the provided configuration.
 
     Args:

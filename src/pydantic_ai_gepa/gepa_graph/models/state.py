@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from enum import StrEnum, auto
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -64,7 +64,8 @@ class GepaConfig(BaseModel):
 
     # Budget
     max_evaluations: int = Field(
-        200, description="Maximum number of metric evaluations allowed for the run."
+        default=200,
+        description="Maximum number of metric evaluations allowed for the run.",
     )
     max_iterations: int | None = Field(
         default=None,
@@ -73,21 +74,21 @@ class GepaConfig(BaseModel):
 
     # Reflection
     minibatch_size: int = Field(
-        3,
+        default=3,
         description="Number of training examples evaluated per reflection minibatch.",
     )
     perfect_score: float = Field(
-        1.0,
-        description="Score considered \"perfect\"; reaching this short-circuits additional reflection.",
+        default=1.0,
+        description='Score considered "perfect"; reaching this short-circuits additional reflection.',
     )
     skip_perfect_score: bool = Field(
-        True,
+        default=True,
         description="Whether to stop reflecting once a candidate meets or exceeds perfect_score.",
     )
 
     # Component selection
     component_selector: Literal["round_robin", "all"] = Field(
-        "round_robin",
+        default="round_robin",
         description="Strategy for choosing which component to edit each reflection cycle.",
     )
     candidate_selector: CandidateSelectorStrategy = Field(
@@ -97,43 +98,45 @@ class GepaConfig(BaseModel):
 
     # Merge
     use_merge: bool = Field(
-        False, description="Enables merge operations that combine multiple candidates."
+        default=False,
+        description="Enables merge operations that combine multiple candidates.",
     )
     merges_per_accept: int = Field(
-        1,
+        default=1,
         description="Number of merge attempts scheduled after each accepted reflection.",
     )
     max_total_merges: int = Field(
-        5, description="Global limit on merge attempts performed during the run."
+        default=5,
+        description="Global limit on merge attempts performed during the run.",
     )
     min_shared_validation: int = Field(
-        3,
+        default=3,
         description="Minimum overlapping validation examples required before merging candidates.",
     )
 
     # Parallelism
     max_concurrent_evaluations: int = Field(
-        10, description="Semaphore limit for concurrent candidate evaluations."
+        default=10, description="Semaphore limit for concurrent candidate evaluations."
     )
     enable_parallel_evaluation: bool = Field(
-        True, description="Allow candidate evaluations to run concurrently."
+        default=True, description="Allow candidate evaluations to run concurrently."
     )
     enable_parallel_minibatch: bool = Field(
-        True,
+        default=True,
         description="Allow minibatch sampling/evaluation work to execute in parallel.",
     )
     enable_parallel_reflection: bool = Field(
-        True, description="Allow LLM reflection calls to run concurrently."
+        default=True, description="Allow LLM reflection calls to run concurrently."
     )
 
     # Evaluation policy
     validation_policy: Literal["full", "sparse"] = Field(
-        "full",
+        default="full",
         description="Controls whether to score every validation example or use sparse sampling.",
     )
 
     # Reproducibility
-    seed: int = Field(0, description="Seed used for deterministic randomness.")
+    seed: int = Field(default=0, description="Seed used for deterministic randomness.")
 
     model_config = ConfigDict(frozen=True)
 
@@ -170,7 +173,7 @@ class GepaState(BaseModel):
     """Shared mutable state that flows through the GEPA graph nodes."""
 
     iteration: int = Field(
-        -1,
+        default=-1,
         description="Zero-indexed iteration counter; -1 means StartNode has not seeded the run yet.",
     )
     candidates: list[CandidateProgram] = Field(
@@ -187,14 +190,15 @@ class GepaState(BaseModel):
     )
 
     last_accepted: bool = Field(
-        False, description="Whether the most recent reflection or merge was accepted."
+        default=False, description="Whether the most recent reflection or merge was accepted."
     )
     merge_scheduled: int = Field(
-        0,
+        default=0,
         description="Number of pending merge operations left to schedule after acceptance.",
     )
     stopped: bool = Field(
-        False, description="Set to True when ContinueNode determines the run should stop."
+        False,
+        description="Set to True when ContinueNode determines the run should stop.",
     )
     stop_reason: str | None = Field(
         default=None,
@@ -202,10 +206,10 @@ class GepaState(BaseModel):
     )
 
     total_evaluations: int = Field(
-        0, description="Total metric evaluations performed across the run."
+        default=0, description="Total metric evaluations performed across the run."
     )
     full_validations: int = Field(
-        0, description="Number of full validation passes that have been executed."
+        default=0, description="Number of full validation passes that have been executed."
     )
 
     best_candidate_idx: int | None = Field(

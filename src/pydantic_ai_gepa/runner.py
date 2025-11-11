@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -29,10 +29,7 @@ from .gepa_graph.models import (
 )
 from .gepa_graph.nodes import StartNode
 from .signature import InputSpec
-from .types import DataInst, RolloutOutput
-
-# Type variable for the DataInst type
-DataInstT = TypeVar("DataInstT", bound=DataInst)
+from .types import DataInstT, RolloutOutput
 ComponentSelectorLiteral = Literal["round_robin", "all"]
 
 if TYPE_CHECKING:

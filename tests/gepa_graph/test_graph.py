@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 from pydantic_graph import Graph
 
@@ -17,6 +17,7 @@ from pydantic_ai_gepa.gepa_graph.nodes import (
     ReflectNode,
     StartNode,
 )
+from pydantic_ai_gepa.types import DataInst
 
 
 @dataclass
@@ -29,8 +30,8 @@ class _AdapterStub:
     agent: _AgentStub
 
 
-def _make_adapter(name: str | None = None) -> AgentAdapter[Any]:
-    return cast(AgentAdapter[Any], _AdapterStub(agent=_AgentStub(name=name)))
+def _make_adapter(name: str | None = None) -> AgentAdapter[DataInst]:
+    return cast(AgentAdapter[DataInst], _AdapterStub(agent=_AgentStub(name=name)))
 
 
 def test_create_gepa_graph_without_merge() -> None:

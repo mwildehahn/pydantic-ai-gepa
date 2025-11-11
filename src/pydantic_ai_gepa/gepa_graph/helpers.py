@@ -2,17 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from ..adapter import AgentAdapter
+from ..types import DataInstT
 from .deps import GepaDeps
 from .evaluation import ParallelEvaluator, ParetoFrontManager
 from .models import CandidateSelectorStrategy, GepaConfig
-from .proposal import (
-    InstructionProposalGenerator,
-    MergeProposalBuilder,
-    ReflectiveDatasetBuilder,
-)
+from .proposal import InstructionProposalGenerator, MergeProposalBuilder
 from .selectors import (
     AllComponentSelector,
     BatchSampler,
@@ -23,11 +18,10 @@ from .selectors import (
     RoundRobinComponentSelector,
 )
 
-
 def create_deps(
-    adapter: AgentAdapter[Any],
+    adapter: AgentAdapter[DataInstT],
     config: GepaConfig,
-) -> GepaDeps:
+) -> GepaDeps[DataInstT]:
     """Construct :class:`GepaDeps` instances for a GEPA run."""
     candidate_selector = _build_candidate_selector(config)
     component_selector = _build_component_selector(config)
@@ -41,9 +35,6 @@ def create_deps(
         component_selector=component_selector,
         batch_sampler=batch_sampler,
         proposal_generator=InstructionProposalGenerator(),
-        reflective_dataset_builder=ReflectiveDatasetBuilder(
-            sampler=getattr(adapter, "reflection_sampler", None)
-        ),
         merge_builder=MergeProposalBuilder(seed=config.seed),
         reflection_model=getattr(adapter, "reflection_model", None),
     )

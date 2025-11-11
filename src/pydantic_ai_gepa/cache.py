@@ -10,7 +10,13 @@ from typing import Any, Callable, TypeVar
 
 import cloudpickle
 
-from .types import DataInst, DataInstWithPrompt, DataInstWithInput, RolloutOutput, Trajectory
+from .types import (
+    DataInst,
+    DataInstWithPrompt,
+    DataInstWithInput,
+    RolloutOutput,
+    Trajectory,
+)
 
 logger = logging.getLogger(__name__)
 

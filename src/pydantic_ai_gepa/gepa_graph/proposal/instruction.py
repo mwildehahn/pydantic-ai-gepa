@@ -69,6 +69,7 @@ class InstructionProposalGenerator:
         """Propose new texts for each component via the structured agent."""
         if not components:
             return {}
+
         if model is None:
             raise ValueError(
                 "A reflection model must be provided to generate proposals."
@@ -79,6 +80,7 @@ class InstructionProposalGenerator:
         for component in components:
             if component not in candidate.components:
                 raise KeyError(f"Component '{component}' not found in candidate.")
+
             records = list(reflective_data.get(component, ()))
             if records:
                 actionable.append(component)
@@ -99,7 +101,10 @@ class InstructionProposalGenerator:
             # Fall back to the existing component texts when the agent fails.
             return {
                 **untouched,
-                **{component: candidate.components[component].text for component in actionable},
+                **{
+                    component: candidate.components[component].text
+                    for component in actionable
+                },
             }
 
         updates = {

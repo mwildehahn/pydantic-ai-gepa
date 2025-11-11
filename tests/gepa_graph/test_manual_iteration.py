@@ -10,6 +10,7 @@ from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import StartNode
+from pydantic_ai_gepa.types import DataInst
 from tests.gepa_graph.utils import (
     AdapterStub,
     ProposalGeneratorStub,
@@ -19,7 +20,7 @@ from tests.gepa_graph.utils import (
 
 @pytest.mark.asyncio
 async def test_manual_iteration_flow() -> None:
-    adapter = cast(AgentAdapter[Any], AdapterStub())
+    adapter = cast(AgentAdapter[DataInst], AdapterStub())
     config = GepaConfig(max_evaluations=30, minibatch_size=2, seed=17)
     deps = create_deps(adapter, config)
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())

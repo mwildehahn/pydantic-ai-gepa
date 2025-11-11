@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 
 import pytest
 from pydantic_graph import GraphRunContext
@@ -26,14 +26,13 @@ from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, Reflec
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
-    ReflectiveDatasetBuilder,
 )
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
     RoundRobinComponentSelector,
 )
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 
 
 def _make_data(case_id: str) -> DataInstWithPrompt:
@@ -85,11 +84,25 @@ def _eval_results(scores: list[float]) -> EvaluationResults[str]:
 
 
 class _StubAdapter:
-    def __init__(self, reflection_model: str | None = "reflection-model") -> None:
+    def __init__(
+        self,
+        *,
+        reflection_model: str | None = "reflection-model",
+        dataset: dict[str, list[dict[str, str]]] | None = None,
+    ) -> None:
         self.agent = type("Agent", (), {"_instructions": "seed"})()
         self.input_spec = None
         self.reflection_model = reflection_model
         self.reflection_sampler = None
+        self._dataset = dataset or {"instructions": [{"feedback": "needs work"}]}
+        self.dataset_calls = 0
+
+    def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
+        self.dataset_calls += 1
+        return {
+            component: list(self._dataset.get(component, self._dataset["instructions"]))
+            for component in components_to_update
+        }
 
 
 class _StubBatchSampler(BatchSampler):
@@ -101,16 +114,6 @@ class _StubBatchSampler(BatchSampler):
     def sample(self, training_set, state, size):
         self.calls += 1
         return list(self._batch)
-
-
-class _StubDatasetBuilder(ReflectiveDatasetBuilder):
-    def __init__(self) -> None:
-        super().__init__()
-        self.calls = 0
-
-    def build_dataset(self, *, eval_results, components):
-        self.calls += 1
-        return {component: [{"feedback": "needs work"}] for component in components}
 
 
 class _StubProposalGenerator(InstructionProposalGenerator):
@@ -143,23 +146,20 @@ class _StubEvaluator(ParallelEvaluator):
 
 def _make_deps(
     *,
+    adapter: AgentAdapter[DataInst],
     evaluator: ParallelEvaluator,
     batch_sampler: BatchSampler,
     proposal_generator: InstructionProposalGenerator,
-    dataset_builder: ReflectiveDatasetBuilder,
     reflection_model: str | None = "reflection-model",
-) -> GepaDeps:
+) -> GepaDeps[DataInst]:
     return GepaDeps(
-        adapter=cast(
-            AgentAdapter[Any], _StubAdapter(reflection_model=reflection_model)
-        ),
+        adapter=adapter,
         evaluator=evaluator,
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
         component_selector=RoundRobinComponentSelector(),
         batch_sampler=batch_sampler,
         proposal_generator=proposal_generator,
-        reflective_dataset_builder=dataset_builder,
         merge_builder=MergeProposalBuilder(),
         reflection_model=reflection_model,
     )
@@ -171,13 +171,14 @@ async def test_reflect_node_accepts_strict_improvement() -> None:
     minibatch = list(state.training_set)
     evaluator = _StubEvaluator([_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])])
     batch_sampler = _StubBatchSampler(minibatch)
-    builder = _StubDatasetBuilder()
+    stub_adapter = _StubAdapter()
+    adapter = cast(AgentAdapter[DataInst], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Improved text"})
     deps = _make_deps(
+        adapter=adapter,
         evaluator=evaluator,
         batch_sampler=batch_sampler,
         proposal_generator=generator,
-        dataset_builder=builder,
     )
     ctx = GraphRunContext(state=state, deps=deps)
 
@@ -194,7 +195,7 @@ async def test_reflect_node_accepts_strict_improvement() -> None:
     assert new_candidate.minibatch_scores == [0.6, 0.7]
     assert state.merge_scheduled == state.config.merges_per_accept
     assert state.total_evaluations == 4
-    assert builder.calls == 1
+    assert stub_adapter.dataset_calls == 1
     assert generator.calls == 1
     assert evaluator.calls == 2
     assert batch_sampler.calls == 1
@@ -206,13 +207,14 @@ async def test_reflect_node_rejects_when_not_improved() -> None:
     minibatch = list(state.training_set)
     evaluator = _StubEvaluator([_eval_results([0.6, 0.6]), _eval_results([0.6, 0.6])])
     batch_sampler = _StubBatchSampler(minibatch)
-    builder = _StubDatasetBuilder()
+    stub_adapter = _StubAdapter()
+    adapter = cast(AgentAdapter[DataInst], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Same text"})
     deps = _make_deps(
+        adapter=adapter,
         evaluator=evaluator,
         batch_sampler=batch_sampler,
         proposal_generator=generator,
-        dataset_builder=builder,
     )
     ctx = GraphRunContext(state=state, deps=deps)
 
@@ -232,13 +234,14 @@ async def test_reflect_node_skips_when_batch_is_perfect() -> None:
     minibatch = list(state.training_set)
     evaluator = _StubEvaluator([_eval_results([1.0, 1.0])])
     batch_sampler = _StubBatchSampler(minibatch)
-    builder = _StubDatasetBuilder()
+    stub_adapter = _StubAdapter()
+    adapter = cast(AgentAdapter[DataInst], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Unused"})
     deps = _make_deps(
+        adapter=adapter,
         evaluator=evaluator,
         batch_sampler=batch_sampler,
         proposal_generator=generator,
-        dataset_builder=builder,
     )
     ctx = GraphRunContext(state=state, deps=deps)
 
@@ -248,7 +251,7 @@ async def test_reflect_node_skips_when_batch_is_perfect() -> None:
     assert isinstance(result, ContinueNode)
     assert state.last_accepted is False
     assert len(state.candidates) == 1
-    assert builder.calls == 0
+    assert stub_adapter.dataset_calls == 0
     assert generator.calls == 0
     assert evaluator.calls == 1
     assert state.total_evaluations == 2
@@ -260,13 +263,16 @@ async def test_reflect_node_requires_reflection_model() -> None:
     minibatch = list(state.training_set)
     evaluator = _StubEvaluator([_eval_results([0.3, 0.4])])
     batch_sampler = _StubBatchSampler(minibatch)
-    builder = _StubDatasetBuilder()
+    adapter = cast(
+        AgentAdapter[DataInst],
+        _StubAdapter(reflection_model=None),
+    )
     generator = _StubProposalGenerator({"instructions": "Improved"})
     deps = _make_deps(
+        adapter=adapter,
         evaluator=evaluator,
         batch_sampler=batch_sampler,
         proposal_generator=generator,
-        dataset_builder=builder,
         reflection_model=None,
     )
     ctx = GraphRunContext(state=state, deps=deps)

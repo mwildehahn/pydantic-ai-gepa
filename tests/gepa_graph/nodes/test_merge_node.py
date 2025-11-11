@@ -6,7 +6,7 @@ import pytest
 from pydantic_ai.messages import UserPromptPart
 from pydantic_graph import GraphRunContext
 
-from typing import Any, Literal, Sequence, cast
+from typing import Literal, Sequence, cast
 
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import (
@@ -24,7 +24,6 @@ from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, MergeN
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
-    ReflectiveDatasetBuilder,
 )
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
@@ -199,16 +198,15 @@ def _make_deps(
     *,
     merge_builder: MergeProposalBuilder,
     evaluator: ParallelEvaluator,
-) -> GepaDeps:
+) -> GepaDeps[DataInst]:
     return GepaDeps(
-        adapter=cast(AgentAdapter[Any], _StubAdapter()),
+        adapter=cast(AgentAdapter[DataInst], _StubAdapter()),
         evaluator=evaluator,
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
         component_selector=RoundRobinComponentSelector(),
         batch_sampler=BatchSampler(),
         proposal_generator=InstructionProposalGenerator(),
-        reflective_dataset_builder=ReflectiveDatasetBuilder(),
         merge_builder=merge_builder,
         reflection_model="test-model",
     )

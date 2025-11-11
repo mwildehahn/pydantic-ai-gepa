@@ -5,13 +5,34 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 import logging
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
+import json
+from typing import TYPE_CHECKING, Any, Generic, Protocol
 
 from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
-from pydantic_ai.messages import ModelRequest
+from pydantic_ai.messages import (
+    AudioUrl,
+    BinaryContent,
+    BuiltinToolCallPart,
+    BuiltinToolReturnPart,
+    DocumentUrl,
+    FilePart,
+    ImageUrl,
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    RetryPromptPart,
+    SystemPromptPart,
+    TextPart,
+    ThinkingPart,
+    ToolCallPart,
+    ToolReturnPart,
+    UserContent,
+    UserPromptPart,
+    VideoUrl,
+)
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
@@ -20,16 +41,286 @@ from .inspection import InspectionAborted
 from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
-from .types import DataInst, DataInstWithPrompt, RolloutOutput, Trajectory
+from .types import DataInst, DataInstT, DataInstWithPrompt, RolloutOutput, Trajectory
 
 logger = logging.getLogger(__name__)
 
-# Type variables
-DataInstT = TypeVar("DataInstT", bound=DataInst)
+
+def _truncate_text(value: str, limit: int = 2000) -> str:
+    if len(value) <= limit:
+        return value
+    trimmed = value[:limit]
+    omitted = len(value) - limit
+    return f"{trimmed}... [truncated {omitted} chars]"
+
+
+def _compact_dict(data: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in data.items() if value is not None}
+
+
+def _timestamp_iso(timestamp: Any) -> str | None:
+    return timestamp.isoformat() if hasattr(timestamp, "isoformat") else None
+
+
+def _describe_binary_content(content: BinaryContent) -> str:
+    size = len(content.data) if getattr(content, "data", None) else 0
+    media_type = getattr(content, "media_type", "unknown")
+    identifier = getattr(content, "identifier", None)
+    identifier_str = f", id={identifier}" if identifier else ""
+    return f"[binary media_type={media_type}{identifier_str}, bytes={size}]"
+
+
+def _describe_user_content_item(item: UserContent) -> str:
+    if isinstance(item, str):
+        return item
+    if isinstance(item, (ImageUrl, AudioUrl, DocumentUrl, VideoUrl)):
+        meta: list[str] = [f"url={item.url}"]
+        media_type = getattr(item, "media_type", None)
+        if media_type:
+            meta.append(f"media_type={media_type}")
+        if getattr(item, "force_download", False):
+            meta.append("force_download=true")
+        return f"[{item.kind} {' '.join(meta)}]"
+    if isinstance(item, BinaryContent):
+        return _describe_binary_content(item)
+    return repr(item)
+
+
+def _serialize_user_prompt_content(content: str | Sequence[UserContent]) -> str:
+    if isinstance(content, str):
+        return content
+    described = [_describe_user_content_item(item) for item in content]
+    return "\n".join(described)
+
+
+def _serialize_tool_return(part: ToolReturnPart | BuiltinToolReturnPart) -> dict[str, Any]:
+    content_str = _truncate_text(part.model_response_str())
+    serialized = {
+        "type": "tool_return",
+        "tool_name": part.tool_name,
+        "content": content_str,
+        "tool_call_id": part.tool_call_id,
+        "timestamp": _timestamp_iso(part.timestamp),
+    }
+    metadata = getattr(part, "metadata", None)
+    if metadata is not None:
+        serialized["metadata"] = repr(metadata)
+    provider_name = getattr(part, "provider_name", None)
+    if provider_name:
+        serialized["provider_name"] = provider_name
+    return _compact_dict(serialized)
+
+
+def _serialize_retry_part(part: RetryPromptPart) -> dict[str, Any]:
+    if isinstance(part.content, str):
+        reason = part.content
+    else:
+        reason = json.dumps(part.content, ensure_ascii=False, default=str)
+    return _compact_dict({
+        "type": "retry_prompt",
+        "tool_name": part.tool_name,
+        "tool_call_id": part.tool_call_id,
+        "content": _truncate_text(reason),
+        "timestamp": _timestamp_iso(part.timestamp),
+    })
+
+
+def _serialize_request_part(part: Any) -> dict[str, Any]:
+    """Serialize a ModelRequest part."""
+    if isinstance(part, SystemPromptPart):
+        return _compact_dict({
+            "type": "system_prompt",
+            "role": "system",
+            "content": _truncate_text(part.content),
+            "timestamp": _timestamp_iso(part.timestamp),
+        })
+    if isinstance(part, UserPromptPart):
+        return _compact_dict({
+            "type": "user_prompt",
+            "role": "user",
+            "content": _truncate_text(_serialize_user_prompt_content(part.content)),
+            "timestamp": _timestamp_iso(part.timestamp),
+        })
+    if isinstance(part, (ToolReturnPart, BuiltinToolReturnPart)):
+        return _serialize_tool_return(part)
+    if isinstance(part, RetryPromptPart):
+        return _serialize_retry_part(part)
+    return {
+        "type": getattr(part, "part_kind", type(part).__name__),
+        "repr": repr(part),
+    }
+
+
+def _serialize_response_part(part: Any) -> dict[str, Any]:
+    """Serialize a ModelResponse part."""
+    if isinstance(part, TextPart):
+        return _compact_dict({
+            "type": "text",
+            "role": "assistant",
+            "content": _truncate_text(part.content),
+            "id": part.id,
+        })
+    if isinstance(part, ThinkingPart):
+        return _compact_dict({
+            "type": "thinking",
+            "role": "assistant",
+            "content": _truncate_text(part.content),
+            "id": part.id,
+            "provider_name": part.provider_name,
+        })
+    if isinstance(part, (ToolCallPart, BuiltinToolCallPart)):
+        serialized = {
+            "type": "tool_call",
+            "role": "assistant",
+            "tool_name": part.tool_name,
+            "arguments": _truncate_text(part.args_as_json_str()),
+            "tool_call_id": part.tool_call_id,
+            "id": part.id,
+        }
+        provider_name = getattr(part, "provider_name", None)
+        if provider_name:
+            serialized["provider_name"] = provider_name
+        return _compact_dict(serialized)
+    if isinstance(part, BuiltinToolReturnPart):
+        return _serialize_tool_return(part)
+    if isinstance(part, FilePart):
+        return _compact_dict({
+            "type": "file",
+            "role": "assistant",
+            "description": _describe_binary_content(part.content),
+            "id": part.id,
+            "provider_name": getattr(part, "provider_name", None),
+        })
+    if hasattr(part, "content"):
+        return _compact_dict({
+            "type": getattr(part, "part_kind", type(part).__name__),
+            "role": "assistant",
+            "content": _truncate_text(str(part.content)),
+        })
+    return _compact_dict({
+        "type": getattr(part, "part_kind", type(part).__name__),
+        "role": "assistant",
+        "repr": repr(part),
+    })
+
+
+def _serialize_model_message(
+    message: ModelMessage,
+    *,
+    include_instructions: bool,
+) -> dict[str, Any]:
+    if isinstance(message, ModelRequest):
+        data = {
+            "kind": "request",
+            "parts": [_serialize_request_part(part) for part in message.parts],
+        }
+        if include_instructions and message.instructions is not None:
+            data["instructions"] = message.instructions
+        return _compact_dict(data)
+    if isinstance(message, ModelResponse):
+        base: dict[str, Any] = {
+            "kind": "response",
+            "model_name": message.model_name,
+            "provider_name": message.provider_name,
+            "finish_reason": message.finish_reason,
+            "timestamp": _timestamp_iso(message.timestamp),
+            "parts": [_serialize_response_part(part) for part in message.parts],
+        }
+        if message.provider_response_id:
+            base["provider_response_id"] = message.provider_response_id
+        if message.provider_details:
+            base["provider_details"] = message.provider_details
+        if message.usage and hasattr(message.usage, "__dataclass_fields__"):
+            base["usage"] = asdict(message.usage)
+        return _compact_dict(base)
+    return _compact_dict({
+        "kind": getattr(message, "kind", type(message).__name__),
+        "repr": repr(message),
+    })
+
+
+@dataclass
+class AdapterTrajectory(Trajectory):
+    """Execution trajectory capturing the agent run for reflection."""
+
+    messages: list[ModelMessage]
+    final_output: Any
+    instructions: str | None = None
+    error: str | None = None
+    usage: dict[str, int] = field(default_factory=dict)
+    data_inst: DataInst | None = None
+    metric_feedback: str | None = None
+
+    def _extract_user_content(self, part: UserPromptPart) -> str:
+        if isinstance(part.content, str):
+            return part.content
+        if part.content:
+            for content_item in part.content:
+                if isinstance(content_item, str):
+                    return content_item
+            return "Multi-modal content"
+        return "No content"
+
+    def _extract_user_message(self) -> str | None:
+        for msg in self.messages:
+            if isinstance(msg, ModelRequest):
+                for part in msg.parts:
+                    if isinstance(part, UserPromptPart):
+                        return self._extract_user_content(part)
+        return None
+
+    def _extract_assistant_message(self) -> str | None:
+        for msg in reversed(self.messages):
+            if isinstance(msg, ModelResponse):
+                for part in msg.parts:
+                    if isinstance(part, TextPart):
+                        return part.content
+        return None
+
+    def _serialize_messages_with_instructions(self) -> list[dict[str, Any]]:
+        serialized: list[dict[str, Any]] = []
+        instructions_recorded = False
+        for message in self.messages:
+            include_instructions = (
+                isinstance(message, ModelRequest)
+                and not instructions_recorded
+                and getattr(message, "instructions", None) is not None
+            )
+            if include_instructions:
+                instructions_recorded = True
+            serialized.append(
+                _serialize_model_message(
+                    message,
+                    include_instructions=include_instructions,
+                )
+            )
+        return serialized
+
+    def to_reflective_record(self) -> dict[str, Any]:
+        user_msg = self._extract_user_message()
+        assistant_msg = self._extract_assistant_message()
+
+        if assistant_msg:
+            response = assistant_msg
+        elif self.final_output is not None:
+            if isinstance(self.final_output, BaseModel):
+                response = self.final_output.model_dump_json()
+            else:
+                response = str(self.final_output)
+        else:
+            response = "No output"
+
+        return {
+            "user_prompt": user_msg or "No user message",
+            "assistant_response": response,
+            "error": self.error,
+            "messages": self._serialize_messages_with_instructions(),
+            "run_usage": self.usage or None,
+        }
+
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
-    from pydantic_ai.messages import ModelMessage
 
 
 class ReflectionSampler(Protocol):
@@ -111,7 +402,7 @@ class AgentAdapter(Generic[DataInstT]):
         """
         outputs: list[RolloutOutput[Any]] = []
         scores: list[float] = []
-        trajectories: list[Trajectory] | None = [] if capture_traces else None
+        trajectories: list[AdapterTrajectory] | None = [] if capture_traces else None
 
         with self._apply_candidate(candidate):
             results = await asyncio.gather(
@@ -253,7 +544,14 @@ class AgentAdapter(Generic[DataInstT]):
             )
             output = RolloutOutput.from_error(e)
             trajectory = (
-                Trajectory(messages=[], final_output=None, error=str(e))
+                AdapterTrajectory(
+                    messages=[],
+                    instructions=None,
+                    final_output=None,
+                    error=str(e),
+                    usage={},
+                    data_inst=data_inst,
+                )
                 if capture_traces
                 else None
             )
@@ -269,7 +567,7 @@ class AgentAdapter(Generic[DataInstT]):
 
     async def _run_with_trace(
         self, instance: DataInstT
-    ) -> tuple[Trajectory, RolloutOutput[Any]]:
+    ) -> tuple[AdapterTrajectory, RolloutOutput[Any]]:
         """Run the agent and capture the trajectory.
 
         Args:
@@ -305,7 +603,7 @@ class AgentAdapter(Generic[DataInstT]):
                     instructions_text = message.instructions
                     break
 
-            trajectory = Trajectory(
+            trajectory = AdapterTrajectory(
                 messages=messages,
                 instructions=instructions_text,
                 final_output=final_output,
@@ -323,7 +621,14 @@ class AgentAdapter(Generic[DataInstT]):
                 "Failed to run agent with traces for instance %s",
                 getattr(instance, "case_id", "unknown"),
             )
-            trajectory = Trajectory(messages=messages, final_output=None, error=str(e))
+            trajectory = AdapterTrajectory(
+                messages=messages,
+                instructions=None,
+                final_output=None,
+                error=str(e),
+                usage={},
+                data_inst=instance,
+            )
             output = RolloutOutput.from_error(e)
             return trajectory, output
 
@@ -358,6 +663,7 @@ class AgentAdapter(Generic[DataInstT]):
                 getattr(instance, "case_id", "unknown"),
             )
             return RolloutOutput.from_error(e)
+
 
     def make_reflective_dataset(
         self,

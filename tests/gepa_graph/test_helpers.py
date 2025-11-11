@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import cast
 import random
 
 from pydantic_ai_gepa.adapter import AgentAdapter
@@ -20,7 +20,7 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     ParetoCandidateSelector,
     RoundRobinComponentSelector,
 )
-from pydantic_ai_gepa.types import DataInstWithPrompt
+from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt
 from pydantic_ai.messages import UserPromptPart
 
 
@@ -37,8 +37,8 @@ class _AdapterStub:
         self.reflection_sampler = object()
 
 
-def _make_adapter() -> AgentAdapter[Any]:
-    return cast(AgentAdapter[Any], _AdapterStub())
+def _make_adapter() -> AgentAdapter[DataInst]:
+    return cast(AgentAdapter[DataInst], _AdapterStub())
 
 
 def _make_state(config: GepaConfig) -> GepaState:
@@ -68,8 +68,6 @@ def test_create_deps_defaults() -> None:
     assert isinstance(deps.merge_builder.seed, int)
     assert deps.merge_builder.seed == config.seed
     assert deps.reflection_model == adapter.reflection_model
-    sampler = getattr(deps.reflective_dataset_builder, "_sampler")
-    assert sampler is adapter.reflection_sampler
 
     # Batch sampler should respect the config seed for determinism.
     sampler_rng = getattr(deps.batch_sampler, "_rng")

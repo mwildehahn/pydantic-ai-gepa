@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import cast
 
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import AgentAdapter
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
+from pydantic_ai_gepa.adapter import AdapterTrajectory, AgentAdapter
+from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 
 __all__ = [
     "AdapterStub",
@@ -38,7 +38,7 @@ class EvaluationBatchStub:
 
     outputs: list[RolloutOutput[str]]
     scores: list[float]
-    trajectories: list[Trajectory] | None
+    trajectories: list[AdapterTrajectory] | None
 
 
 class AdapterStub:
@@ -60,7 +60,7 @@ class AdapterStub:
         ]
         trajectories = (
             [
-                Trajectory(
+                AdapterTrajectory(
                     messages=[],
                     final_output=output.result,
                     instructions=text,
@@ -76,6 +76,21 @@ class AdapterStub:
             scores=[base for _ in batch],
             trajectories=trajectories,
         )
+
+    def make_reflective_dataset(
+        self, *, candidate, eval_batch, components_to_update
+    ):
+        return {
+            component: [
+                {
+                    "feedback": "stub feedback",
+                    "score": score,
+                    "success": output.success,
+                }
+                for score, output in zip(eval_batch.scores, eval_batch.outputs)
+            ]
+            for component in components_to_update
+        }
 
 
 class ProposalGeneratorStub:
@@ -95,6 +110,6 @@ class ProposalGeneratorStub:
         return updates
 
 
-def make_adapter_stub() -> AgentAdapter[Any]:
+def make_adapter_stub() -> AgentAdapter[DataInst]:
     """Return the adapter stub typed as a PydanticAIGEPAAdapter."""
-    return cast(AgentAdapter[Any], AdapterStub())
+    return cast(AgentAdapter[DataInst], AdapterStub())

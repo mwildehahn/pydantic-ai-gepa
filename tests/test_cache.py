@@ -17,6 +17,7 @@ from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
 )
 from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.types import DataInstWithInput, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.adapter import AdapterTrajectory
 
 
 def test_cache_manager_basic():
@@ -316,9 +317,7 @@ def test_cache_agent_runs():
         )
 
         output = RolloutOutput.from_success("Agent result")
-        from pydantic_ai_gepa.types import Trajectory
-
-        trajectory = Trajectory(messages=[], final_output="Agent result", error=None)
+        trajectory = AdapterTrajectory(messages=[], final_output="Agent result", error=None)
         candidate = {"instructions": "Test instructions"}
 
         # Initially, cache should miss

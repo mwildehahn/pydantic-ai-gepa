@@ -7,6 +7,7 @@ from typing import Mapping, Sequence
 
 from pydantic_ai.models import KnownModelName, Model
 
+from ...evaluation_models import EvaluationBatch
 from ...types import DataInst
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaState
@@ -46,6 +47,7 @@ class ReflectNode(GepaNode):
         components = self._select_components(state, deps, parent_idx)
         reflective_dataset = self._build_reflective_dataset(
             deps=deps,
+            candidate=parent,
             eval_results=parent_results,
             components=components,
         )
@@ -171,12 +173,19 @@ class ReflectNode(GepaNode):
         self,
         *,
         deps: GepaDeps,
+        candidate: CandidateProgram,
         eval_results: EvaluationResults[str],
         components: Sequence[str],
     ) -> dict[str, list[dict]]:
-        return deps.reflective_dataset_builder.build_dataset(
-            eval_results=eval_results,
-            components=components,
+        eval_batch = EvaluationBatch(
+            outputs=list(eval_results.outputs),
+            scores=list(eval_results.scores),
+            trajectories=eval_results.trajectories,
+        )
+        return deps.adapter.make_reflective_dataset(
+            candidate=candidate.to_dict_str(),
+            eval_batch=eval_batch,
+            components_to_update=list(components),
         )
 
     async def _propose_new_texts(
