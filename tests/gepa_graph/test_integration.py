@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 from pydantic_graph import FullStatePersistence
 
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import EvaluateNode, StartNode
@@ -17,14 +17,18 @@ from tests.gepa_graph.utils import AdapterStub, ProposalGeneratorStub, make_data
 
 @pytest.mark.asyncio
 async def test_checkpoint_resume_restores_progress() -> None:
-    adapter = cast(AgentAdapter[DataInst], AdapterStub())
+    adapter = cast(Adapter[DataInst], AdapterStub())
     config = GepaConfig(
         max_evaluations=40,
         minibatch_size=2,
         seed=42,
         reflection_model="reflection-model",
     )
-    deps = create_deps(adapter, config)
+    deps = create_deps(
+        adapter,
+        config,
+        seed_candidate={"instructions": "seed instructions"},
+    )
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 
     graph = create_gepa_graph(adapter=adapter, config=config)

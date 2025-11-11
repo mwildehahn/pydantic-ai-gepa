@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from typing import cast
+from typing import Sequence, cast
 import random
 
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph import create_deps
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -34,9 +34,21 @@ class _AdapterStub:
         self.agent = _AgentStub()
         self.input_spec = None
 
+    async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover
+        raise RuntimeError("evaluate should not be called in helper tests")
 
-def _make_adapter() -> AgentAdapter[DataInst]:
-    return cast(AgentAdapter[DataInst], _AdapterStub())
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update: Sequence[str],
+    ) -> dict[str, list[dict]]:  # pragma: no cover
+        return {component: [] for component in components_to_update}
+
+
+def _make_adapter() -> Adapter[DataInst]:
+    return cast(Adapter[DataInst], _AdapterStub())
 
 
 def _make_state(config: GepaConfig) -> GepaState:

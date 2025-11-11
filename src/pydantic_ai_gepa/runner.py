@@ -262,8 +262,11 @@ async def optimize_agent(
         reflection_sampler=reflection_sampler,
     )
 
-    deps = create_deps(adapter, config)
-    deps.seed_candidate = normalized_seed_candidate
+    deps = create_deps(
+        adapter,
+        config,
+        seed_candidate=normalized_seed_candidate,
+    )
     if deterministic_proposer is not None:
         deps.proposal_generator = deterministic_proposer
 

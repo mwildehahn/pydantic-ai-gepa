@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic_graph import Graph
 from pydantic_graph.beta import GraphBuilder, StepContext
 
-from ..adapter import AgentAdapter
+from ..adapter import Adapter
 from ..types import DataInstT
 from .deps import GepaDeps
 from .models import GepaConfig, GepaResult, GepaState
@@ -23,7 +23,7 @@ from .nodes import (
 )
 
 def create_gepa_graph(
-    adapter: AgentAdapter[DataInstT],
+    adapter: Adapter[DataInstT],
     config: GepaConfig,
 ) -> Graph[GepaState, GepaDeps[DataInstT], GepaResult]:
     """Create the GEPA graph definition based on the provided configuration.

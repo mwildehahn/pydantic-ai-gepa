@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Sequence, cast
 
 from pydantic_graph import Graph
 
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph.graph import create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig
 from pydantic_ai_gepa.gepa_graph.nodes import (
@@ -28,10 +28,23 @@ class _AgentStub:
 @dataclass
 class _AdapterStub:
     agent: _AgentStub
+    input_spec: None = None
+
+    async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover - unused
+        raise RuntimeError("evaluate should not be called in this test")
+
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update: Sequence[str],
+    ) -> dict[str, list[dict]]:  # pragma: no cover - unused
+        return {component: [] for component in components_to_update}
 
 
-def _make_adapter(name: str | None = None) -> AgentAdapter[DataInst]:
-    return cast(AgentAdapter[DataInst], _AdapterStub(agent=_AgentStub(name=name)))
+def _make_adapter(name: str | None = None) -> Adapter[DataInst]:
+    return cast(Adapter[DataInst], _AdapterStub(agent=_AgentStub(name=name)))
 
 
 def test_create_gepa_graph_without_merge() -> None:

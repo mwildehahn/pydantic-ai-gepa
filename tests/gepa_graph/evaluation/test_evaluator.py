@@ -59,6 +59,9 @@ class _RecordingAdapter:
         finally:
             self.inflight -= 1
 
+    def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
+        return {component: [] for component in components_to_update}
+
 
 class _CachingAdapter:
     def __init__(self) -> None:
@@ -79,6 +82,9 @@ class _CachingAdapter:
         )
         self._cache[key] = batch_result
         return batch_result
+
+    def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
+        return {component: [] for component in components_to_update}
 
 
 @pytest.mark.asyncio

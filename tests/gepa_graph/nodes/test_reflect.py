@@ -8,7 +8,7 @@ import pytest
 from pydantic_graph import GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapter import Adapter
 
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import (
@@ -99,6 +99,9 @@ class _StubAdapter:
         self._dataset = dataset or {"instructions": [{"feedback": "needs work"}]}
         self.dataset_calls = 0
 
+    async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover
+        raise RuntimeError("evaluate should not be called in ReflectNode tests")
+
     def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
         self.dataset_calls += 1
         return {
@@ -150,7 +153,7 @@ class _StubEvaluator(ParallelEvaluator):
 
 def _make_deps(
     *,
-    adapter: AgentAdapter[DataInst],
+    adapter: Adapter[DataInst],
     evaluator: ParallelEvaluator,
     batch_sampler: BatchSampler,
     proposal_generator: InstructionProposalGenerator,
@@ -176,7 +179,7 @@ async def test_reflect_node_accepts_strict_improvement() -> None:
     evaluator = _StubEvaluator([_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
-    adapter = cast(AgentAdapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[DataInst], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Improved text"})
     deps = _make_deps(
         adapter=adapter,
@@ -230,7 +233,7 @@ async def test_reflect_node_applies_config_sampler() -> None:
     batch_sampler = _StubBatchSampler(minibatch)
     dataset = {"instructions": [{"feedback": "a"}, {"feedback": "b"}]}
     stub_adapter = _StubAdapter(dataset=dataset)
-    adapter = cast(AgentAdapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[DataInst], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Improved text"})
     deps = _make_deps(
         adapter=adapter,
@@ -255,7 +258,7 @@ async def test_reflect_node_rejects_when_not_improved() -> None:
     evaluator = _StubEvaluator([_eval_results([0.6, 0.6]), _eval_results([0.6, 0.6])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
-    adapter = cast(AgentAdapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[DataInst], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Same text"})
     deps = _make_deps(
         adapter=adapter,
@@ -282,7 +285,7 @@ async def test_reflect_node_skips_when_batch_is_perfect() -> None:
     evaluator = _StubEvaluator([_eval_results([1.0, 1.0])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
-    adapter = cast(AgentAdapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[DataInst], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Unused"})
     deps = _make_deps(
         adapter=adapter,
@@ -310,7 +313,7 @@ async def test_reflect_node_requires_reflection_model() -> None:
     minibatch = list(state.training_set)
     evaluator = _StubEvaluator([_eval_results([0.3, 0.4])])
     batch_sampler = _StubBatchSampler(minibatch)
-    adapter = cast(AgentAdapter[DataInst], _StubAdapter())
+    adapter = cast(Adapter[DataInst], _StubAdapter())
     generator = _StubProposalGenerator({"instructions": "Improved"})
     deps = _make_deps(
         adapter=adapter,

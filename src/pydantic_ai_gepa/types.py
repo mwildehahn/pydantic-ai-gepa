@@ -120,7 +120,7 @@ class Trajectory(Protocol):
 
     def to_reflective_record(self) -> dict[str, Any]:
         ...
-DataInstT = TypeVar("DataInstT", bound=DataInst)
+DataInstT = TypeVar("DataInstT", bound=DataInst, contravariant=True)
 
 
 

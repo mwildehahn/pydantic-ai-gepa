@@ -7,7 +7,7 @@ from typing import Generic
 
 from pydantic_ai.models import KnownModelName, Model
 
-from ..adapter import AgentAdapter
+from ..adapter import Adapter
 from ..types import DataInstT
 from .evaluation import ParallelEvaluator, ParetoFrontManager
 from .proposal import InstructionProposalGenerator, MergeProposalBuilder
@@ -17,7 +17,7 @@ from .selectors import BatchSampler, CandidateSelector, ComponentSelector
 class GepaDeps(Generic[DataInstT]):
     """Runtime dependencies shared across GEPA graph nodes."""
 
-    adapter: AgentAdapter[DataInstT]
+    adapter: Adapter[DataInstT]
     evaluator: ParallelEvaluator
     pareto_manager: ParetoFrontManager
     candidate_selector: CandidateSelector

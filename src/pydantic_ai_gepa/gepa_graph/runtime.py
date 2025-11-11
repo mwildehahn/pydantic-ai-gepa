@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from pydantic_graph import Graph
 
-from ..adapter import AgentAdapter
+from ..adapter import Adapter
 from ..types import DataInstT
 from .deps import GepaDeps
 from .graph import create_gepa_graph
@@ -18,17 +18,44 @@ from .nodes.base import GepaNode
 
 async def optimize(
     *,
-    adapter: AgentAdapter[DataInstT],
+    adapter: Adapter[DataInstT],
     config: GepaConfig,
     trainset: Sequence[DataInstT],
     valset: Sequence[DataInstT] | None = None,
+    seed_candidate: Mapping[str, str] | None = None,
     deps: GepaDeps[DataInstT] | None = None,
     graph: Graph[GepaState, GepaDeps[DataInstT], GepaResult] | None = None,
     start_node: GepaNode | None = None,
 ) -> GepaResult:
-    """Execute the GEPA graph end-to-end and return the resulting GepaResult."""
+    """Execute the GEPA graph end-to-end and return the resulting ``GepaResult``.
 
-    resolved_deps = deps if deps is not None else create_deps(adapter, config)
+    Args:
+        adapter: Implementation of the Adapter protocol that powers evaluation/reflection.
+        config: Immutable optimization configuration.
+        trainset: Training dataset used for minibatch reflections.
+        valset: Optional validation dataset; defaults to ``trainset`` when omitted.
+        seed_candidate: Mapping of component names to their initial text. Required unless
+            already attached to ``deps``.
+        deps: Preconstructed dependency bundle; ``create_deps`` used when omitted.
+        graph: Custom graph definition; ``create_gepa_graph`` used when omitted.
+        start_node: Alternative start node for advanced scenarios.
+    """
+
+    if deps is None:
+        resolved_deps = create_deps(
+            adapter,
+            config,
+            seed_candidate=seed_candidate,
+        )
+    else:
+        resolved_deps = deps
+        if seed_candidate is not None:
+            resolved_deps.seed_candidate = dict(seed_candidate)
+    if resolved_deps.seed_candidate is None:
+        raise ValueError(
+            "seed_candidate must be provided via create_deps(..., seed_candidate=...) "
+            "or optimize(seed_candidate=...) before running the graph."
+        )
     resolved_graph = (
         graph
         if graph is not None

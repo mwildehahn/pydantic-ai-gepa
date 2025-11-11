@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from ..adapter import AgentAdapter
+from collections.abc import Mapping
+
+from ..adapter import Adapter
 from ..types import DataInstT
 from .deps import GepaDeps
 from .evaluation import ParallelEvaluator, ParetoFrontManager
@@ -19,10 +21,19 @@ from .selectors import (
 )
 
 def create_deps(
-    adapter: AgentAdapter[DataInstT],
+    adapter: Adapter[DataInstT],
     config: GepaConfig,
+    *,
+    seed_candidate: Mapping[str, str] | None = None,
 ) -> GepaDeps[DataInstT]:
-    """Construct :class:`GepaDeps` instances for a GEPA run."""
+    """Construct :class:`GepaDeps` instances for a GEPA run.
+
+    Args:
+        adapter: Implementation of the Adapter protocol powering evaluations.
+        config: Immutable optimization configuration.
+        seed_candidate: Optional initial candidate mapping injected into ``GepaDeps``
+            for consumption by :class:`StartNode`.
+    """
     candidate_selector = _build_candidate_selector(config)
     component_selector = _build_component_selector(config)
     batch_sampler = BatchSampler(seed=config.seed)
@@ -37,6 +48,7 @@ def create_deps(
         proposal_generator=InstructionProposalGenerator(),
         merge_builder=MergeProposalBuilder(seed=config.seed),
         reflection_model=config.reflection_model,
+        seed_candidate=dict(seed_candidate) if seed_candidate is not None else None,
     )
 
 

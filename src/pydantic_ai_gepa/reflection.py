@@ -23,6 +23,7 @@ class ReflectionSampler(Protocol):
         Returns:
             Subset of ``records`` (up to ``max_records`` items).
         """
+        ...
 
 
 __all__ = ["ReflectionSampler"]

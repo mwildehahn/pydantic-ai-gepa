@@ -8,7 +8,7 @@ from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 import logging
 import json
-from typing import TYPE_CHECKING, Any, Generic
+from typing import TYPE_CHECKING, Any, Generic, Protocol
 
 from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
@@ -50,6 +50,27 @@ from .types import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class Adapter(Protocol[DataInstT]):
+    """Protocol describing the minimal surface required by the GEPA engine."""
+
+    async def evaluate(
+        self,
+        batch: Sequence[DataInstT],
+        candidate: dict[str, str],
+        capture_traces: bool,
+    ) -> EvaluationBatch:
+        ...
+
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate: dict[str, str],
+        eval_batch: EvaluationBatch,
+        components_to_update: Sequence[str],
+    ) -> dict[str, list[dict[str, Any]]]:
+        ...
 
 
 def _truncate_text(value: str, limit: int = 2000) -> str:
@@ -329,7 +350,7 @@ if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
 
 
-class AgentAdapter(Generic[DataInstT]):
+class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
     """GEPA adapter for optimizing a single pydantic-ai agent with an optional input_type.
 
     This adapter connects pydantic-ai agents to the GEPA optimization engine,
@@ -652,9 +673,10 @@ class AgentAdapter(Generic[DataInstT]):
 
     def make_reflective_dataset(
         self,
+        *,
         candidate: dict[str, str],
         eval_batch: EvaluationBatch,
-        components_to_update: list[str],
+        components_to_update: Sequence[str],
     ) -> dict[str, list[dict[str, Any]]]:
         """Build a reflective dataset for instruction refinement.
 

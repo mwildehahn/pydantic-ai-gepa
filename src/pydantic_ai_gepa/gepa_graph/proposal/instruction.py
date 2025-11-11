@@ -95,6 +95,7 @@ class InstructionProposalGenerator:
             reflective_data=reflective_data,
             components=actionable,
         )
+
         try:
             result = await self._agent.run(prompt, model=model)
         except Exception:

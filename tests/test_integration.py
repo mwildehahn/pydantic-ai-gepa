@@ -119,7 +119,9 @@ async def test_make_reflective_dataset():
     result = await adapter.evaluate([data_inst], candidate, capture_traces=True)
 
     reflective_dataset = adapter.make_reflective_dataset(
-        candidate, result, ["instructions"]
+        candidate=candidate,
+        eval_batch=result,
+        components_to_update=["instructions"],
     )
     assert reflective_dataset == snapshot(
         {

@@ -31,7 +31,7 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     RoundRobinComponentSelector,
 )
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapter import Adapter
 
 
 def _make_data_inst(case_id: str) -> DataInstWithPrompt:
@@ -129,6 +129,18 @@ class _StubAdapter:
     agent = type("Agent", (), {"_instructions": "seed"})()
     input_spec = None
 
+    async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover
+        raise RuntimeError("evaluate should not be called in MergeNode tests")
+
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update: Sequence[str],
+    ) -> dict[str, list[dict]]:  # pragma: no cover
+        return {component: [] for component in components_to_update}
+
 
 class _StubEvaluator(ParallelEvaluator):
     def __init__(self, result: EvaluationResults[str]) -> None:
@@ -200,7 +212,7 @@ def _make_deps(
     evaluator: ParallelEvaluator,
 ) -> GepaDeps[DataInst]:
     return GepaDeps(
-        adapter=cast(AgentAdapter[DataInst], _StubAdapter()),
+        adapter=cast(Adapter[DataInst], _StubAdapter()),
         evaluator=evaluator,
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),

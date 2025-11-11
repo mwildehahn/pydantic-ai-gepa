@@ -9,7 +9,7 @@ import pytest
 from pydantic_graph import End, GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import AdapterTrajectory, AgentAdapter
+from pydantic_ai_gepa.adapter import Adapter, AdapterTrajectory
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -79,12 +79,21 @@ class _FakeAdapter:
             scores=[score],
         )
 
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update: Sequence[str],
+    ) -> dict[str, list[dict]]:
+        return {component: [] for component in components_to_update}
+
 
 def _make_deps(
     seed_candidate: dict[str, str] | None = None,
 ) -> GepaDeps[DataInst]:
     return GepaDeps(
-        adapter=cast(AgentAdapter[DataInst], _FakeAdapter()),
+        adapter=cast(Adapter[DataInst], _FakeAdapter()),
         evaluator=ParallelEvaluator(),
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
@@ -136,6 +145,17 @@ async def test_start_node_is_idempotent_when_candidates_exist() -> None:
 
     assert isinstance(result, EvaluateNode)
     assert len(state.candidates) == 1
+
+
+@pytest.mark.asyncio
+async def test_start_node_requires_seed_candidate() -> None:
+    state = _make_state()
+    deps = _make_deps(seed_candidate=None)
+    ctx = GraphRunContext(state=state, deps=deps)
+
+    node = StartNode()
+    with pytest.raises(RuntimeError, match="seed_candidate"):
+        await node.run(ctx)
 
 
 @pytest.mark.asyncio

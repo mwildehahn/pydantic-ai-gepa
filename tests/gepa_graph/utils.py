@@ -7,7 +7,7 @@ from typing import cast
 
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import AdapterTrajectory, AgentAdapter
+from pydantic_ai_gepa.adapter import Adapter, AdapterTrajectory
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 
 __all__ = [
@@ -108,6 +108,6 @@ class ProposalGeneratorStub:
         return updates
 
 
-def make_adapter_stub() -> AgentAdapter[DataInst]:
+def make_adapter_stub() -> Adapter[DataInst]:
     """Return the adapter stub typed as a PydanticAIGEPAAdapter."""
-    return cast(AgentAdapter[DataInst], AdapterStub())
+    return cast(Adapter[DataInst], AdapterStub())

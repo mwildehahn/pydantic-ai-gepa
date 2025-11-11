@@ -1002,7 +1002,7 @@ def create_deps(adapter: PydanticAIGEPAAdapter, config: GepaConfig) -> GepaDeps:
 
     return GepaDeps(
         adapter=adapter,
-        reflection_model=adapter.reflection_model,
+        reflection_model=config.reflection_model,
         candidate_selector=candidate_selector,
         component_selector=component_selector,
         batch_sampler=batch_sampler,

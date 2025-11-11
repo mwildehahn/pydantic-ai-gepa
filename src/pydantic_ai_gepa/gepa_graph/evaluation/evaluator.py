@@ -4,26 +4,15 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Generic, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Sequence, TypeVar
 
+from ...adapter import Adapter
 from ...evaluation_models import EvaluationBatch
 from ...types import DataInst, RolloutOutput, Trajectory
 from ..models import CandidateProgram
 
 DataIdT = TypeVar("DataIdT")
 DataInstT = TypeVar("DataInstT", bound=DataInst, contravariant=True)
-
-
-class AdapterLike(Protocol[DataInstT]):
-    """Protocol for adapters used during evaluation."""
-
-    async def evaluate(
-        self,
-        batch: Sequence[DataInstT],
-        candidate: dict[str, str],
-        capture_traces: bool,
-    ) -> EvaluationBatch:
-        ...
 
 
 @dataclass(slots=True, kw_only=True)
@@ -60,7 +49,7 @@ class ParallelEvaluator:
         *,
         candidate: CandidateProgram,
         batch: Sequence[DataInst],
-        adapter: AdapterLike[DataInst],
+        adapter: Adapter[DataInst],
         max_concurrent: int = 10,
         capture_traces: bool = False,
     ) -> EvaluationResults[str]:
@@ -95,7 +84,7 @@ class ParallelEvaluator:
     async def _call_adapter(
         self,
         *,
-        adapter: AdapterLike[DataInst],
+        adapter: Adapter[DataInst],
         instance: DataInst,
         candidate_payload: dict[str, str],
         capture_traces: bool,
@@ -148,4 +137,4 @@ class ParallelEvaluator:
         return str(case_id) if case_id is not None else str(index)
 
 
-__all__ = ["AdapterLike", "EvaluationResults", "ParallelEvaluator"]
+__all__ = ["EvaluationResults", "ParallelEvaluator"]

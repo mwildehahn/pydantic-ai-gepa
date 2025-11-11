@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Mapping, TYPE_CHECKING
-
-from ...components import extract_seed_candidate_with_input_type
 from ...gepa_graph.models import CandidateProgram, ComponentValue, GepaState
 from ..deps import GepaDeps
 from .base import GepaNode, GepaRunContext
@@ -36,13 +34,14 @@ class StartNode(GepaNode):
         return EvaluateNode()
 
     def _determine_seed_components(self, deps: GepaDeps) -> Mapping[str, str]:
-        if deps.seed_candidate:
-            return deps.seed_candidate
-        adapter = deps.adapter
-        return extract_seed_candidate_with_input_type(
-            agent=adapter.agent,
-            input_type=adapter.input_spec,
-        )
+        seed_candidate = deps.seed_candidate
+        if seed_candidate is None:
+            raise RuntimeError(
+                "GepaDeps.seed_candidate must be provided before StartNode runs. "
+                "Set it via create_deps(..., seed_candidate=...) or assign it "
+                "directly on the deps object."
+            )
+        return seed_candidate
 
     @staticmethod
     def _build_candidate(

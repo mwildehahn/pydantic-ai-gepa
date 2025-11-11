@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .adapter import AdapterTrajectory, AgentAdapter
+from .adapter import Adapter, AdapterTrajectory, AgentAdapter
 from .reflection import ReflectionSampler
 from .cache import CacheManager, create_cached_metric
 from .inspection import (
@@ -27,6 +27,7 @@ from .types import DataInst, MetricResult, OutputT, RolloutOutput, Trajectory
 __all__ = [
     "optimize_agent",
     "GepaOptimizationResult",
+    "Adapter",
     "AgentAdapter",
     "ReflectionSampler",
     "CacheManager",
