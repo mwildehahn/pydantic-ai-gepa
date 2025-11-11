@@ -63,36 +63,77 @@ class GepaConfig(BaseModel):
     """Immutable configuration for GEPA optimization."""
 
     # Budget
-    max_evaluations: int = 200
-    max_iterations: int | None = None
+    max_evaluations: int = Field(
+        200, description="Maximum number of metric evaluations allowed for the run."
+    )
+    max_iterations: int | None = Field(
+        default=None,
+        description="Optional cap on graph iterations; None disables the iteration limit.",
+    )
 
     # Reflection
-    minibatch_size: int = 3
-    perfect_score: float = 1.0
-    skip_perfect_score: bool = True
+    minibatch_size: int = Field(
+        3,
+        description="Number of training examples evaluated per reflection minibatch.",
+    )
+    perfect_score: float = Field(
+        1.0,
+        description="Score considered \"perfect\"; reaching this short-circuits additional reflection.",
+    )
+    skip_perfect_score: bool = Field(
+        True,
+        description="Whether to stop reflecting once a candidate meets or exceeds perfect_score.",
+    )
 
     # Component selection
-    # TODO: add descriptive comments for each of these fields
-    component_selector: Literal["round_robin", "all"] = "round_robin"
-    candidate_selector: CandidateSelectorStrategy = CandidateSelectorStrategy.PARETO
+    component_selector: Literal["round_robin", "all"] = Field(
+        "round_robin",
+        description="Strategy for choosing which component to edit each reflection cycle.",
+    )
+    candidate_selector: CandidateSelectorStrategy = Field(
+        default=CandidateSelectorStrategy.PARETO,
+        description="Strategy for selecting the base candidate to mutate (pareto or current_best).",
+    )
 
     # Merge
-    use_merge: bool = False
-    merges_per_accept: int = 1
-    max_total_merges: int = 5
-    min_shared_validation: int = 3
+    use_merge: bool = Field(
+        False, description="Enables merge operations that combine multiple candidates."
+    )
+    merges_per_accept: int = Field(
+        1,
+        description="Number of merge attempts scheduled after each accepted reflection.",
+    )
+    max_total_merges: int = Field(
+        5, description="Global limit on merge attempts performed during the run."
+    )
+    min_shared_validation: int = Field(
+        3,
+        description="Minimum overlapping validation examples required before merging candidates.",
+    )
 
     # Parallelism
-    max_concurrent_evaluations: int = 10
-    enable_parallel_evaluation: bool = True
-    enable_parallel_minibatch: bool = True
-    enable_parallel_reflection: bool = True
+    max_concurrent_evaluations: int = Field(
+        10, description="Semaphore limit for concurrent candidate evaluations."
+    )
+    enable_parallel_evaluation: bool = Field(
+        True, description="Allow candidate evaluations to run concurrently."
+    )
+    enable_parallel_minibatch: bool = Field(
+        True,
+        description="Allow minibatch sampling/evaluation work to execute in parallel.",
+    )
+    enable_parallel_reflection: bool = Field(
+        True, description="Allow LLM reflection calls to run concurrently."
+    )
 
     # Evaluation policy
-    validation_policy: Literal["full", "sparse"] = "full"
+    validation_policy: Literal["full", "sparse"] = Field(
+        "full",
+        description="Controls whether to score every validation example or use sparse sampling.",
+    )
 
     # Reproducibility
-    seed: int = 0
+    seed: int = Field(0, description="Seed used for deterministic randomness.")
 
     model_config = ConfigDict(frozen=True)
 
@@ -128,27 +169,65 @@ class GepaConfig(BaseModel):
 class GepaState(BaseModel):
     """Shared mutable state that flows through the GEPA graph nodes."""
 
-    iteration: int = -1
-    # TODO: add descriptive comments for each of these fields
-    candidates: list[CandidateProgram] = Field(default_factory=list)
-    pareto_front: dict[str, ParetoFrontEntry] = Field(default_factory=dict)
-    genealogy: list[GenealogyRecord] = Field(default_factory=list)
+    iteration: int = Field(
+        -1,
+        description="Zero-indexed iteration counter; -1 means StartNode has not seeded the run yet.",
+    )
+    candidates: list[CandidateProgram] = Field(
+        default_factory=list,
+        description="Ordered list of every candidate program discovered so far.",
+    )
+    pareto_front: dict[str, ParetoFrontEntry] = Field(
+        default_factory=dict,
+        description="Pareto frontier keyed by candidate id for efficient selection.",
+    )
+    genealogy: list[GenealogyRecord] = Field(
+        default_factory=list,
+        description="History of how each candidate was created and its parents.",
+    )
 
-    last_accepted: bool = False
-    merge_scheduled: int = 0
-    stopped: bool = False
-    stop_reason: str | None = None
+    last_accepted: bool = Field(
+        False, description="Whether the most recent reflection or merge was accepted."
+    )
+    merge_scheduled: int = Field(
+        0,
+        description="Number of pending merge operations left to schedule after acceptance.",
+    )
+    stopped: bool = Field(
+        False, description="Set to True when ContinueNode determines the run should stop."
+    )
+    stop_reason: str | None = Field(
+        default=None,
+        description="Human-readable explanation for why the run stopped.",
+    )
 
-    total_evaluations: int = 0
-    full_validations: int = 0
+    total_evaluations: int = Field(
+        0, description="Total metric evaluations performed across the run."
+    )
+    full_validations: int = Field(
+        0, description="Number of full validation passes that have been executed."
+    )
 
-    best_candidate_idx: int | None = None
-    best_score: float | None = None
+    best_candidate_idx: int | None = Field(
+        default=None,
+        description="Index within candidates for the current best program, if any.",
+    )
+    best_score: float | None = Field(
+        default=None, description="Validation score for the current best candidate."
+    )
 
-    config: GepaConfig
+    config: GepaConfig = Field(
+        ..., description="Immutable configuration that governs the optimization run."
+    )
 
-    training_set: Sequence[DataInst] = Field(exclude=True)
-    validation_set: Sequence[DataInst] | None = Field(default=None, exclude=True)
+    training_set: Sequence[DataInst] = Field(
+        ..., exclude=True, description="Training dataset used to evaluate candidates."
+    )
+    validation_set: Sequence[DataInst] | None = Field(
+        default=None,
+        exclude=True,
+        description="Optional validation dataset; defaults to the training data when omitted.",
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

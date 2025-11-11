@@ -7,7 +7,7 @@ from typing import Any
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 from pydantic_ai_gepa import DataInst, AgentAdapter
-from pydantic_ai_gepa.components import extract_seed_candidate_with_signature
+from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
 from pydantic_ai_gepa.signature import (
     apply_candidate_to_input_model,
     generate_system_instructions,
@@ -333,7 +333,7 @@ def test_extract_seed_candidate_with_signatures():
     )
 
     # Extract components from both agent and signature
-    candidate = extract_seed_candidate_with_signature(
+    candidate = extract_seed_candidate_with_input_type(
         agent=agent,
         input_type=EmailSupportSignature,
     )

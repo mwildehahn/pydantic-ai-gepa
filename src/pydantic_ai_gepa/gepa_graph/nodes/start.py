@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping, TYPE_CHECKING
 
-from ...components import extract_seed_candidate_with_signature
+from ...components import extract_seed_candidate_with_input_type
 from ...gepa_graph.models import CandidateProgram, ComponentValue, GepaState
 from ..deps import GepaDeps
 from .base import GepaNode, GepaRunContext
@@ -24,8 +24,8 @@ class StartNode(GepaNode):
         state = ctx.state
 
         if state.candidates:
-            # TODO: do we need this? seems like overkill. when would this be < 0?
             if state.iteration < 0:
+                # Checkpoints can restore candidates before StartNode runs; normalize the counter.
                 state.iteration = 0
             return EvaluateNode()
 
@@ -39,7 +39,7 @@ class StartNode(GepaNode):
         if deps.seed_candidate:
             return deps.seed_candidate
         adapter = deps.adapter
-        return extract_seed_candidate_with_signature(
+        return extract_seed_candidate_with_input_type(
             agent=adapter.agent,
             input_type=adapter.input_spec,
         )

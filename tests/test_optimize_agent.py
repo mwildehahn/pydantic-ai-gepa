@@ -14,7 +14,7 @@ import pytest
 from pydantic import BaseModel
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
-    extract_seed_candidate_with_signature,
+    extract_seed_candidate_with_input_type,
 )
 from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
     ComponentUpdate,
@@ -190,7 +190,7 @@ async def test_optimize_agent_minimal_flow_with_signature():
         input_type=Input,
     )
 
-    seed = extract_seed_candidate_with_signature(signature_agent, input_type=Input)
+    seed = extract_seed_candidate_with_input_type(signature_agent, input_type=Input)
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(

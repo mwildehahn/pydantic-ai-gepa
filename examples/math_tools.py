@@ -18,14 +18,7 @@ from pydantic_evals import Case, Dataset
 from pydantic_ai_gepa import InspectingModel, InspectionAborted
 from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
-from pydantic_ai_gepa.gepa_graph import (
-    GepaConfig,
-    GepaResult,
-    GepaState,
-    create_deps,
-    create_gepa_graph,
-)
-from pydantic_ai_gepa.gepa_graph.nodes import StartNode
+from pydantic_ai_gepa.gepa_graph import GepaConfig, GepaResult, optimize
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
 
@@ -461,21 +454,12 @@ async def run_math_tools_optimization(
         enable_parallel_minibatch=True,
         enable_parallel_reflection=False,
     )
-    deps = create_deps(adapter, config)
-    # TODO: why do we specify adapter here as well? it seems like we can just get this from the deps?
-    graph = create_gepa_graph(adapter=adapter, config=config)
-    state = GepaState(config=config, training_set=trainset, validation_set=valset)
-
-    # TODO: let's add a high level helper to handle this -- similar to pydantic ai, on the graph maybe we just have `graph.run()`?
-    async with graph.iter(StartNode(), state=state, deps=deps) as run:
-        async for _ in run:
-            pass
-
-    run_result = run.result
-    if run_result is None:
-        raise RuntimeError("GEPA graph run did not complete.")
-
-    return run_result.output
+    return await optimize(
+        adapter=adapter,
+        config=config,
+        trainset=trainset,
+        valset=valset,
+    )
 
 
 async def main() -> None:
@@ -498,7 +482,6 @@ async def main() -> None:
     valset = signature_dataset[split_index:]
 
     try:
-        # TODO: let's turn `run_math_tools_optimization` into an `optimize` function we expose from gepa_graph so we can use it other places. we can default CacheManager (but support overriding it)
         result = await run_math_tools_optimization(trainset, valset, reflection_model)
     except InspectionAborted as exc:
         snapshot = exc.snapshot

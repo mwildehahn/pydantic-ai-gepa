@@ -16,8 +16,8 @@ from .adapter import AgentAdapter, ReflectionSampler
 from .cache import CacheManager
 from .components import (
     apply_candidate_to_agent,
-    apply_candidate_to_agent_and_signature,
-    extract_seed_candidate_with_signature,
+    apply_candidate_to_agent_and_input_type,
+    extract_seed_candidate_with_input_type,
     normalize_component_text,
 )
 from .gepa_graph import create_deps, create_gepa_graph
@@ -123,7 +123,7 @@ class GepaOptimizationResult(BaseModel):
         Yields:
             None while the context is active.
         """
-        with apply_candidate_to_agent_and_signature(
+        with apply_candidate_to_agent_and_input_type(
             self.best_candidate, agent=agent, input_type=input_type
         ):
             yield
@@ -221,7 +221,7 @@ async def optimize_agent(
     val_instances = list(valset) if valset is not None else train_instances
 
     extracted_seed_candidate = _normalize_candidate(
-        extract_seed_candidate_with_signature(agent=agent, input_type=input_type)
+        extract_seed_candidate_with_input_type(agent=agent, input_type=input_type)
     )
     if seed_candidate is None:
         normalized_seed_candidate = extracted_seed_candidate

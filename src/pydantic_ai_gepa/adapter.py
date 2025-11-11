@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict
@@ -113,18 +114,23 @@ class AgentAdapter(Generic[DataInstT]):
         trajectories: list[Trajectory] | None = [] if capture_traces else None
 
         with self._apply_candidate(candidate):
-            for data_inst in batch:
-                result = await self.process_data_instance(
-                    data_inst,
-                    capture_traces,
-                    candidate,
+            results = await asyncio.gather(
+                *(
+                    self.process_data_instance(
+                        data_inst,
+                        capture_traces,
+                        candidate,
+                    )
+                    for data_inst in batch
                 )
+            )
 
-                outputs.append(result["output"])
-                scores.append(result["score"])
+        for result in results:
+            outputs.append(result["output"])
+            scores.append(result["score"])
 
-                if trajectories is not None and "trajectory" in result:
-                    trajectories.append(result["trajectory"])
+            if trajectories is not None and "trajectory" in result:
+                trajectories.append(result["trajectory"])
 
         return EvaluationBatch(
             outputs=outputs,
