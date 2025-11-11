@@ -15,7 +15,10 @@ from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     extract_seed_candidate_with_signature,
 )
-from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
+from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
+    ComponentUpdate,
+    InstructionProposalOutput,
+)
 from pydantic_ai_gepa.runner import optimize_agent_prompts
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInst, DataInstWithInput, DataInstWithPrompt, RolloutOutput
@@ -95,9 +98,12 @@ def test_optimize_agent_prompts_minimal_flow():
         score = 1.0 if predicted == expected else 0.0
         return score, ("Correct" if score == 1.0 else "Incorrect")
 
-    reflection_output = ProposalOutput(
+    reflection_output = InstructionProposalOutput(
         updated_components=[
-            UpdatedComponent(component_name="instructions", optimized_value="Optimized")
+            ComponentUpdate(
+                component_name="instructions",
+                optimized_value="Optimized",
+            )
         ]
     )
     reflection_model = TestModel(
@@ -198,9 +204,9 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
         score = 1.0 if predicted == expected else 0.0
         return score, ("Correct" if score == 1.0 else "Incorrect")
 
-    reflection_output = ProposalOutput(
+    reflection_output = InstructionProposalOutput(
         updated_components=[
-            UpdatedComponent(
+            ComponentUpdate(
                 component_name="instructions",
                 optimized_value="Optimized",
             )

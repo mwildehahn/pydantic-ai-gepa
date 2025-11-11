@@ -83,7 +83,9 @@ def apply_candidate_to_agent(
         A context manager for the temporary override.
     """
     instructions_raw = candidate.get("instructions") if candidate else None
-    instructions = normalize_component_text(instructions_raw) if instructions_raw else None
+    instructions = (
+        normalize_component_text(instructions_raw) if instructions_raw else None
+    )
 
     target_agent = agent
     if isinstance(agent, WrapperAgent):
@@ -155,6 +157,7 @@ def validate_components(
     return list(components)
 
 
+# TODO: the naming of this doesn't make sense anymore. We were initilally calling input_type -> signature, but then switched to input_type so that the input_type + output_type = signature. i think this should maybe be extract_seed_candidate_from_input_type? not sure. Same thing with apply_candidate_to_agent_and_signature below
 def extract_seed_candidate_with_signature(
     agent: AbstractAgent[Any, Any],
     input_type: InputSpec[BaseModel] | None = None,

@@ -10,7 +10,10 @@ from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
 
 from pydantic_ai_gepa.cache import CacheManager, create_cached_metric
-from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
+from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
+    ComponentUpdate,
+    InstructionProposalOutput,
+)
 from pydantic_ai_gepa.runner import optimize_agent_prompts
 from pydantic_ai_gepa.types import DataInstWithInput, DataInstWithPrompt, RolloutOutput
 
@@ -213,10 +216,11 @@ def test_optimize_agent_prompts_with_caching():
             instructions="Classify text as positive, negative, or neutral.",
         )
 
-        reflection_output = ProposalOutput(
+        reflection_output = InstructionProposalOutput(
             updated_components=[
-                UpdatedComponent(
-                    component_name="instructions", optimized_value="Updated"
+                ComponentUpdate(
+                    component_name="instructions",
+                    optimized_value="Updated",
                 )
             ]
         )

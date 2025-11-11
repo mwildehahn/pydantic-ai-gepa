@@ -1,6 +1,6 @@
 """Proposal helpers for the GEPA graph implementation."""
 
-from .llm import InstructionProposalGenerator
+from .instruction import InstructionProposalGenerator
 from .merge import MergeProposalBuilder
 from .reflective import ReflectiveDatasetBuilder
 

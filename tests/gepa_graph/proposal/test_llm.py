@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import time
 from typing import Any
 
 import pytest
@@ -36,7 +34,6 @@ def _make_reflective_record() -> dict[str, Any]:
         "feedback": "Needs more detail",
     }
 
-
 @pytest.mark.asyncio
 async def test_llm_generator_updates_components() -> None:
     candidate = _make_candidate()
@@ -45,12 +42,17 @@ async def test_llm_generator_updates_components() -> None:
         "tools": [_make_reflective_record()],
     }
 
+    prompts: list[str] = []
+
     async def fake_model(messages, agent_info):
         prompt = messages[-1].parts[0].content
-        if "instructions" in prompt:
-            content = "```Improved instructions```"
-        else:
-            content = "```Better tools```"
+        prompts.append(prompt)
+        content = """{
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"},
+                {"component_name": "tools", "optimized_value": "Better tools"}
+            ]
+        }"""
         return ModelResponse(parts=[TextPart(content=content)])
 
     generator = InstructionProposalGenerator()
@@ -66,43 +68,81 @@ async def test_llm_generator_updates_components() -> None:
         "instructions": "Improved instructions",
         "tools": "Better tools",
     }
+    assert "components_to_update" in prompts[-1]
+    assert "Component `instructions`" in prompts[-1]
+    assert "Component `tools`" in prompts[-1]
 
 
 @pytest.mark.asyncio
-async def test_llm_generator_parallelizes_calls() -> None:
+async def test_llm_generator_skips_components_without_records() -> None:
+    candidate = _make_candidate()
+    reflective_data = {
+        "instructions": [_make_reflective_record()],
+        "tools": [],
+    }
+
+    async def fake_model(messages, agent_info):
+        prompt = messages[-1].parts[0].content
+        assert "Component `instructions`" in prompt
+        assert "Component `tools`" not in prompt
+        content = """{
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator()
+    model = FunctionModel(function=fake_model)
+    result = await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions", "tools"],
+        model=model,
+    )
+
+    assert result["instructions"] == "Improved instructions"
+    assert result["tools"] == "Seed tools"
+
+
+@pytest.mark.asyncio
+async def test_llm_generator_returns_existing_text_on_agent_failure() -> None:
     candidate = _make_candidate()
     reflective_data = {
         "instructions": [_make_reflective_record()],
         "tools": [_make_reflective_record()],
     }
 
-    async def slow_model(messages, agent_info):
-        await asyncio.sleep(0.1)
-        return ModelResponse(parts=[TextPart(content="```done```")])
+    async def failing_model(messages, agent_info):
+        raise RuntimeError("boom")
 
     generator = InstructionProposalGenerator()
-    model = FunctionModel(function=slow_model)
-    start = time.perf_counter()
-    await generator.propose_texts(
+    model = FunctionModel(function=failing_model)
+    result = await generator.propose_texts(
         candidate=candidate,
         reflective_data=reflective_data,
         components=["instructions", "tools"],
         model=model,
     )
-    duration = time.perf_counter() - start
-    assert duration < 0.18  # ~0.1s per call when parallelized
+
+    assert result == {
+        "instructions": "Seed instructions",
+        "tools": "Seed tools",
+    }
 
 
 @pytest.mark.asyncio
-async def test_llm_generator_skips_empty_records() -> None:
+async def test_llm_generator_skips_entire_call_when_no_records() -> None:
     candidate = _make_candidate()
-    reflective_data = {"instructions": []}
+    reflective_data = {
+        "instructions": [],
+    }
     call_count = 0
 
     async def tracking_model(messages, agent_info):
         nonlocal call_count
         call_count += 1
-        return ModelResponse(parts=[TextPart(content="```unused```")])
+        return ModelResponse(parts=[TextPart(content="{}")])
 
     generator = InstructionProposalGenerator()
     model = FunctionModel(function=tracking_model)

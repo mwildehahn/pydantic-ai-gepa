@@ -1,18 +1,20 @@
 """Integration tests for pydantic-ai-gepa."""
 
 from typing import Any
+
+import pytest
 from inline_snapshot import snapshot
+from pydantic_ai import Agent
+from pydantic_ai.messages import UserPromptPart
+from pydantic_ai.models.test import TestModel
+import time_machine
+
 from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
-
-from pydantic_ai import Agent
-from pydantic_ai.messages import UserPromptPart
-from pydantic_ai.models.test import TestModel
-import time_machine
 
 
 def test_extract_seed_candidate():
@@ -41,7 +43,8 @@ def test_get_component_names():
     assert len(components) == 1
 
 
-def test_process_data_instance():
+@pytest.mark.asyncio
+async def test_process_data_instance():
     """Test processing a single data instance."""
     agent = Agent(
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
@@ -63,7 +66,7 @@ def test_process_data_instance():
         metadata={},
         case_id="test-4",
     )
-    result = adapter.process_data_instance(data_inst, capture_traces=False)
+    result = await adapter.process_data_instance(data_inst, capture_traces=False)
 
     assert "output" in result
     assert "score" in result
@@ -72,7 +75,9 @@ def test_process_data_instance():
     assert "trajectory" not in result
 
     # Test with traces
-    result_with_trace = adapter.process_data_instance(data_inst, capture_traces=True)
+    result_with_trace = await adapter.process_data_instance(
+        data_inst, capture_traces=True
+    )
 
     assert "output" in result_with_trace
     assert "score" in result_with_trace
@@ -82,8 +87,9 @@ def test_process_data_instance():
     assert result_with_trace["trajectory"].final_output == "Test response"
 
 
+@pytest.mark.asyncio
 @time_machine.travel("2023-01-01", tick=False)
-def test_make_reflective_dataset():
+async def test_make_reflective_dataset():
     """Test making a reflective dataset."""
     agent = Agent(
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
@@ -105,7 +111,7 @@ def test_make_reflective_dataset():
         metadata={},
         case_id="test-4",
     )
-    result = adapter.evaluate([data_inst], candidate, capture_traces=True)
+    result = await adapter.evaluate([data_inst], candidate, capture_traces=True)
 
     reflective_dataset = adapter.make_reflective_dataset(
         candidate, result, ["instructions"]

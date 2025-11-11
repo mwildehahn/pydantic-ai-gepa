@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import asdict
+from collections.abc import Callable, Sequence
+from contextlib import ExitStack
+from dataclasses import asdict, dataclass
 import logging
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
-
-from gepa.core.adapter import EvaluationBatch, GEPAAdapter
 
 from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
@@ -15,7 +14,6 @@ from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
-from .reflection import propose_new_texts
 from .openai_inspection import OpenAIInspectionAborted
 from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
@@ -50,10 +48,17 @@ class ReflectionSampler(Protocol):
         ...
 
 
-class AgentAdapter(
-    Generic[DataInstT], GEPAAdapter[DataInstT, Trajectory, RolloutOutput[Any]]
-):
-    """GEPA adapter for optimizing a single pydantic-ai agent with an optional signature.
+@dataclass(slots=True)
+class EvaluationBatch(Generic[DataInstT]):
+    """Minimal batch container returned by :meth:`AgentAdapter.evaluate`."""
+
+    outputs: list[RolloutOutput[Any]]
+    scores: list[float]
+    trajectories: list[Trajectory] | None
+
+
+class AgentAdapter(Generic[DataInstT]):
+    """GEPA adapter for optimizing a single pydantic-ai agent with an optional input_type.
 
     This adapter connects pydantic-ai agents to the GEPA optimization engine,
     enabling prompt optimization through evaluation and reflection. It focuses on
@@ -95,9 +100,9 @@ class AgentAdapter(
         self.reflection_model = reflection_model
         self.cache_manager = cache_manager
 
-    def evaluate(
+    async def evaluate(
         self,
-        batch: list[DataInstT],
+        batch: Sequence[DataInstT],
         candidate: dict[str, str],
         capture_traces: bool = False,
     ) -> EvaluationBatch[Trajectory, RolloutOutput[Any]]:
@@ -115,10 +120,9 @@ class AgentAdapter(
         scores: list[float] = []
         trajectories: list[Trajectory] | None = [] if capture_traces else None
 
-        # Apply the candidate to the agent and optionally the signature
         with self._apply_candidate(candidate):
             for data_inst in batch:
-                result = self.process_data_instance(
+                result = await self.process_data_instance(
                     data_inst,
                     capture_traces,
                     candidate,
@@ -145,8 +149,6 @@ class AgentAdapter(
         Returns:
             Context manager that applies the candidate.
         """
-        from contextlib import ExitStack
-
         stack = ExitStack()
 
         # Apply to agent
@@ -158,7 +160,7 @@ class AgentAdapter(
 
         return stack
 
-    def process_data_instance(
+    async def process_data_instance(
         self,
         data_inst: DataInstT,
         capture_traces: bool = False,
@@ -185,14 +187,12 @@ class AgentAdapter(
                 if cached_agent_result is not None:
                     trajectory, output = cached_agent_result
                 else:
-                    # Run the agent and cache the result
                     if capture_traces:
-                        trajectory, output = self._run_with_trace(data_inst)
+                        trajectory, output = await self._run_with_trace(data_inst)
                     else:
-                        output = self._run_simple(data_inst)
+                        output = await self._run_simple(data_inst)
                         trajectory = None
 
-                    # Cache the agent run result
                     self.cache_manager.cache_agent_run(
                         data_inst,
                         candidate,
@@ -201,11 +201,10 @@ class AgentAdapter(
                         capture_traces,
                     )
             else:
-                # No caching, run normally
                 if capture_traces:
-                    trajectory, output = self._run_with_trace(data_inst)
+                    trajectory, output = await self._run_with_trace(data_inst)
                 else:
-                    output = self._run_simple(data_inst)
+                    output = await self._run_simple(data_inst)
                     trajectory = None
 
             # Compute score using the metric and capture optional feedback
@@ -270,7 +269,7 @@ class AgentAdapter(
 
             return error_result
 
-    def _run_with_trace(
+    async def _run_with_trace(
         self, instance: DataInstT
     ) -> tuple[Trajectory, RolloutOutput[Any]]:
         """Run the agent and capture the trajectory.
@@ -285,14 +284,13 @@ class AgentAdapter(
 
         try:
             if isinstance(instance, DataInstWithPrompt):
-                # Run the agent and capture messages
-                result = self.agent.run_sync(
+                result = await self.agent.run(
                     instance.user_prompt.content,
                     message_history=instance.message_history,
                 )
             else:
                 assert isinstance(self.agent, SignatureAgent)
-                result = self.agent.run_signature_sync(
+                result = await self.agent.run_signature(
                     instance.input,
                     message_history=instance.message_history,
                 )
@@ -331,7 +329,7 @@ class AgentAdapter(
             output = RolloutOutput.from_error(e)
             return trajectory, output
 
-    def _run_simple(self, instance: DataInstT) -> RolloutOutput[Any]:
+    async def _run_simple(self, instance: DataInstT) -> RolloutOutput[Any]:
         """Run the agent without capturing traces.
 
         Args:
@@ -342,13 +340,13 @@ class AgentAdapter(
         """
         try:
             if isinstance(instance, DataInstWithPrompt):
-                result = self.agent.run_sync(
+                result = await self.agent.run(
                     instance.user_prompt.content,
                     message_history=instance.message_history,
                 )
             else:
                 assert isinstance(self.agent, SignatureAgent)
-                result = self.agent.run_signature_sync(
+                result = await self.agent.run_signature(
                     instance.input,
                     message_history=instance.message_history,
                 )
@@ -429,16 +427,3 @@ class AgentAdapter(
         # For pydantic-ai, all components work together, so they all need
         # the same reflection data to understand the full context
         return {comp: reflection_records for comp in components_to_update}
-
-    def propose_new_texts(  # type: ignore[override]
-        self,
-        candidate: dict[str, str],
-        reflective_dataset: dict[str, list[dict[str, Any]]],
-        components_to_update: list[str],
-    ) -> dict[str, str]:
-        return propose_new_texts(
-            candidate,
-            reflective_dataset,
-            components_to_update,
-            self.reflection_model,
-        )

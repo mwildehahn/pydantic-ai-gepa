@@ -24,6 +24,7 @@ class StartNode(GepaNode):
         state = ctx.state
 
         if state.candidates:
+            # TODO: do we need this? seems like overkill. when would this be < 0?
             if state.iteration < 0:
                 state.iteration = 0
             return EvaluateNode()

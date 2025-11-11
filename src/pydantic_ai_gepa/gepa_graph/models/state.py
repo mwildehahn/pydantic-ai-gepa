@@ -64,6 +64,7 @@ class GepaConfig(BaseModel):
     skip_perfect_score: bool = True
 
     # Component selection
+    # TODO: add descriptive comments for each of these fields
     component_selector: Literal["round_robin", "all"] = "round_robin"
     candidate_selector: Literal["pareto", "current_best"] = "pareto"
 
@@ -120,6 +121,7 @@ class GepaState(BaseModel):
     """Shared mutable state that flows through the GEPA graph nodes."""
 
     iteration: int = -1
+    # TODO: add descriptive comments for each of these fields
     candidates: list[CandidateProgram] = Field(default_factory=list)
     pareto_front: dict[str, ParetoFrontEntry] = Field(default_factory=dict)
     genealogy: list[GenealogyRecord] = Field(default_factory=list)
