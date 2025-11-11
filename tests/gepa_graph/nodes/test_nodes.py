@@ -88,6 +88,28 @@ class _FakeAdapter:
     ) -> dict[str, list[dict]]:
         return {component: [] for component in components_to_update}
 
+    def get_components(self) -> dict[str, str]:
+        return {"instructions": "seed"}
+
+
+class _HydratingAdapter(_FakeAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self._include_tool = False
+
+    async def evaluate(self, batch, candidate, capture_traces):
+        result = await super().evaluate(batch, candidate, capture_traces)
+        self._include_tool = True
+        return result
+
+    def get_components(self) -> dict[str, str]:
+        components = super().get_components()
+        if self._include_tool:
+            hydrated = dict(components)
+            hydrated["tool:new"] = "desc"
+            return hydrated
+        return components
+
 
 def _make_deps(
     seed_candidate: dict[str, str] | None = None,
@@ -148,14 +170,19 @@ async def test_start_node_is_idempotent_when_candidates_exist() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_node_requires_seed_candidate() -> None:
+async def test_start_node_uses_adapter_snapshot_when_seed_missing() -> None:
     state = _make_state()
     deps = _make_deps(seed_candidate=None)
     ctx = GraphRunContext(state=state, deps=deps)
 
     node = StartNode()
-    with pytest.raises(RuntimeError, match="seed_candidate"):
-        await node.run(ctx)
+    result = await node.run(ctx)
+
+    assert isinstance(result, EvaluateNode)
+    assert len(state.candidates) == 1
+    candidate = state.candidates[0]
+    assert candidate.components["instructions"].text == "seed"
+    assert deps.seed_candidate == {"instructions": "seed"}
 
 
 @pytest.mark.asyncio
@@ -182,6 +209,31 @@ async def test_evaluate_node_updates_candidate_scores_and_state() -> None:
     assert state.total_evaluations == len(validation_set)
     assert state.full_validations == 1
     assert state.pareto_front
+
+
+@pytest.mark.asyncio
+async def test_evaluate_node_hydrates_new_components() -> None:
+    state = _make_state(num_instances=1)
+    candidate = CandidateProgram(
+        idx=0,
+        components={"instructions": ComponentValue(name="instructions", text="test")},
+        creation_type="seed",
+        discovered_at_iteration=0,
+        discovered_at_evaluation=0,
+    )
+    state.add_candidate(candidate)
+    adapter = cast(Adapter[DataInst], _HydratingAdapter())
+    deps = _make_deps()
+    deps.adapter = adapter
+    ctx = GraphRunContext(state=state, deps=deps)
+
+    node = EvaluateNode()
+    await node.run(ctx)
+
+    assert "tool:new" in candidate.components
+    assert candidate.components["tool:new"].text == "desc"
+    assert deps.seed_candidate is not None
+    assert deps.seed_candidate["tool:new"] == "desc"
 
 
 @pytest.mark.asyncio

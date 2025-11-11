@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ...types import DataInst
+from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
-from ..models import CandidateProgram, GepaState
+from ..models import CandidateProgram, ComponentValue, GepaState
 from .base import GepaNode, GepaRunContext
 
 if TYPE_CHECKING:
@@ -37,6 +38,7 @@ class EvaluateNode(GepaNode):
         state.recompute_best_candidate()
         state.total_evaluations += len(results.data_ids)
         state.full_validations += 1
+        self._hydrate_missing_components(candidate, ctx.deps)
 
         return ContinueNode()
 
@@ -60,6 +62,28 @@ class EvaluateNode(GepaNode):
                 score=score,
                 output=output,
             )
+
+    def _hydrate_missing_components(
+        self,
+        candidate: CandidateProgram,
+        deps: GepaDeps,
+    ) -> None:
+        components = deps.adapter.get_components()
+        if not components:
+            return
+
+        missing = {key: text for key, text in components.items() if key not in candidate.components}
+        if not missing:
+            return
+
+        for name, text in missing.items():
+            candidate.components[name] = ComponentValue(name=name, text=text)
+
+        seed = deps.seed_candidate or {}
+        updated_seed = dict(seed)
+        for name, text in missing.items():
+            updated_seed.setdefault(name, text)
+        deps.seed_candidate = updated_seed
 
 
 __all__ = ["EvaluateNode"]

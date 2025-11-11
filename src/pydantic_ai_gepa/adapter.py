@@ -34,7 +34,7 @@ from pydantic_ai.messages import (
     VideoUrl,
 )
 
-from .components import apply_candidate_to_agent
+from .components import apply_candidate_to_agent, extract_seed_candidate_with_input_type
 from .evaluation_models import EvaluationBatch
 from .inspection import InspectionAborted
 from .signature import BoundInputSpec, InputSpec, build_input_spec
@@ -70,6 +70,10 @@ class Adapter(Protocol[DataInstT]):
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
     ) -> dict[str, list[dict[str, Any]]]:
+        ...
+
+    def get_components(self) -> dict[str, str]:
+        """Return the adapter's current candidate component mapping."""
         ...
 
 
@@ -730,3 +734,10 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         # For pydantic-ai, all components work together, so they all need
         # the same reflection data to understand the full context
         return {comp: reflection_records for comp in components_to_update}
+
+    def get_components(self) -> dict[str, str]:
+        """Return the current components extracted from the agent and signature."""
+        return extract_seed_candidate_with_input_type(
+            agent=self.agent,
+            input_type=self.input_spec,
+        )

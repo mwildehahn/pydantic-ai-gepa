@@ -62,6 +62,9 @@ class _RecordingAdapter:
     def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
         return {component: [] for component in components_to_update}
 
+    def get_components(self) -> dict[str, str]:
+        return {"instructions": "seed"}
+
 
 class _CachingAdapter:
     def __init__(self) -> None:
@@ -85,6 +88,9 @@ class _CachingAdapter:
 
     def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
         return {component: [] for component in components_to_update}
+
+    def get_components(self) -> dict[str, str]:
+        return {"instructions": "seed"}
 
 
 @pytest.mark.asyncio

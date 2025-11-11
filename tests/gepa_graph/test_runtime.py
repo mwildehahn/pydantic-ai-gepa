@@ -28,7 +28,6 @@ async def test_optimize_completes_successfully() -> None:
         config=config,
         trainset=dataset,
         valset=dataset,
-        seed_candidate={"instructions": "seed instructions"},
     )
 
     assert result.stopped is True

@@ -42,6 +42,9 @@ class _AdapterStub:
     ) -> dict[str, list[dict]]:  # pragma: no cover - unused
         return {component: [] for component in components_to_update}
 
+    def get_components(self) -> dict[str, str]:  # pragma: no cover - unused
+        return {"instructions": "seed"}
+
 
 def _make_adapter(name: str | None = None) -> Adapter[DataInst]:
     return cast(Adapter[DataInst], _AdapterStub(agent=_AgentStub(name=name)))

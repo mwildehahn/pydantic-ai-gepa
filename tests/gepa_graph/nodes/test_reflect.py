@@ -109,6 +109,9 @@ class _StubAdapter:
             for component in components_to_update
         }
 
+    def get_components(self) -> dict[str, str]:
+        return {"instructions": "seed"}
+
 
 class _StubBatchSampler(BatchSampler):
     def __init__(self, batch):

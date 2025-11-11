@@ -90,6 +90,9 @@ class AdapterStub:
             for component in components_to_update
         }
 
+    def get_components(self) -> dict[str, str]:
+        return {"instructions": "seed instructions"}
+
 
 class ProposalGeneratorStub:
     """Proposal generator that improves instructions on the first call only."""

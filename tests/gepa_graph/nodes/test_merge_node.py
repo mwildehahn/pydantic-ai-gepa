@@ -141,6 +141,9 @@ class _StubAdapter:
     ) -> dict[str, list[dict]]:  # pragma: no cover
         return {component: [] for component in components_to_update}
 
+    def get_components(self) -> dict[str, str]:  # pragma: no cover
+        return {"instructions": "seed"}
+
 
 class _StubEvaluator(ParallelEvaluator):
     def __init__(self, result: EvaluationResults[str]) -> None:
