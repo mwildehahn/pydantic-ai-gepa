@@ -286,48 +286,6 @@ class InstructionProposalGenerator:
 
         return list(tools_map.values())
 
-    def _format_dataset(self, records: Sequence[Mapping[str, Any]]) -> str:
-        if not records:
-            return "No reflective examples were provided."
-
-        sections: list[str] = []
-        for idx, record in enumerate(records, start=1):
-            lines = [f"### Example {idx}"]
-            for key, value in record.items():
-                if value is None or value == "":
-                    continue
-                label = key.replace("_", " ").title()
-                lines.extend(self._format_record(label, value, indent=0))
-            sections.append("\n".join(lines))
-        return "\n\n".join(sections)
-
-    def _format_record(
-        self,
-        label: str,
-        value: Any,
-        *,
-        indent: int,
-    ) -> list[str]:
-        prefix = "  " * indent
-        if self._is_scalar(value):
-            return [f"{prefix}- **{label}:** {self._format_scalar(value)}"]
-
-        if isinstance(value, Mapping):
-            lines = [f"{prefix}- **{label}:**"]
-            for key, inner in value.items():
-                sub_label = key.replace("_", " ").title()
-                lines.extend(self._format_record(sub_label, inner, indent=indent + 1))
-            return lines
-
-        if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-            lines = [f"{prefix}- **{label}:**"]
-            for idx, item in enumerate(value, start=1):
-                item_label = f"Item {idx}"
-                lines.extend(self._format_record(item_label, item, indent=indent + 1))
-            return lines
-
-        return [f"{prefix}- **{label}:** {self._format_scalar(value)}"]
-
     @staticmethod
     def _records_for_component(
         dataset: ReflectiveDataset,
@@ -336,10 +294,6 @@ class InstructionProposalGenerator:
         if isinstance(dataset, SharedReflectiveDataset):
             return dataset.records
         return dataset.records_by_component.get(component, ())
-
-    @staticmethod
-    def _is_scalar(value: Any) -> bool:
-        return isinstance(value, (str, int, float, bool)) or value is None
 
     @staticmethod
     def _format_scalar(value: Any) -> str:

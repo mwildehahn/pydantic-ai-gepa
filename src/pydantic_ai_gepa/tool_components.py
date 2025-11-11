@@ -6,7 +6,7 @@ import contextvars
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Any, Iterable, Iterator, Literal
+from typing import Any, Iterable, Iterator
 
 from pydantic_ai._run_context import RunContext
 from pydantic_ai.agent import AbstractAgent
@@ -96,17 +96,6 @@ def _set_schema_description(schema: dict[str, Any], path: tuple[str, ...], value
         return False
     target["description"] = value
     return True
-
-
-@dataclass
-@dataclass(frozen=True)
-class ToolComponentDescriptor:
-    """Metadata about a single tool component."""
-
-    key: str
-    tool_name: str
-    component_type: Literal["description", "parameter"]
-    path: tuple[str, ...] | None = None
 
 
 @dataclass

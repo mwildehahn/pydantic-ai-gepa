@@ -8,7 +8,6 @@ import time_machine
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.function import FunctionModel
-from pydantic_ai.models.test import TestModel
 
 from pydantic_ai_gepa.adapter import (
     ComponentReflectiveDataset,

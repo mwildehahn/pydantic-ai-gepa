@@ -6,6 +6,7 @@ from datetime import datetime
 from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
+import pprint
 from typing import Any
 
 import logfire
@@ -325,8 +326,8 @@ signature_dataset = [
     for index, dataset_case in enumerate(dataset.cases)
 ]
 
-# agent_model = InspectingModel(infer_model("openai:gpt-5-mini"))
-agent_model = infer_model("openai:gpt-5-mini")
+agent_model = InspectingModel(infer_model("openai:gpt-5-mini"))
+# agent_model = infer_model("openai:gpt-5-mini")
 
 agent = Agent(
     model=agent_model,
@@ -497,7 +498,7 @@ async def main() -> None:
     except InspectionAborted as exc:
         snapshot = exc.snapshot
         print("\n🔎 OpenAI request intercepted for inspection. Payload:")
-        print(json.dumps(snapshot.payload(), indent=2))
+        pprint.pprint(snapshot)
         return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

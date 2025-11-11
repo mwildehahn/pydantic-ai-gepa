@@ -35,18 +35,6 @@ class InspectionSnapshot:
     request_parameters: ModelRequestParameters
     extra: dict[str, Any] = field(default_factory=dict)
 
-    def payload(self) -> dict[str, Any]:
-        """Return a dict mirroring the provider payload."""
-        payload: dict[str, Any] = {
-            "model": self.model_name,
-            "messages": _json_safe(self.provider_messages),
-        }
-        if self.model_settings:
-            payload["settings"] = _json_safe(self.model_settings)
-        if self.extra:
-            payload["metadata"] = _json_safe(self.extra)
-        return payload
-
 
 class InspectionAborted(RuntimeError):
     """Raised when a request is intercepted for inspection."""
@@ -107,7 +95,9 @@ class InspectingModel(WrapperModel):
         else:
             prepared_params = model_request_parameters
             if self._map_messages_override is None:
-                raise RuntimeError("map_messages callback missing for non-OpenAI model.")
+                raise RuntimeError(
+                    "map_messages callback missing for non-OpenAI model."
+                )
             provider_messages = await self._map_messages_override(
                 self.wrapped,
                 messages,
@@ -115,8 +105,12 @@ class InspectingModel(WrapperModel):
                 model_request_parameters,
             )
             settings_payload = _settings_to_dict(model_settings)
-            model_name = getattr(self.wrapped, "model_name", self.wrapped.__class__.__name__)
-            provider_name = getattr(self.wrapped, "system", self.wrapped.__class__.__name__)
+            model_name = getattr(
+                self.wrapped, "model_name", self.wrapped.__class__.__name__
+            )
+            provider_name = getattr(
+                self.wrapped, "system", self.wrapped.__class__.__name__
+            )
 
         return InspectionSnapshot(
             model_name=model_name,
@@ -153,8 +147,6 @@ class InspectingModel(WrapperModel):
         if isinstance(model, (OpenAIChatModel, OpenAIResponsesModel)):
             return cast(OpenAIChatModel | OpenAIResponsesModel, model)
         return None
-
-        self._map_messages_override = map_messages
 
 
 __all__ = [
