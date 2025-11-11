@@ -51,11 +51,13 @@ async def optimize(
         resolved_deps = deps
         if seed_candidate is not None:
             resolved_deps.seed_candidate = dict(seed_candidate)
+
     if resolved_deps.seed_candidate is None:
         raise ValueError(
             "seed_candidate must be provided via create_deps(..., seed_candidate=...) "
             "or optimize(seed_candidate=...) before running the graph."
         )
+
     resolved_graph = (
         graph
         if graph is not None

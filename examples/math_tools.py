@@ -461,8 +461,6 @@ async def run_math_tools_optimization(
         max_evaluations=150,
         component_selector="all",
         max_concurrent_evaluations=10,
-        enable_parallel_evaluation=True,
-        enable_parallel_minibatch=True,
         enable_parallel_reflection=False,
         reflection_model=reflection_model,
     )
