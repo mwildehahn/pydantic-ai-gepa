@@ -16,7 +16,7 @@ from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModel
 from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa import InspectingModel, InspectionAborted
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.gepa_graph import GepaConfig, GepaResult, optimize
 from pydantic_ai_gepa.signature_agent import SignatureAgent

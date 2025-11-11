@@ -9,7 +9,8 @@ import pytest
 from pydantic_graph import End, GraphRunContext
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import Adapter, AdapterTrajectory
+from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -60,7 +61,7 @@ def _make_state(
 class _FakeEvaluationBatch:
     outputs: list[RolloutOutput[str]]
     scores: list[float]
-    trajectories: list[AdapterTrajectory] | None = None
+    trajectories: list[AgentAdapterTrajectory] | None = None
 
 
 class _FakeAdapter:

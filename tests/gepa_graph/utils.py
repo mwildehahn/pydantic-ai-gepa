@@ -7,7 +7,8 @@ from typing import cast
 
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.adapter import Adapter, AdapterTrajectory
+from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 
 __all__ = [
@@ -38,7 +39,7 @@ class EvaluationBatchStub:
 
     outputs: list[RolloutOutput[str]]
     scores: list[float]
-    trajectories: list[AdapterTrajectory] | None
+    trajectories: list[AgentAdapterTrajectory] | None
 
 
 class AdapterStub:
@@ -58,7 +59,7 @@ class AdapterStub:
         ]
         trajectories = (
             [
-                AdapterTrajectory(
+                AgentAdapterTrajectory(
                     messages=[],
                     final_output=output.result,
                     instructions=text,

@@ -9,7 +9,7 @@ from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
 import time_machine
 
-from pydantic_ai_gepa.adapter import AgentAdapter
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,

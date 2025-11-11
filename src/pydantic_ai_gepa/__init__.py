@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from .adapter import Adapter, AdapterTrajectory, AgentAdapter
+from .adapter import Adapter
+from .adapters.agent_adapter import AgentAdapter, AgentAdapterTrajectory
 from .reflection import ReflectionSampler
 from .cache import CacheManager, create_cached_metric
 from .inspection import (
@@ -33,7 +34,7 @@ __all__ = [
     "CacheManager",
     "create_cached_metric",
     "DataInst",
-    "AdapterTrajectory",
+    "AgentAdapterTrajectory",
     "Trajectory",
     "RolloutOutput",
     "MetricResult",

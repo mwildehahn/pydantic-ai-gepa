@@ -7,7 +7,7 @@ from pydantic_ai import Agent
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
-from pydantic_ai_gepa.adapter import AdapterTrajectory, AgentAdapter
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter, AgentAdapterTrajectory
 from pydantic_ai_gepa.evaluation_models import EvaluationBatch
 from pydantic_ai_gepa.types import (
     DataInst,
@@ -33,8 +33,8 @@ def _make_trajectory(
     prompt: str,
     response: str,
     feedback: str | None,
-) -> AdapterTrajectory:
-    return AdapterTrajectory(
+) -> AgentAdapterTrajectory:
+    return AgentAdapterTrajectory(
         messages=[
             ModelRequest(
                 parts=[UserPromptPart(content=prompt)],

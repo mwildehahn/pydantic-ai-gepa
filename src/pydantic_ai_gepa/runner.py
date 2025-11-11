@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 
-from .adapter import AgentAdapter
+from .adapters.agent_adapter import AgentAdapter
 from .cache import CacheManager
 from .components import (
     apply_candidate_to_agent,
