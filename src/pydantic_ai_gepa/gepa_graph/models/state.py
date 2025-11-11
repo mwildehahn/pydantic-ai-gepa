@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from enum import StrEnum, auto
 from typing import Literal
 
 from pydantic import (
@@ -17,6 +18,13 @@ from pydantic import (
 from ...types import DataInst
 from .candidate import CandidateProgram
 from .pareto import ParetoFrontEntry
+
+
+class CandidateSelectorStrategy(StrEnum):
+    """Strategy options for candidate selection."""
+
+    PARETO = auto()
+    CURRENT_BEST = auto()
 
 
 class GenealogyRecord(BaseModel):
@@ -66,7 +74,7 @@ class GepaConfig(BaseModel):
     # Component selection
     # TODO: add descriptive comments for each of these fields
     component_selector: Literal["round_robin", "all"] = "round_robin"
-    candidate_selector: Literal["pareto", "current_best"] = "pareto"
+    candidate_selector: CandidateSelectorStrategy = CandidateSelectorStrategy.PARETO
 
     # Merge
     use_merge: bool = False

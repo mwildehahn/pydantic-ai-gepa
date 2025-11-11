@@ -5,14 +5,17 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from pydantic_ai_gepa.gepa_graph.models import GepaConfig
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateSelectorStrategy,
+    GepaConfig,
+)
 
 
 def test_config_defaults() -> None:
     config = GepaConfig()
     assert config.max_evaluations == 200
     assert config.component_selector == "round_robin"
-    assert config.candidate_selector == "pareto"
+    assert config.candidate_selector is CandidateSelectorStrategy.PARETO
     assert config.validation_policy == "full"
 
 

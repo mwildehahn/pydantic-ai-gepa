@@ -21,7 +21,12 @@ from .components import (
     normalize_component_text,
 )
 from .gepa_graph import create_deps, create_gepa_graph
-from .gepa_graph.models import GepaConfig, GepaResult, GepaState
+from .gepa_graph.models import (
+    CandidateSelectorStrategy,
+    GepaConfig,
+    GepaResult,
+    GepaState,
+)
 from .gepa_graph.nodes import StartNode
 from .signature import InputSpec
 from .types import DataInst, RolloutOutput
@@ -29,7 +34,6 @@ from .types import DataInst, RolloutOutput
 # Type variable for the DataInst type
 DataInstT = TypeVar("DataInstT", bound=DataInst)
 ComponentSelectorLiteral = Literal["round_robin", "all"]
-CandidateSelectorLiteral = Literal["pareto", "current_best"]
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -345,7 +349,7 @@ def _build_gepa_config(
     component_selector: ComponentSelectorLiteral = _resolve_component_selector(
         module_selector, len(seed_candidate)
     )
-    candidate_selector: CandidateSelectorLiteral = _resolve_candidate_selector(
+    candidate_selector: CandidateSelectorStrategy = _resolve_candidate_selector(
         candidate_selection_strategy
     )
 
@@ -374,12 +378,13 @@ def _resolve_component_selector(
     return cast(ComponentSelectorLiteral, selector)
 
 
-def _resolve_candidate_selector(strategy: str) -> CandidateSelectorLiteral:
-    if strategy not in {"pareto", "current_best"}:
+def _resolve_candidate_selector(strategy: str) -> CandidateSelectorStrategy:
+    try:
+        return CandidateSelectorStrategy(strategy)
+    except ValueError as error:
         raise ValueError(
             "candidate_selection_strategy must be 'pareto' or 'current_best'."
-        )
-    return cast(CandidateSelectorLiteral, strategy)
+        ) from error
 
 
 def _fallback_result(seed_candidate: dict[str, str]) -> GepaOptimizationResult:

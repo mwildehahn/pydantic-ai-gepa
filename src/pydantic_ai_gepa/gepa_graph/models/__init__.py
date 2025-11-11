@@ -3,10 +3,16 @@
 from .candidate import CandidateProgram, ComponentValue
 from .pareto import ParetoFrontEntry
 from .result import GepaResult
-from .state import GenealogyRecord, GepaConfig, GepaState
+from .state import (
+    CandidateSelectorStrategy,
+    GenealogyRecord,
+    GepaConfig,
+    GepaState,
+)
 
 __all__ = [
     "CandidateProgram",
+    "CandidateSelectorStrategy",
     "ComponentValue",
     "GenealogyRecord",
     "GepaConfig",

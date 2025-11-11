@@ -7,7 +7,7 @@ from typing import Any
 from ..adapter import AgentAdapter
 from .deps import GepaDeps
 from .evaluation import ParallelEvaluator, ParetoFrontManager
-from .models import GepaConfig
+from .models import CandidateSelectorStrategy, GepaConfig
 from .proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
@@ -50,9 +50,9 @@ def create_deps(
 
 
 def _build_candidate_selector(config: GepaConfig) -> CandidateSelector:
-    if config.candidate_selector == "pareto":
+    if config.candidate_selector is CandidateSelectorStrategy.PARETO:
         return ParetoCandidateSelector(seed=config.seed)
-    if config.candidate_selector == "current_best":
+    if config.candidate_selector is CandidateSelectorStrategy.CURRENT_BEST:
         return CurrentBestCandidateSelector()
     raise ValueError(f"Unsupported candidate selector '{config.candidate_selector}'.")
 

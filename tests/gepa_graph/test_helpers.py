@@ -8,7 +8,11 @@ import random
 from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph import create_deps
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
-from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateSelectorStrategy,
+    GepaConfig,
+    GepaState,
+)
 from pydantic_ai_gepa.gepa_graph.selectors import (
     AllComponentSelector,
     BatchSampler,
@@ -75,7 +79,7 @@ def test_create_deps_defaults() -> None:
 def test_create_deps_supports_alternate_selectors() -> None:
     adapter = _make_adapter()
     config = GepaConfig(
-        candidate_selector="current_best",
+        candidate_selector=CandidateSelectorStrategy.CURRENT_BEST,
         component_selector="all",
     )
 
