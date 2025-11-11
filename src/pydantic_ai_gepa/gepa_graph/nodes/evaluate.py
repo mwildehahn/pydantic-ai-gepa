@@ -69,8 +69,6 @@ class EvaluateNode(GepaNode):
         deps: GepaDeps,
     ) -> None:
         components = deps.adapter.get_components()
-        if not components:
-            return
 
         missing = {key: text for key, text in components.items() if key not in candidate.components}
         if not missing:
