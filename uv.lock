@@ -944,15 +944,6 @@ wheels = [
 ]
 
 [[package]]
-name = "gepa"
-version = "0.0.12"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/1c/c1/748f282ca83dea3d2a8dcefd6b1476d8780c99a2e3bdd80dfebbcb6e823b/gepa-0.0.12.tar.gz", hash = "sha256:0c725790c28399e333a37f32dc858a674dc9e748fcccac1df632acdf9f0302ef", size = 63863, upload-time = "2025-09-09T01:36:21.818Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/2f/fb/73d6b15259067248a9c574508924dc2df427b5cc1b50eccfb3ceddf4334d/gepa-0.0.12-py3-none-any.whl", hash = "sha256:bf254177d1b9056d09473273472bac96fd1272124fb20abfe8dc548e4b914c58", size = 64264, upload-time = "2025-09-09T01:36:20.469Z" },
-]
-
-[[package]]
 name = "google-auth"
 version = "2.43.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2135,8 +2126,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "cloudpickle" },
-    { name = "gepa" },
     { name = "pydantic-ai" },
+    { name = "pydantic-graph" },
 ]
 
 [package.dev-dependencies]
@@ -2154,8 +2145,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "cloudpickle", specifier = ">=3.0.0" },
-    { name = "gepa", specifier = ">=0.0.12" },
     { name = "pydantic-ai", git = "file:///Users/mh/labs/pydantic-ai?rev=eeeddc5ec9bb99eaa5bd986aaad2773697aaae24" },
+    { name = "pydantic-graph", git = "file:///Users/mh/labs/pydantic-ai?subdirectory=pydantic_graph&rev=eeeddc5ec9bb99eaa5bd986aaad2773697aaae24" },
 ]
 
 [package.metadata.requires-dev]

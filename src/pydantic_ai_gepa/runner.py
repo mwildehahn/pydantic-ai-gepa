@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import threading
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -30,6 +28,8 @@ from .types import DataInst, RolloutOutput
 
 # Type variable for the DataInst type
 DataInstT = TypeVar("DataInstT", bound=DataInst)
+ComponentSelectorLiteral = Literal["round_robin", "all"]
+CandidateSelectorLiteral = Literal["pareto", "current_best"]
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -125,7 +125,7 @@ class GepaOptimizationResult(BaseModel):
             yield
 
 
-def optimize_agent_prompts(
+async def optimize_agent(
     agent: AbstractAgent[Any, Any],
     trainset: Sequence[DataInstT],
     *,
@@ -151,15 +151,6 @@ def optimize_agent_prompts(
     cache_verbose: bool = False,
     # Logging
     logger: LoggerProtocol | None = None,
-    run_dir: str | None = None,
-    use_wandb: bool = False,
-    wandb_api_key: str | None = None,
-    wandb_init_kwargs: dict[str, Any] | None = None,
-    use_mlflow: bool = False,
-    mlflow_tracking_uri: str | None = None,
-    mlflow_experiment_name: str | None = None,
-    track_best_outputs: bool = False,
-    display_progress_bar: bool = False,
     # Reproducibility
     seed: int = 0,
     raise_on_exception: bool = True,
@@ -168,7 +159,7 @@ def optimize_agent_prompts(
     # Reflection sampler
     reflection_sampler: ReflectionSampler | None = None,
 ) -> GepaOptimizationResult:
-    """Optimize agent (and optional signature) prompts using GEPA.
+    """Optimizes a pydantic-ai agent (and optional signature inputs) using the GEPA graph backend.
 
     This is the main entry point for prompt optimization. It takes a pydantic-ai
     agent and a dataset, and returns optimized prompts.
@@ -207,16 +198,6 @@ def optimize_agent_prompts(
 
         # Logging
         logger: Logger instance for tracking progress.
-        run_dir: Directory to save results to.
-        use_wandb: Whether to use Weights and Biases for logging.
-        wandb_api_key: API key for Weights and Biases.
-        wandb_init_kwargs: Additional kwargs for wandb initialization.
-        use_mlflow: Whether to use MLflow for logging.
-        mlflow_tracking_uri: Tracking URI for MLflow.
-        mlflow_experiment_name: Experiment name for MLflow.
-        track_best_outputs: Whether to track best outputs on validation set.
-        display_progress_bar: Whether to display a progress bar.
-
         # Reproducibility
         seed: Random seed for reproducibility.
         raise_on_exception: Whether to raise exceptions or continue on errors.
@@ -232,96 +213,6 @@ def optimize_agent_prompts(
     Returns:
         GepaOptimizationResult with the best candidate and metadata.
     """
-    coroutine = _optimize_agent_prompts_async(
-        agent=agent,
-        trainset=trainset,
-        metric=metric,
-        valset=valset,
-        input_type=input_type,
-        seed_candidate=seed_candidate,
-        reflection_model=reflection_model,
-        candidate_selection_strategy=candidate_selection_strategy,
-        skip_perfect_score=skip_perfect_score,
-        reflection_minibatch_size=reflection_minibatch_size,
-        perfect_score=perfect_score,
-        module_selector=module_selector,
-        use_merge=use_merge,
-        max_merge_invocations=max_merge_invocations,
-        max_metric_calls=max_metric_calls,
-        enable_cache=enable_cache,
-        cache_dir=cache_dir,
-        cache_verbose=cache_verbose,
-        logger=logger,
-        run_dir=run_dir,
-        use_wandb=use_wandb,
-        wandb_api_key=wandb_api_key,
-        wandb_init_kwargs=wandb_init_kwargs,
-        use_mlflow=use_mlflow,
-        mlflow_tracking_uri=mlflow_tracking_uri,
-        mlflow_experiment_name=mlflow_experiment_name,
-        track_best_outputs=track_best_outputs,
-        display_progress_bar=display_progress_bar,
-        seed=seed,
-        raise_on_exception=raise_on_exception,
-        deterministic_proposer=deterministic_proposer,
-        reflection_sampler=reflection_sampler,
-    )
-
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coroutine)
-    else:
-        return _run_coroutine_in_thread(coroutine)
-
-
-async def _optimize_agent_prompts_async(
-    agent: AbstractAgent[Any, Any],
-    trainset: Sequence[DataInstT],
-    *,
-    metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
-    valset: Sequence[DataInstT] | None,
-    input_type: InputSpec[BaseModel] | None,
-    seed_candidate: dict[str, str] | None,
-    reflection_model: Model | KnownModelName | str | None,
-    candidate_selection_strategy: str,
-    skip_perfect_score: bool,
-    reflection_minibatch_size: int,
-    perfect_score: float,
-    module_selector: str,
-    use_merge: bool,
-    max_merge_invocations: int,
-    max_metric_calls: int,
-    enable_cache: bool,
-    cache_dir: str | None,
-    cache_verbose: bool,
-    logger: LoggerProtocol | None,
-    run_dir: str | None,
-    use_wandb: bool,
-    wandb_api_key: str | None,
-    wandb_init_kwargs: dict[str, Any] | None,
-    use_mlflow: bool,
-    mlflow_tracking_uri: str | None,
-    mlflow_experiment_name: str | None,
-    track_best_outputs: bool,
-    display_progress_bar: bool,
-    seed: int,
-    raise_on_exception: bool,
-    deterministic_proposer: Any | None,
-    reflection_sampler: ReflectionSampler | None,
-) -> GepaOptimizationResult:
-    _warn_unused_tracking_args(
-        run_dir=run_dir,
-        use_wandb=use_wandb,
-        wandb_api_key=wandb_api_key,
-        wandb_init_kwargs=wandb_init_kwargs,
-        use_mlflow=use_mlflow,
-        mlflow_tracking_uri=mlflow_tracking_uri,
-        mlflow_experiment_name=mlflow_experiment_name,
-        track_best_outputs=track_best_outputs,
-        display_progress_bar=display_progress_bar,
-    )
-
     train_instances = list(trainset)
     val_instances = list(valset) if valset is not None else train_instances
 
@@ -438,57 +329,6 @@ async def _optimize_agent_prompts_async(
     return result
 
 
-def _run_coroutine_in_thread(coro):
-    """Run a coroutine in a dedicated thread to avoid event-loop conflicts."""
-
-    result: dict[str, Any] = {}
-    error: list[BaseException] = []
-
-    def _worker():
-        try:
-            result["value"] = asyncio.run(coro)
-        except BaseException as exc:  # pragma: no cover
-            error.append(exc)
-
-    thread = threading.Thread(target=_worker, daemon=True)
-    thread.start()
-    thread.join()
-
-    if error:
-        raise error[0]
-    return result["value"]
-
-
-def _warn_unused_tracking_args(
-    *,
-    run_dir: str | None,
-    use_wandb: bool,
-    wandb_api_key: str | None,
-    wandb_init_kwargs: dict[str, Any] | None,
-    use_mlflow: bool,
-    mlflow_tracking_uri: str | None,
-    mlflow_experiment_name: str | None,
-    track_best_outputs: bool,
-    display_progress_bar: bool,
-) -> None:
-    if any(
-        [
-            run_dir,
-            use_wandb,
-            wandb_api_key,
-            wandb_init_kwargs,
-            use_mlflow,
-            mlflow_tracking_uri,
-            mlflow_experiment_name,
-            track_best_outputs,
-            display_progress_bar,
-        ]
-    ):
-        module_logger.warning(
-            "Tracking and progress parameters are currently ignored in the gepa_graph backend."
-        )
-
-
 def _build_gepa_config(
     *,
     max_metric_calls: int,
@@ -502,10 +342,12 @@ def _build_gepa_config(
     max_merge_invocations: int,
     seed: int,
 ) -> GepaConfig:
-    component_selector = _resolve_component_selector(
+    component_selector: ComponentSelectorLiteral = _resolve_component_selector(
         module_selector, len(seed_candidate)
     )
-    candidate_selector = _resolve_candidate_selector(candidate_selection_strategy)
+    candidate_selector: CandidateSelectorLiteral = _resolve_candidate_selector(
+        candidate_selection_strategy
+    )
 
     return GepaConfig(
         max_evaluations=max_metric_calls,
@@ -520,20 +362,24 @@ def _build_gepa_config(
     )
 
 
-def _resolve_component_selector(selector: str, component_count: int) -> str:
+def _resolve_component_selector(
+    selector: str, component_count: int
+) -> ComponentSelectorLiteral:
     if selector not in {"round_robin", "all"}:
         raise ValueError(
             "module_selector must be either 'round_robin' or 'all' for gepa_graph runs."
         )
     if selector == "round_robin" and component_count <= 1:
         return "all"
-    return selector
+    return cast(ComponentSelectorLiteral, selector)
 
 
-def _resolve_candidate_selector(strategy: str) -> str:
+def _resolve_candidate_selector(strategy: str) -> CandidateSelectorLiteral:
     if strategy not in {"pareto", "current_best"}:
-        raise ValueError("candidate_selection_strategy must be 'pareto' or 'current_best'.")
-    return strategy
+        raise ValueError(
+            "candidate_selection_strategy must be 'pareto' or 'current_best'."
+        )
+    return cast(CandidateSelectorLiteral, strategy)
 
 
 def _fallback_result(seed_candidate: dict[str, str]) -> GepaOptimizationResult:

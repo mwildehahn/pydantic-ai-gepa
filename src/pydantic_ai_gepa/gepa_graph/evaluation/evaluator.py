@@ -3,34 +3,26 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from dataclasses import dataclass
-from typing import Any, Awaitable, Generic, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Protocol, Sequence, TypeVar
 
+from ...evaluation_models import EvaluationBatch
 from ...types import DataInst, RolloutOutput, Trajectory
 from ..models import CandidateProgram
 
 DataIdT = TypeVar("DataIdT")
-DataInstT = TypeVar("DataInstT", bound=DataInst)
-
-
-class EvaluationBatchLike(Protocol):
-    """Protocol describing the adapter evaluation payload."""
-
-    scores: Sequence[float]
-    outputs: Sequence[RolloutOutput[Any]]
-    trajectories: Sequence[Trajectory] | None
+DataInstT = TypeVar("DataInstT", bound=DataInst, contravariant=True)
 
 
 class AdapterLike(Protocol[DataInstT]):
     """Protocol for adapters used during evaluation."""
 
-    def evaluate(
+    async def evaluate(
         self,
         batch: Sequence[DataInstT],
         candidate: dict[str, str],
         capture_traces: bool,
-    ) -> EvaluationBatchLike | Awaitable[EvaluationBatchLike]:
+    ) -> EvaluationBatch:
         ...
 
 
@@ -107,12 +99,8 @@ class ParallelEvaluator:
         instance: DataInst,
         candidate_payload: dict[str, str],
         capture_traces: bool,
-    ) -> EvaluationBatchLike:
-        evaluate_callable = adapter.evaluate
-        if inspect.iscoroutinefunction(evaluate_callable):
-            return await evaluate_callable([instance], candidate_payload, capture_traces)
-        return await asyncio.to_thread(
-            evaluate_callable,
+    ) -> EvaluationBatch:
+        return await adapter.evaluate(
             [instance],
             candidate_payload,
             capture_traces,
@@ -120,7 +108,7 @@ class ParallelEvaluator:
 
     def _merge_results(
         self,
-        results: list[tuple[str, EvaluationBatchLike]],
+        results: list[tuple[str, EvaluationBatch]],
         *,
         capture_traces: bool,
     ) -> EvaluationResults[str]:
@@ -158,3 +146,6 @@ class ParallelEvaluator:
     def _data_id(instance: DataInst, index: int) -> str:
         case_id = getattr(instance, "case_id", None)
         return str(case_id) if case_id is not None else str(index)
+
+
+__all__ = ["AdapterLike", "EvaluationResults", "ParallelEvaluator"]

@@ -11,11 +11,11 @@ from typing import Any
 import logfire
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, RunContext
-from pydantic_ai.models import infer_model
+from pydantic_ai.models import KnownModelName, Model, infer_model
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
 
-from pydantic_ai_gepa import InspectingOpenAIModel, OpenAIInspectionAborted
+from pydantic_ai_gepa import InspectingModel, InspectionAborted
 from pydantic_ai_gepa.adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.gepa_graph import (
@@ -332,7 +332,7 @@ signature_dataset = [
     for index, dataset_case in enumerate(dataset.cases)
 ]
 
-# agent_model = InspectingOpenAIModel(infer_model("openai:gpt-5-mini"))
+# agent_model = InspectingModel(infer_model("openai:gpt-5-mini"))
 agent_model = infer_model("openai:gpt-5-mini")
 
 agent = Agent(
@@ -438,7 +438,7 @@ def metric(
 async def run_math_tools_optimization(
     trainset: Sequence[DataInstWithInput[MathProblemInput]],
     valset: Sequence[DataInstWithInput[MathProblemInput]],
-    reflection_model: OpenAIResponsesModel,
+    reflection_model: Model | KnownModelName | str,
 ) -> GepaResult:
     cache_manager = CacheManager(
         cache_dir=".gepa_cache",
@@ -490,7 +490,7 @@ async def main() -> None:
             openai_text_verbosity="medium",
         ),
     )
-    reflection_model = InspectingOpenAIModel(base_reflection_model)
+    reflection_model = InspectingModel(base_reflection_model)
 
     # 60/40 train/val split to better detect overfitting
     split_index = int(len(signature_dataset) * 0.6)
@@ -500,7 +500,7 @@ async def main() -> None:
     try:
         # TODO: let's turn `run_math_tools_optimization` into an `optimize` function we expose from gepa_graph so we can use it other places. we can default CacheManager (but support overriding it)
         result = await run_math_tools_optimization(trainset, valset, reflection_model)
-    except OpenAIInspectionAborted as exc:
+    except InspectionAborted as exc:
         snapshot = exc.snapshot
         print("\n🔎 OpenAI request intercepted for inspection. Payload:")
         print(json.dumps(snapshot.payload(), indent=2))

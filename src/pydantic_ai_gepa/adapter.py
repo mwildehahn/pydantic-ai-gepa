@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 import logging
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
@@ -14,7 +14,8 @@ from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models import KnownModelName, Model
 
 from .components import apply_candidate_to_agent
-from .openai_inspection import OpenAIInspectionAborted
+from .evaluation_models import EvaluationBatch
+from .inspection import InspectionAborted
 from .signature import BoundInputSpec, InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .cache import CacheManager
@@ -46,15 +47,6 @@ class ReflectionSampler(Protocol):
             Sampled list of records (up to max_records).
         """
         ...
-
-
-@dataclass(slots=True)
-class EvaluationBatch(Generic[DataInstT]):
-    """Minimal batch container returned by :meth:`AgentAdapter.evaluate`."""
-
-    outputs: list[RolloutOutput[Any]]
-    scores: list[float]
-    trajectories: list[Trajectory] | None
 
 
 class AgentAdapter(Generic[DataInstT]):
@@ -105,7 +97,7 @@ class AgentAdapter(Generic[DataInstT]):
         batch: Sequence[DataInstT],
         candidate: dict[str, str],
         capture_traces: bool = False,
-    ) -> EvaluationBatch[Trajectory, RolloutOutput[Any]]:
+    ) -> EvaluationBatch:
         """Evaluate the candidate on a batch of data instances.
 
         Args:
@@ -246,7 +238,7 @@ class AgentAdapter(Generic[DataInstT]):
 
             return result
 
-        except OpenAIInspectionAborted:
+        except InspectionAborted:
             raise
         except Exception as e:
             logger.exception(
@@ -318,7 +310,7 @@ class AgentAdapter(Generic[DataInstT]):
             output = RolloutOutput.from_success(final_output)
 
             return trajectory, output
-        except OpenAIInspectionAborted:
+        except InspectionAborted:
             raise
         except Exception as e:
             logger.exception(
@@ -352,7 +344,7 @@ class AgentAdapter(Generic[DataInstT]):
                 )
 
             return RolloutOutput.from_success(result.output)
-        except OpenAIInspectionAborted:
+        except InspectionAborted:
             raise
         except Exception as e:
             logger.exception(
@@ -364,7 +356,7 @@ class AgentAdapter(Generic[DataInstT]):
     def make_reflective_dataset(
         self,
         candidate: dict[str, str],
-        eval_batch: EvaluationBatch[Trajectory, RolloutOutput[Any]],
+        eval_batch: EvaluationBatch,
         components_to_update: list[str],
     ) -> dict[str, list[dict[str, Any]]]:
         """Build a reflective dataset for instruction refinement.

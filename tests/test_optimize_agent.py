@@ -1,4 +1,4 @@
-"""End-to-end test of optimize_agent_prompts using a small pydantic_evals dataset.
+"""End-to-end test of optimize_agent using a small pydantic_evals dataset.
 
 This exercises a full (minimal) GEPA optimization flow with:
 - TestModel() as both the agent model and the reflection model
@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
 from pydantic import BaseModel
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
@@ -19,7 +20,7 @@ from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
     ComponentUpdate,
     InstructionProposalOutput,
 )
-from pydantic_ai_gepa.runner import optimize_agent_prompts
+from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInst, DataInstWithInput, DataInstWithPrompt, RolloutOutput
 
@@ -29,7 +30,8 @@ from pydantic_ai.models.test import TestModel
 from pydantic_evals import Case, Dataset
 
 
-def test_optimize_agent_prompts_minimal_flow():
+@pytest.mark.asyncio
+async def test_optimize_agent_minimal_flow():
     """Run a minimal optimization flow over a tiny categorization dataset.
 
     We don't expect meaningful optimization here; we just validate a complete run
@@ -111,14 +113,12 @@ def test_optimize_agent_prompts_minimal_flow():
     )
 
     # Keep the budget low; use TestModel() for the reflection model to exercise the full path
-    result = optimize_agent_prompts(
+    result = await optimize_agent(
         agent=agent,
         trainset=trainset,
         metric=metric,
         reflection_model=reflection_model,
         max_metric_calls=20,
-        display_progress_bar=False,
-        track_best_outputs=False,
         seed=0,
     )
 
@@ -131,7 +131,8 @@ def test_optimize_agent_prompts_minimal_flow():
     assert result.num_metric_calls <= 30
 
 
-def test_optimize_agent_prompts_minimal_flow_with_signature():
+@pytest.mark.asyncio
+async def test_optimize_agent_minimal_flow_with_signature():
     """Run a minimal optimization flow over a tiny categorization dataset.
 
     We don't expect meaningful optimization here; we just validate a complete run
@@ -217,15 +218,13 @@ def test_optimize_agent_prompts_minimal_flow_with_signature():
     )
 
     # Keep the budget low; use TestModel() for the reflection model to exercise the full path
-    result = optimize_agent_prompts(
+    result = await optimize_agent(
         agent=signature_agent,
         trainset=trainset,
         input_type=Input,
         metric=metric,
         reflection_model=reflection_model,
         max_metric_calls=20,
-        display_progress_bar=False,
-        track_best_outputs=False,
         seed=0,
     )
 

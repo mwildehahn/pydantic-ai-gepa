@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from .adapter import AgentAdapter, ReflectionSampler
 from .cache import CacheManager, create_cached_metric
-from .openai_inspection import (
-    InspectingOpenAIModel,
-    OpenAIInspectionAborted,
-    OpenAIInspectionSnapshot,
+from .inspection import (
+    InspectingModel,
+    InspectionAborted,
+    InspectionSnapshot,
 )
-from .runner import GepaOptimizationResult, optimize_agent_prompts
+from .runner import GepaOptimizationResult, optimize_agent
 from .signature import (
     BoundInputSpec,
     InputSpec,
@@ -24,7 +24,7 @@ from .signature_agent import SignatureAgent
 from .types import DataInst, RolloutOutput, Trajectory, OutputT
 
 __all__ = [
-    "optimize_agent_prompts",
+    "optimize_agent",
     "GepaOptimizationResult",
     "AgentAdapter",
     "ReflectionSampler",
@@ -43,9 +43,9 @@ __all__ = [
     "build_input_spec",
     "SignatureSuffix",
     "SignatureAgent",
-    "InspectingOpenAIModel",
-    "OpenAIInspectionAborted",
-    "OpenAIInspectionSnapshot",
+    "InspectingModel",
+    "InspectionAborted",
+    "InspectionSnapshot",
 ]
 
 __version__ = "0.1.0"

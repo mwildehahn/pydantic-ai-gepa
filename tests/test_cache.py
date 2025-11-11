@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tempfile
 
+import pytest
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
@@ -14,7 +15,7 @@ from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
     ComponentUpdate,
     InstructionProposalOutput,
 )
-from pydantic_ai_gepa.runner import optimize_agent_prompts
+from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.types import DataInstWithInput, DataInstWithPrompt, RolloutOutput
 
 
@@ -186,8 +187,9 @@ def test_create_cached_metric():
         assert call_count == 2
 
 
-def test_optimize_agent_prompts_with_caching():
-    """Test that optimize_agent_prompts works with caching enabled."""
+@pytest.mark.asyncio
+async def test_optimize_agent_with_caching():
+    """Test that optimize_agent works with caching enabled."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a simple dataset
         trainset = [
@@ -229,14 +231,12 @@ def test_optimize_agent_prompts_with_caching():
         )
 
         # First run with caching enabled
-        result1 = optimize_agent_prompts(
+        result1 = await optimize_agent(
             agent=agent,
             trainset=trainset,
             metric=metric,
             reflection_model=reflection_model,
             max_metric_calls=15,
-            display_progress_bar=False,
-            track_best_outputs=False,
             seed=42,
             enable_cache=True,
             cache_dir=tmpdir,
@@ -251,14 +251,12 @@ def test_optimize_agent_prompts_with_caching():
         metric_calls.clear()
 
         # Second run should use cache for overlapping evaluations
-        result2 = optimize_agent_prompts(
+        result2 = await optimize_agent(
             agent=agent,
             trainset=trainset,
             metric=metric,
             reflection_model=reflection_model,
             max_metric_calls=15,
-            display_progress_bar=False,
-            track_best_outputs=False,
             seed=42,  # Same seed to get same behavior
             enable_cache=True,
             cache_dir=tmpdir,

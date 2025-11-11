@@ -18,7 +18,7 @@ This document outlines a refactor to replace the current `gepa.optimize()` integ
 
 ```python
 # Current: Wraps external gepa library
-result = optimize_agent_prompts(
+result = await optimize_agent(
     agent=agent,
     training_set=training_set,
     metric=metric,
@@ -1011,7 +1011,7 @@ def create_deps(adapter: PydanticAIGEPAAdapter, config: GepaConfig) -> GepaDeps:
     )
 ```
 
-**Note:** High-level wrapper functions like `optimize_agent_prompts()` can be added later if needed, but starting with manual iteration provides the most flexibility during initial development.
+**Note:** While the async helper `optimize_agent()` is available, starting with manual iteration provides the most flexibility during initial development.
 
 ## Resumability & Checkpointing
 
@@ -1873,7 +1873,7 @@ def create_gepa_graph(
 
 **Optionally wrap old API to use new implementation** - can be added later if needed.
 
-**Note:** This step is optional and can be deferred. The manual iteration pattern provides full control and is the recommended approach for initial development. A high-level wrapper like `optimize_agent_prompts()` can be added later based on actual usage patterns.
+**Note:** This step is optional and can be deferred. The manual iteration pattern provides full control and is the recommended approach for initial development, even though the `optimize_agent()` helper exists for convenience.
 
 ### Step 12: Integration Testing
 
@@ -1921,7 +1921,7 @@ def create_gepa_graph(
 4. **Backward compatibility**
    ```python
    def test_old_api_works():
-       # Use old optimize_agent_prompts
+       # Use old optimize_agent
        # Verify same results
        pass
    ```
@@ -1953,8 +1953,7 @@ def create_gepa_graph(
 
 **Implementation:**
 
-- `optimize_agent_prompts_async()` is the core implementation
-- `optimize_agent_prompts()` wraps it with `asyncio.run()`
+- `optimize_agent()` is the async entry point for the high-level API.
 - Both have same signature (except async/await)
 
 ### 2. JSON Serialization via Pydantic ✅

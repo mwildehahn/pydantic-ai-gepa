@@ -6,7 +6,7 @@ This is still very much an experimental work in progress and depends on this PR 
 
 ## Highlights
 
-- **High-level optimizer**: `optimize_agent_prompts` coordinates training/validation datasets, scoring callbacks, and reflection-enabled candidate selection.
+- **High-level optimizer**: `optimize_agent` coordinates training/validation datasets, scoring callbacks, and reflection-enabled candidate selection.
 - **Adapter layer**: `PydanticAIGEPAAdapter` and `SignatureAgent` bridge GEPA's rollout interfaces with pydantic-ai agents and structured outputs.
 - **Caching + telemetry**: Optional cache (`CacheManager`, `create_cached_metric`) and logging hooks keep optimization runs reproducible.
 

@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 
 import pytest
 from pydantic_ai.messages import UserPromptPart
 
-from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator
+from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationBatch, ParallelEvaluator
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput, Trajectory
 
@@ -32,13 +31,6 @@ def _make_data_inst(case_id: str) -> DataInstWithPrompt:
     )
 
 
-@dataclass
-class _FakeEvaluationBatch:
-    outputs: list[RolloutOutput[str]]
-    scores: list[float]
-    trajectories: list[Trajectory] | None = None
-
-
 class _RecordingAdapter:
     def __init__(self, delay: float = 0.01) -> None:
         self._delay = delay
@@ -58,7 +50,7 @@ class _RecordingAdapter:
                     Trajectory(messages=[], final_output=None, data_inst=batch[0])
                 ]
 
-            return _FakeEvaluationBatch(
+            return EvaluationBatch(
                 outputs=[RolloutOutput.from_success(candidate["system"])],
                 scores=[1.0],
                 trajectories=trajectories,
@@ -69,7 +61,7 @@ class _RecordingAdapter:
 
 class _CachingAdapter:
     def __init__(self) -> None:
-        self._cache: dict[tuple[str, tuple[tuple[str, str], ...]], _FakeEvaluationBatch] = {}
+        self._cache: dict[tuple[str, tuple[tuple[str, str], ...]], EvaluationBatch] = {}
         self.llm_calls = 0
         self.cache_hits = 0
 
@@ -80,7 +72,7 @@ class _CachingAdapter:
             return self._cache[key]
 
         self.llm_calls += 1
-        batch_result = _FakeEvaluationBatch(
+        batch_result = EvaluationBatch(
             outputs=[RolloutOutput.from_success(f"out-{self.llm_calls}")],
             scores=[float(self.llm_calls)],
         )

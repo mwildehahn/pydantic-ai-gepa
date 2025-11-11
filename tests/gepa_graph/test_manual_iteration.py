@@ -36,7 +36,9 @@ async def test_manual_iteration_flow() -> None:
                 state.stopped = True
                 state.stop_reason = "target score met"
 
-    result = run.result.output
+    run_result = run.result
+    assert run_result is not None
+    result = run_result.output
 
     assert "StartNode" in executed_nodes
     assert "ReflectNode" in executed_nodes
