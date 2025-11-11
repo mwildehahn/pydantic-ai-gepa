@@ -54,8 +54,26 @@ class ReflectNode(GepaNode):
         )
         self._record_minibatch(parent, parent_results)
         self._increment_budget(state, parent_results)
+        parent_total, parent_avg = self._summarize_scores(parent_results.scores)
+        log_structured(
+            _structured_logger,
+            "debug",
+            "ReflectNode parent minibatch results",
+            parent_idx=parent_idx,
+            minibatch_scores=list(parent_results.scores),
+            minibatch_total=parent_total,
+            minibatch_average=parent_avg,
+        )
 
         if self._should_skip_perfect(parent_results.scores, state):
+            log_structured(
+                _structured_logger,
+                "info",
+                "ReflectNode skipping reflection due to perfect minibatch",
+                parent_idx=parent_idx,
+                threshold=state.config.perfect_score,
+                minibatch_total=parent_total,
+            )
             state.last_accepted = False
             return ContinueNode()
 
@@ -111,17 +129,49 @@ class ReflectNode(GepaNode):
         )
         self._record_minibatch(new_candidate, new_results)
         self._increment_budget(state, new_results)
+        new_total, new_avg = self._summarize_scores(new_results.scores)
+        log_structured(
+            _structured_logger,
+            "debug",
+            "ReflectNode candidate minibatch results",
+            candidate_idx=new_candidate.idx,
+            parent_idx=parent_idx,
+            minibatch_scores=list(new_results.scores),
+            minibatch_total=new_total,
+            minibatch_average=new_avg,
+        )
 
-        if self._is_strict_improvement(
+        improved = self._is_strict_improvement(
             baseline_scores=parent_results.scores,
             new_scores=new_results.scores,
-        ):
+        )
+        decision_payload = dict(
+            parent_idx=parent_idx,
+            candidate_idx=new_candidate.idx,
+            baseline_total=parent_total,
+            candidate_total=new_total,
+            improvement=improved,
+        )
+        if improved:
             state.add_candidate(new_candidate)
             state.last_accepted = True
             state.schedule_merge(state.config.merges_per_accept)
+            log_structured(
+                _structured_logger,
+                "info",
+                "ReflectNode accepted candidate",
+                **decision_payload,
+            )
             return EvaluateNode()
 
         state.last_accepted = False
+        log_structured(
+            _structured_logger,
+            "info",
+            "ReflectNode rejected candidate",
+            failure_reason="not_strict_improvement",
+            **decision_payload,
+        )
         return ContinueNode()
 
     def _select_parent(
@@ -292,6 +342,13 @@ class ReflectNode(GepaNode):
         baseline_total = sum(baseline_scores)
         new_total = sum(new_scores)
         return new_total > baseline_total + _IMPROVEMENT_EPSILON
+
+    @staticmethod
+    def _summarize_scores(scores: Sequence[float]) -> tuple[float, float]:
+        if not scores:
+            return 0.0, 0.0
+        total = float(sum(scores))
+        return total, total / len(scores)
 
     @staticmethod
     def _resolve_reflection_model(deps: GepaDeps) -> Model | KnownModelName | str:

@@ -67,8 +67,12 @@ def evaluate_code(code: str) -> tuple[float, str]:
 
     try:
         # Try to compile as exec (allows multiple statements)
+        # Merge EVAL_GLOBALS into local_namespace so user-defined functions can reference each other
+        combined_namespace = {**EVAL_GLOBALS, **local_namespace}
         compiled = compile(stripped, "<python_eval>", "exec")
-        exec(compiled, EVAL_GLOBALS, local_namespace)
+        exec(compiled, combined_namespace, combined_namespace)
+        # Copy results back to local_namespace for consistency
+        local_namespace = combined_namespace
 
         # Get the result from the last expression or from a 'result' variable
         if "result" in local_namespace:
@@ -79,7 +83,7 @@ def evaluate_code(code: str) -> tuple[float, str]:
             last_line = lines[-1].strip()
             if last_line and not last_line.startswith("#"):
                 try:
-                    result = eval(last_line, EVAL_GLOBALS, local_namespace)
+                    result = eval(last_line, local_namespace, local_namespace)
                 except Exception:
                     raise ValueError(
                         "Code must end with an expression or assign the final value to 'result'"
