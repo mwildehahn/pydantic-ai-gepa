@@ -9,6 +9,7 @@ from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
 import time_machine
 
+import pydantic_ai_gepa.adapters.agent_adapter as agent_adapter_module
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
@@ -114,9 +115,39 @@ async def test_process_data_instance_captures_messages_on_tool_error():
     result = await adapter.process_data_instance(data_inst, capture_traces=True)
 
     assert result["output"].success is False
+    assert result["output"].error_kind == "tool"
     trajectory = result["trajectory"]
     assert trajectory.messages, "expected captured messages for debugging"
     assert any(isinstance(message, ModelRequest) for message in trajectory.messages)
+
+
+@pytest.mark.asyncio
+async def test_process_data_instance_skips_system_error_trajectory(monkeypatch):
+    """System/library errors should not be surfaced to reflection trajectories."""
+    agent = Agent(TestModel(), instructions="Be helpful")
+
+    @agent.tool
+    async def broken_tool(ctx, code: str) -> str:
+        raise ValueError("boom")
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        return MetricResult(score=0.0, feedback="failed")
+
+    adapter = AgentAdapter(agent, metric)
+    data_inst = DataInstWithPrompt(
+        user_prompt=UserPromptPart(content="Hello"),
+        message_history=None,
+        metadata={},
+        case_id="system-error",
+    )
+
+    monkeypatch.setattr(agent_adapter_module, "_classify_exception", lambda exc: "system")
+
+    result = await adapter.process_data_instance(data_inst, capture_traces=True)
+
+    assert result["output"].success is False
+    assert result["output"].error_kind == "system"
+    assert "trajectory" not in result
 
 
 @pytest.mark.asyncio

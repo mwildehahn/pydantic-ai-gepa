@@ -23,6 +23,7 @@ from .components import (
 from .gepa_graph import create_deps, create_gepa_graph
 from .gepa_graph.models import (
     CandidateSelectorStrategy,
+    EvaluationErrorEvent,
     GepaConfig,
     GepaResult,
     GepaState,
@@ -74,6 +75,8 @@ class GepaOptimizationResult(BaseModel):
 
     raw_result: GepaResult | None = Field(default=None, exclude=True, repr=False)
     """Underlying GEPA graph result (for advanced users)."""
+    evaluation_errors: list[EvaluationErrorEvent] = Field(default_factory=list)
+    """Structured records of evaluation failures captured during the run."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -285,6 +288,7 @@ async def optimize_agent(
     )
 
     try:
+        run_result = None
         with OptimizationProgress(
             total=config.max_evaluations,
             description="Optimizing agent",
@@ -300,8 +304,8 @@ async def optimize_agent(
                         previous_node=previous_node_name,
                     )
                     previous_node_name = current_node_name
+                run_result = run.result
             progress_bar.update(state.total_evaluations)
-        run_result = run.result
         if run_result is None:
             raise RuntimeError("GEPA graph run did not produce a result.")
         gepa_result = run_result.output
@@ -345,6 +349,7 @@ async def optimize_agent(
         num_iterations=gepa_result.iterations,
         num_metric_calls=gepa_result.total_evaluations,
         raw_result=gepa_result,
+        evaluation_errors=gepa_result.evaluation_errors,
     )
 
     if cache_manager and cache_verbose:
@@ -424,4 +429,5 @@ def _fallback_result(seed_candidate: dict[str, str]) -> GepaOptimizationResult:
         num_iterations=0,
         num_metric_calls=0,
         raw_result=None,
+        evaluation_errors=[],
     )

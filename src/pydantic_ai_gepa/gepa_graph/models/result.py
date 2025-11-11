@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .candidate import CandidateProgram
 
 if TYPE_CHECKING:
-    from .state import GepaState
+    from .state import EvaluationErrorEvent, GepaState
 
 
 class GepaResult(BaseModel):
@@ -31,6 +31,7 @@ class GepaResult(BaseModel):
     stopped: bool = False
 
     candidates: list[CandidateProgram] = Field(default_factory=list)
+    evaluation_errors: list["EvaluationErrorEvent"] = Field(default_factory=list)
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -55,6 +56,7 @@ class GepaResult(BaseModel):
             stop_reason=state.stop_reason,
             stopped=state.stopped,
             candidates=list(state.candidates),
+            evaluation_errors=list(state.evaluation_errors),
         )
 
     def absolute_improvement(self) -> float | None:

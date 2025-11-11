@@ -63,6 +63,7 @@ async def optimize(
     state = GepaState(config=config, training_set=trainset, validation_set=valset)
     start = start_node if start_node is not None else StartNode()
 
+    run_result = None
     with OptimizationProgress(
         total=config.max_evaluations,
         description="GEPA optimize",
@@ -78,9 +79,9 @@ async def optimize(
                     previous_node=previous_node_name,
                 )
                 previous_node_name = current_node_name
+            run_result = run.result
         progress_bar.update(state.total_evaluations)
 
-    run_result = run.result
     if run_result is None:
         raise RuntimeError("GEPA graph run did not complete.")
 

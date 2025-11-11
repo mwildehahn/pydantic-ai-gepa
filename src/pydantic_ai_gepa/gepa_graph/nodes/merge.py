@@ -75,6 +75,12 @@ class MergeNode(GepaNode):
             adapter=deps.adapter,
             max_concurrent=state.config.max_concurrent_evaluations,
         )
+        state.record_evaluation_errors(
+            candidate_idx=merged_candidate.idx,
+            stage="merge",
+            data_ids=merged_results.data_ids,
+            outputs=merged_results.outputs,
+        )
 
         parent1_scores = self._get_subsample_scores(state, parent1_idx, subsample)
         parent2_scores = self._get_subsample_scores(state, parent2_idx, subsample)

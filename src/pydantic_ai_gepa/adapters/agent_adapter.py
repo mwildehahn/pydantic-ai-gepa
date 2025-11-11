@@ -6,9 +6,11 @@ import asyncio
 from collections.abc import Callable, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
-import logging
 import json
-from typing import TYPE_CHECKING, Any, Generic
+import logging
+import os
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Generic, Literal
 
 from pydantic import BaseModel
 from pydantic_ai import capture_run_messages
@@ -43,6 +45,7 @@ from ..components import (
 )
 from ..evaluation_models import EvaluationBatch
 from ..inspection import InspectionAborted
+from ..logging_utils import get_structured_logger, log_structured
 from ..signature import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
 from ..tool_components import get_or_create_tool_optimizer
@@ -60,7 +63,52 @@ from ..adapter import Adapter, ReflectiveDataset, SharedReflectiveDataset
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
 
+try:  # pragma: no cover - optional dependency guard
+    from pydantic_ai.exceptions import ToolRetryError as _ToolRetryError
+except Exception:  # pragma: no cover
+    _TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = ()
+else:  # pragma: no cover - import path depends on runtime env
+    _TOOL_ERROR_TYPES = (_ToolRetryError,)
+
+
 logger = logging.getLogger(__name__)
+_structured_logger = get_structured_logger()
+
+ErrorKind = Literal["tool", "system"]
+
+_LIBRARY_MODULE_PREFIXES = ("pydantic_ai", "pydantic_ai_gepa", "pydantic_graph")
+_LIBRARY_PATH_MARKERS = tuple(
+    f"{os.sep}{name}{os.sep}" for name in ("pydantic_ai", "pydantic_ai_gepa", "pydantic_graph")
+)
+
+
+def _traceback_originates_from_library(tb: TracebackType | None) -> bool:
+    """Return True if the deepest frame in the traceback belongs to known library code."""
+    last_tb = tb
+    while last_tb and last_tb.tb_next:
+        last_tb = last_tb.tb_next
+    if last_tb is None:
+        return False
+    frame = last_tb.tb_frame
+    module_name = frame.f_globals.get("__name__")
+    if isinstance(module_name, str) and module_name.startswith(_LIBRARY_MODULE_PREFIXES):
+        return True
+    filename = frame.f_code.co_filename
+    if filename and any(marker in filename for marker in _LIBRARY_PATH_MARKERS):
+        return True
+    return False
+
+
+def _classify_exception(exc: BaseException) -> ErrorKind:
+    """Differentiate tool call failures from systemic/library issues."""
+    if _TOOL_ERROR_TYPES and isinstance(exc, _TOOL_ERROR_TYPES):
+        return "tool"
+    module_name = type(exc).__module__
+    if isinstance(module_name, str) and module_name.startswith(_LIBRARY_MODULE_PREFIXES):
+        return "system"
+    if _traceback_originates_from_library(exc.__traceback__):
+        return "system"
+    return "tool"
 
 
 def _truncate_text(value: str, limit: int = 2000) -> str:
@@ -603,11 +651,19 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         except InspectionAborted:
             raise
         except Exception as e:
-            logger.exception(
-                "Failed to process data instance %s",
-                getattr(data_inst, "case_id", "unknown"),
+            error_kind = _classify_exception(e)
+            case_id = getattr(data_inst, "case_id", "unknown")
+            log_structured(
+                _structured_logger,
+                "error",
+                "AgentAdapter failed to process data instance",
+                case_id=case_id,
+                error_kind=error_kind,
+                capture_traces=capture_traces,
+                candidate_keys=sorted(candidate.keys()) if candidate else None,
             )
-            output = RolloutOutput.from_error(e)
+            logger.exception("Failed to process data instance %s", case_id)
+            output = RolloutOutput.from_error(e, kind=error_kind)
             trajectory = (
                 AgentAdapterTrajectory(
                     messages=[],
@@ -618,7 +674,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     usage={},
                     data_inst=data_inst,
                 )
-                if capture_traces
+                if capture_traces and error_kind == "tool"
                 else None
             )
 
@@ -633,7 +689,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
 
     async def _run_with_trace(
         self, instance: DataInstT, candidate: dict[str, str] | None
-    ) -> tuple[AgentAdapterTrajectory, RolloutOutput[Any]]:
+    ) -> tuple[AgentAdapterTrajectory | None, RolloutOutput[Any]]:
         """Run the agent and capture the trajectory.
 
         Args:
@@ -666,22 +722,36 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         except InspectionAborted:
             raise
         except Exception as e:
+            error_kind = _classify_exception(e)
+            case_id = getattr(instance, "case_id", "unknown")
+            log_structured(
+                _structured_logger,
+                "error",
+                "AgentAdapter run_with_trace failed",
+                case_id=case_id,
+                error_kind=error_kind,
+                candidate_keys=sorted(candidate.keys()) if candidate else None,
+            )
             logger.exception(
                 "Failed to run agent with traces for instance %s",
-                getattr(instance, "case_id", "unknown"),
+                case_id,
             )
             all_messages = list(messages or captured_messages)
-            trajectory = AgentAdapterTrajectory(
-                messages=all_messages,
-                instructions=None,
-                function_tools=None,
-                final_output=None,
-                error=str(e),
-                # TODO: handle usage properly
-                usage={},
-                data_inst=instance,
+            trajectory = (
+                AgentAdapterTrajectory(
+                    messages=all_messages,
+                    instructions=None,
+                    function_tools=None,
+                    final_output=None,
+                    error=str(e),
+                    # TODO: handle usage properly
+                    usage={},
+                    data_inst=instance,
+                )
+                if error_kind == "tool"
+                else None
             )
-            output = RolloutOutput.from_error(e)
+            output = RolloutOutput.from_error(e, kind=error_kind)
             return trajectory, output
 
         assert run_result is not None
@@ -744,11 +814,21 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         except InspectionAborted:
             raise
         except Exception as e:
+            error_kind = _classify_exception(e)
+            case_id = getattr(instance, "case_id", "unknown")
+            log_structured(
+                _structured_logger,
+                "error",
+                "AgentAdapter run_simple failed",
+                case_id=case_id,
+                error_kind=error_kind,
+                candidate_keys=sorted(candidate.keys()) if candidate else None,
+            )
             logger.exception(
                 "Failed to run agent without traces for instance %s",
-                getattr(instance, "case_id", "unknown"),
+                case_id,
             )
-            return RolloutOutput.from_error(e)
+            return RolloutOutput.from_error(e, kind=error_kind)
 
     def make_reflective_dataset(
         self,

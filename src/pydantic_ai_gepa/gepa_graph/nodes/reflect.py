@@ -52,6 +52,12 @@ class ReflectNode(GepaNode):
             batch=minibatch,
             capture_traces=True,
         )
+        state.record_evaluation_errors(
+            candidate_idx=parent_idx,
+            stage="reflection_parent",
+            data_ids=parent_results.data_ids,
+            outputs=parent_results.outputs,
+        )
         self._record_minibatch(parent, parent_results)
         self._increment_budget(state, parent_results)
         parent_total, parent_avg = self._summarize_scores(parent_results.scores)
@@ -126,6 +132,12 @@ class ReflectNode(GepaNode):
             candidate=new_candidate,
             batch=minibatch,
             capture_traces=False,
+        )
+        state.record_evaluation_errors(
+            candidate_idx=new_candidate.idx,
+            stage="reflection_candidate",
+            data_ids=new_results.data_ids,
+            outputs=new_results.outputs,
         )
         self._record_minibatch(new_candidate, new_results)
         self._increment_budget(state, new_results)

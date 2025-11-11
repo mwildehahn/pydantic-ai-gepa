@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 import json
 import warnings
-from typing import Any, Generic, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Literal, Protocol, Sequence, TypeVar
 
 from pydantic import BaseModel
 from pydantic_ai.messages import (
@@ -143,6 +143,7 @@ class RolloutOutput(Generic[OutputT]):
     result: OutputT | None
     success: bool
     error_message: str | None = None
+    error_kind: Literal["tool", "system"] | None = None
 
     @classmethod
     def from_success(cls, result: OutputT) -> RolloutOutput[OutputT]:
@@ -150,6 +151,16 @@ class RolloutOutput(Generic[OutputT]):
         return cls(result=result, success=True)
 
     @classmethod
-    def from_error(cls, error: Exception) -> RolloutOutput[OutputT]:
+    def from_error(
+        cls,
+        error: Exception,
+        *,
+        kind: Literal["tool", "system"] | None = None,
+    ) -> RolloutOutput[OutputT]:
         """Create from failed execution."""
-        return cls(result=None, success=False, error_message=str(error))
+        return cls(
+            result=None,
+            success=False,
+            error_message=str(error),
+            error_kind=kind,
+        )

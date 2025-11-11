@@ -1,20 +1,19 @@
 import asyncio
 import json
-import math
 from collections.abc import Sequence
 from datetime import datetime
-from decimal import Decimal
-from fractions import Fraction
 from pathlib import Path
 import pprint
 from typing import Any
 
 import logfire
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent
+from pydantic_ai.mcp import MCPServerStdio
 from pydantic_ai.models import KnownModelName, Model, infer_model
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
+from mcp_run_python import async_prepare_deno_env
 
 from pydantic_ai_gepa import InspectingModel, InspectionAborted
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
@@ -26,97 +25,7 @@ from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutpu
 logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
 logfire.instrument_httpx(capture_all=True)
-
-
-ALLOWED_BUILTINS: dict[str, Any] = {
-    "abs": abs,
-    "all": all,
-    "any": any,
-    "float": float,
-    "int": int,
-    "len": len,
-    "max": max,
-    "min": min,
-    "pow": pow,
-    "range": range,
-    "round": round,
-    "sorted": sorted,
-    "str": str,
-    "sum": sum,
-}
-
-EVAL_GLOBALS: dict[str, Any] = {
-    "__builtins__": ALLOWED_BUILTINS,
-    "Decimal": Decimal,
-    "Fraction": Fraction,
-    "math": math,
-}
-
-
-def evaluate_code(code: str) -> tuple[float, str]:
-    """Evaluate Python code inside the constrained math sandbox.
-
-    The code can contain multiple statements. The last line should evaluate to a numeric result.
-    """
-    stripped = code.strip()
-    if not stripped:
-        raise ValueError("Code is empty.")
-
-    # Create a local namespace for execution
-    local_namespace: dict[str, Any] = {}
-
-    try:
-        # Try to compile as exec (allows multiple statements)
-        # Merge EVAL_GLOBALS into local_namespace so user-defined functions can reference each other
-        combined_namespace = {**EVAL_GLOBALS, **local_namespace}
-        compiled = compile(stripped, "<python_eval>", "exec")
-        exec(compiled, combined_namespace, combined_namespace)
-        # Copy results back to local_namespace for consistency
-        local_namespace = combined_namespace
-
-        # Get the result from the last expression or from a 'result' variable
-        if "result" in local_namespace:
-            result = local_namespace["result"]
-        else:
-            # If no 'result' variable, try to evaluate the last line as an expression
-            lines = stripped.split("\n")
-            last_line = lines[-1].strip()
-            if last_line and not last_line.startswith("#"):
-                try:
-                    result = eval(last_line, local_namespace, local_namespace)
-                except Exception:
-                    raise ValueError(
-                        "Code must end with an expression or assign the final value to 'result'"
-                    )
-            else:
-                raise ValueError(
-                    "Code must end with an expression or assign the final value to 'result'"
-                )
-    except SyntaxError as exc:
-        raise ValueError(f"Code must be valid Python: {exc}") from exc
-    except Exception as exc:  # noqa: BLE001
-        if isinstance(exc, ValueError):
-            raise
-        raise ValueError(f"Code raised an error: {exc}") from exc
-
-    if isinstance(result, bool):
-        raise ValueError("Code returned a boolean, expected a numeric result.")
-
-    if isinstance(result, Decimal):
-        numeric = float(result)
-        display = format(result, "f")
-    elif isinstance(result, Fraction):
-        numeric = float(result)
-        display = f"{result.numerator}/{result.denominator}"
-    elif isinstance(result, (int, float)):
-        numeric = float(result)
-        display = str(result)
-    else:
-        raise TypeError(
-            f"Unsupported result type {type(result).__name__}; expected numeric output."
-        )
-
-    return numeric, display
+logfire.instrument_mcp()
 
 
 class MathProblemInput(BaseModel):
@@ -132,7 +41,7 @@ class MathProblemOutput(BaseModel):
         description="Two sentences max summarizing how the code solves the problem."
     )
     expression: str = Field(
-        description="The Python code evaluated via python_eval (can be multi-line)."
+        description="The complete Python script used to compute the answer (can be multi-line with imports)."
     )
     answer: float = Field(description="Numeric answer rounded only if necessary.")
 
@@ -333,46 +242,21 @@ signature_dataset = [
 # agent_model = InspectingModel(infer_model("openai:gpt-5-nano"))
 agent_model = infer_model("openai:gpt-5-mini")
 
-agent = Agent(
-    model=agent_model,
-    instructions=(
-        "Solve math problems using the python_eval tool. "
-        "Write clear Python code with intermediate steps if needed (e.g., factorial = math.factorial(15), then sum digits). "
-        "Call python_eval ONCE with your code, then immediately return the final result."
-    ),
-    output_type=MathProblemOutput,
-)
 
-
-class PythonEvalOutput(BaseModel):
-    numeric_result: float
-
-
-@agent.tool(
-    name="python_eval",
-    description=(
-        "Execute Python code to compute a numeric answer. "
-        "You can write multiple lines of code with intermediate variables. "
-        "The last line should be an expression that evaluates to the final numeric result, "
-        "or assign the result to a variable named 'result'. "
-        "You have access to the math module (math.factorial, math.comb, math.sqrt, etc.), "
-        "basic built-ins (sum, min, max, range, etc.), and Decimal/Fraction types."
-    ),
-)
-def python_eval_tool(
-    ctx: RunContext[Any],
-    code: str,
-) -> PythonEvalOutput:
-    """Evaluate deterministic numeric Python code using the math module."""
-    numeric, _ = evaluate_code(code)
-    return PythonEvalOutput(numeric_result=numeric)
-
-
-signature_agent = SignatureAgent(
-    agent,
-    input_type=MathProblemInput,
-    optimize_tools=True,
-)
+def create_agent(mcp_server: MCPServerStdio) -> Agent[MathProblemInput, MathProblemOutput]:
+    """Create the math problem solving agent with MCP server."""
+    return Agent(
+        model=agent_model,
+        instructions=(
+            "Solve math problems using the run_python tool from MCP. "
+            "Write complete Python scripts with all necessary imports. "
+            "You have access to ALL Python libraries including math, datetime, decimal, fractions, numpy, etc. "
+            "The script should compute the answer and print it as the final output. "
+            "Write clear code with intermediate steps if needed."
+        ),
+        output_type=MathProblemOutput,
+        toolsets=[mcp_server],
+    )
 
 
 def metric(
@@ -394,52 +278,34 @@ def metric(
     ideal_expression = data_inst.metadata.get("ideal_expression")
 
     if not expression:
-        hint = "Include the python_eval code you executed."
+        hint = "Include the Python code you executed."
         if ideal_expression:
-            hint = f"{hint} For reference, one valid approach is `{ideal_expression}`."
+            hint = f"{hint} For reference, one valid approach uses: `{ideal_expression}`."
         prefix = f"{base_feedback} " if base_feedback else ""
         return MetricResult(
             score=0.0,
-            feedback=f"{prefix}Missing code used for python_eval. {hint}",
+            feedback=f"{prefix}Missing code used to compute the answer. {hint}",
         )
 
-    try:
-        evaluated, display = evaluate_code(expression)
-    except Exception as exc:  # noqa: BLE001
-        prefix = f"{base_feedback} " if base_feedback else ""
-        return MetricResult(
-            score=0.0,
-            feedback=f"{prefix}Code could not be evaluated: {exc}",
-        )
-
-    answer_gap = abs(predicted - evaluated)
-    max_internal_gap = max(tolerance, 1e-9)
-    if answer_gap > max_internal_gap:
-        prefix = f"{base_feedback} " if base_feedback else ""
-        return MetricResult(
-            score=0.0,
-            feedback=(
-                f"{prefix}Reported answer {predicted} disagrees with code result {display}."
-            ),
-        )
-
+    # For MCP-based execution, we trust the agent's reported answer
+    # since we can't easily re-execute arbitrary Python scripts in the metric
     if target is None:
         return MetricResult(score=0.0, feedback="Missing reference target.")
 
-    target_gap = abs(evaluated - target)
+    target_gap = abs(predicted - target)
     effective_tolerance = max(tolerance, 1e-9)
     if target_gap <= effective_tolerance:
         return MetricResult(score=1.0, feedback="Exact match within tolerance.")
 
     normalized_error = target_gap / max(abs(target), 1.0)
     score = max(0.0, 1.0 - min(normalized_error * 10, 1.0))
-    base = base_feedback or "Use python_eval to re-check the computation."
+    base = base_feedback or "Re-check the computation with Python."
     hint = (
-        f"Code result {display} deviates from target {target} by {target_gap:.6g}; "
-        "tighten the computation or adjust rounding."
+        f"Answer {predicted} deviates from target {target} by {target_gap:.6g}; "
+        "verify the computation logic and any rounding."
     )
-    if ideal_expression and ideal_expression != expression:
-        hint += f" A reliable approach is `{ideal_expression}`."
+    if ideal_expression:
+        hint += f" A reliable approach uses: `{ideal_expression}`."
     feedback = f"{base} {hint}"
     return MetricResult(score=score, feedback=feedback)
 
@@ -449,34 +315,48 @@ async def run_math_tools_optimization(
     valset: Sequence[DataInstWithInput[MathProblemInput]],
     reflection_model: Model | KnownModelName | str,
 ) -> GepaResult:
-    cache_manager = CacheManager(
-        cache_dir=".gepa_cache",
-        enabled=True,
-        verbose=True,
-    )
+    # Set up Deno environment and MCP server
+    async with async_prepare_deno_env('stdio') as deno_env:
+        mcp_server = MCPServerStdio('deno', args=deno_env.args, cwd=deno_env.cwd, timeout=30)
 
-    adapter = AgentAdapter(
-        agent=signature_agent,
-        metric=metric,
-        input_type=MathProblemInput,
-        cache_manager=cache_manager,
-    )
+        # Create agent with MCP server
+        agent = create_agent(mcp_server)
 
-    config = GepaConfig(
-        max_evaluations=50,
-        component_selector="all",
-        max_concurrent_evaluations=10,
-        enable_parallel_reflection=True,
-        reflection_model=reflection_model,
-    )
+        # Create signature agent for optimization
+        signature_agent = SignatureAgent(
+            agent,
+            input_type=MathProblemInput,
+            optimize_tools=True,
+        )
 
-    return await optimize(
-        adapter=adapter,
-        config=config,
-        trainset=trainset,
-        valset=valset,
-        show_progress=True,
-    )
+        cache_manager = CacheManager(
+            cache_dir=".gepa_cache",
+            enabled=True,
+            verbose=True,
+        )
+
+        adapter = AgentAdapter(
+            agent=signature_agent,
+            metric=metric,
+            input_type=MathProblemInput,
+            cache_manager=cache_manager,
+        )
+
+        config = GepaConfig(
+            max_evaluations=50,
+            component_selector="all",
+            max_concurrent_evaluations=10,
+            enable_parallel_reflection=True,
+            reflection_model=reflection_model,
+        )
+
+        return await optimize(
+            adapter=adapter,
+            config=config,
+            trainset=trainset,
+            valset=valset,
+            show_progress=True,
+        )
 
 
 async def main() -> None:

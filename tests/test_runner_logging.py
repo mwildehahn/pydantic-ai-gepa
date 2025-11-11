@@ -12,6 +12,12 @@ class _StructuredRecorder:
     def info(self, message: str, /, **kwargs: object) -> None:  # pragma: no cover - exercised via helper
         self.calls.append(("info", message, dict(kwargs)))
 
+    def debug(self, message: str, /, **kwargs: object) -> None:  # pragma: no cover - parity
+        self.calls.append(("debug", message, dict(kwargs)))
+
+    def warning(self, message: str, /, **kwargs: object) -> None:  # pragma: no cover - parity
+        self.calls.append(("warning", message, dict(kwargs)))
+
     def error(self, message: str, /, **kwargs: object) -> None:  # pragma: no cover - exercised via helper
         self.calls.append(("error", message, dict(kwargs)))
 
@@ -20,7 +26,18 @@ class _PositionalOnlyLogger:
     def __init__(self) -> None:
         self.messages: list[str] = []
 
-    def info(self, message: str) -> None:  # pragma: no cover - fallback path
+    def info(self, message: str, /, *args: object, **kwargs: object) -> None:  # pragma: no cover - fallback path
+        if kwargs:
+            raise TypeError("positional only")
+        self.messages.append(message)
+
+    def debug(self, message: str, /, *args: object, **kwargs: object) -> None:  # pragma: no cover - unused
+        self.messages.append(message)
+
+    def warning(self, message: str, /, *args: object, **kwargs: object) -> None:  # pragma: no cover - unused
+        self.messages.append(message)
+
+    def error(self, message: str, /, *args: object, **kwargs: object) -> None:  # pragma: no cover - unused
         self.messages.append(message)
 
 

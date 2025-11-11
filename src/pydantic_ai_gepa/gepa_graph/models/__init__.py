@@ -5,6 +5,7 @@ from .pareto import ParetoFrontEntry
 from .result import GepaResult
 from .state import (
     CandidateSelectorStrategy,
+    EvaluationErrorEvent,
     GenealogyRecord,
     GepaConfig,
     GepaState,
@@ -13,6 +14,7 @@ from .state import (
 __all__ = [
     "CandidateProgram",
     "CandidateSelectorStrategy",
+    "EvaluationErrorEvent",
     "ComponentValue",
     "GenealogyRecord",
     "GepaConfig",

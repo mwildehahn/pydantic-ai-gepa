@@ -16,7 +16,7 @@ from pydantic import (
 )
 from pydantic_ai.models import KnownModelName, Model
 
-from ...types import DataInst
+from ...types import DataInst, RolloutOutput
 from ...reflection import ReflectionSampler
 from .candidate import CandidateProgram
 from .pareto import ParetoFrontEntry
@@ -52,6 +52,19 @@ class GenealogyRecord(BaseModel):
         if any(idx < 0 for idx in values):
             raise ValueError("parent_indices must be >= 0.")
         return values
+
+
+class EvaluationErrorEvent(BaseModel):
+    """Structured record describing a failed evaluation invocation."""
+
+    candidate_idx: int
+    data_id: str
+    stage: str
+    iteration: int
+    error_message: str
+    error_kind: Literal["tool", "system"] | None = None
+
+    model_config = ConfigDict()
 
     @field_validator("iteration")
     @classmethod
@@ -207,6 +220,10 @@ class GepaState(BaseModel):
         default_factory=list,
         description="History of how each candidate was created and its parents.",
     )
+    evaluation_errors: list[EvaluationErrorEvent] = Field(
+        default_factory=list,
+        description="Captured evaluation errors for downstream reporting.",
+    )
 
     last_accepted: bool = Field(
         default=False,
@@ -353,3 +370,27 @@ class GepaState(BaseModel):
         """Mark the run as stopped with an optional reason."""
         self.stopped = True
         self.stop_reason = reason
+
+    def record_evaluation_errors(
+        self,
+        *,
+        candidate_idx: int,
+        stage: str,
+        data_ids: Sequence[str],
+        outputs: Sequence[RolloutOutput[Any]],
+    ) -> None:
+        """Record failing evaluation outputs for downstream summaries."""
+        for data_id, output in zip(data_ids, outputs):
+            if output.success:
+                continue
+            error_message = output.error_message or "Unknown error"
+            self.evaluation_errors.append(
+                EvaluationErrorEvent(
+                    candidate_idx=candidate_idx,
+                    data_id=data_id,
+                    stage=stage,
+                    iteration=self.iteration,
+                    error_message=error_message,
+                    error_kind=output.error_kind,
+                )
+            )

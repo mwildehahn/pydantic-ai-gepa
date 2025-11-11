@@ -23,6 +23,7 @@ dependencies = [
     "pydantic-graph @ git+file:///Users/mh/labs/pydantic-ai@eeeddc5ec9bb99eaa5bd986aaad2773697aaae24#subdirectory=pydantic_graph",
     "rich>=13.7.1",
     "logfire>=4.14.2",
+    "mcp-run-python>=0.0.21",
 ]
 
 [dependency-groups]

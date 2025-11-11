@@ -38,6 +38,12 @@ class EvaluateNode(GepaNode):
             adapter=ctx.deps.adapter,
             max_concurrent=state.config.max_concurrent_evaluations,
         )
+        state.record_evaluation_errors(
+            candidate_idx=candidate.idx,
+            stage="validation",
+            data_ids=results.data_ids,
+            outputs=results.outputs,
+        )
         validation_total, validation_avg = self._summarize_scores(results.scores)
         log_structured(
             _structured_logger,
