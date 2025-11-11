@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -16,22 +17,22 @@ from ...adapter import (
 )
 from ..models import CandidateProgram
 
-DEFAULT_AGENT_INSTRUCTIONS = """Analyze agent performance data and propose improved prompt components.
+DEFAULT_AGENT_INSTRUCTIONS = """You are optimizing prompt components for a student agent based on production performance.
 
 Your task is to:
-1. Review the reflection dataset showing how the agent performed with current prompts.
-2. Read all assistant responses and the corresponding feedback.
-3. Identify patterns in successes and failures.
-4. Capture niche or domain-specific knowledge from the examples and weave it into the prompts so future runs don't miss it.
-5. Preserve generalizable strategies that consistently work well.
-6. Rewrite only the components listed in `components_to_update`, keeping other components unchanged.
-7. Add few-shot examples when they help clarify the task.
+1. Review the full student agent configuration to understand the context
+2. Analyze production evidence showing successes and failures
+3. Identify patterns across components and evidence
+4. Consider cross-component dependencies and alignment issues
+5. Capture domain-specific knowledge from examples
+6. Preserve successful patterns; fix what doesn't work
+7. Rewrite only the listed components as a coordinated update
+8. Add few-shot examples when they clarify the task
 
 Focus on making prompts clearer, more specific, and better aligned with successful outcomes.
-Extract domain knowledge from the examples to enhance the instructions.
+When updating multiple components, ensure they work together cohesively.
 
-Always respond using the structured schema `updated_components: list[{component_name, optimized_value}]`
-and include an entry for each component you were asked to update."""
+Always respond using the structured schema with an entry for each component you were asked to update."""
 
 
 class ComponentUpdate(BaseModel):
@@ -128,35 +129,162 @@ class InstructionProposalGenerator:
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
     ) -> str:
-        header_lines = [
-            "components_to_update:",
-            *(f"- `{component}`" for component in components),
+        lines = [
+            "# Role: Component Optimizer for Student Agent",
             "",
-            "Component details and reflective evidence:",
+            "You are optimizing prompt components for a student agent based on its production performance.",
+            "",
+            "## Context",
+            "- A student agent has been running with the configuration shown below",
+            "- We've collected traces from real production runs",
+            "- Your job is to improve specific components so the student agent performs better",
+            "",
+            "---",
+            "",
+            "## Full student agent configuration",
+            "",
+            "This is the complete configuration the student agent was running with:",
+            "",
         ]
 
-        sections: list[str] = []
-        shared_markdown = None
-        if isinstance(reflective_data, SharedReflectiveDataset):
-            shared_markdown = self._format_dataset(reflective_data.records)
-            sections.append(f"### Shared Reflective Dataset\n{shared_markdown}")
+        # Show non-tool components in the candidate (tools are shown via JSON Schema below)
+        for component_name, component_value in candidate.components.items():
+            if component_name.startswith("tool:"):
+                continue  # Skip tool components, they're shown in JSON Schema
+            lines.append(f"**`{component_name}` given to student:**")
+            lines.append("```")
+            lines.append(component_value.text.strip())
+            lines.append("```")
+            lines.append("")
 
+        # Collect and show tools if present in evidence
+        tools = self._collect_tools(reflective_data)
+        if tools:
+            lines.append("**Tools available to student (JSON Schema):**")
+            lines.append("```json")
+            lines.append(json.dumps(tools, indent=2))
+            lines.append("```")
+            lines.append("")
+
+        lines.extend(
+            [
+                "---",
+                "",
+                "## Production traces from student agent runs",
+                "",
+                "Each trace contains:",
+                "- `messages`: Full conversation history with system prompts, user inputs, assistant responses, tool calls, and tool returns",
+                "- `tools`: Tool definitions that were available (if any)",
+                "- `score`: Performance score (0.0-1.0, higher is better)",
+                "- `success`: Whether the run completed successfully",
+                "- `feedback`: Evaluator feedback on this specific run",
+                "",
+            ]
+        )
+
+        # Get records based on SharedReflectiveDataset or ComponentReflectiveDataset
+        if isinstance(reflective_data, SharedReflectiveDataset):
+            lines.append(
+                "**Use these traces to optimize the components listed below:**"
+            )
+            lines.append("")
+            cleaned_records = [
+                {k: v for k, v in record.items() if k not in ("tools", "instructions")}
+                for record in reflective_data.records
+            ]
+            lines.extend(
+                self._format_trace_sections(
+                    cleaned_records,
+                    heading_level="###",
+                    label="Trace",
+                )
+            )
+        else:
+            lines.append(
+                "_Component-specific evidence is shown with each component below._"
+            )
+            lines.append("")
+
+        lines.extend(
+            [
+                "",
+                "### Analysis guidance",
+                "- What failure patterns repeat across runs?",
+                "- Are components misaligned (e.g., instructions referencing tools that don't exist)?",
+                "- Which successful patterns should be preserved or extended?",
+                "- What domain knowledge should be codified in the prompts?",
+                "",
+                "---",
+                "",
+                "## Components to update",
+                "",
+                "Rewrite these components as a coordinated update based on the evidence above:",
+                "",
+            ]
+        )
+
+        # Show each component to update
         for component in components:
             component_value = candidate.components[component]
-            if isinstance(reflective_data, SharedReflectiveDataset):
-                dataset_markdown = "Refer to the shared reflective dataset above."
-            else:
-                dataset_markdown = self._format_dataset(
-                    reflective_data.records_by_component.get(component, ())
-                )
-            section = (
-                f"### Component `{component}`\n"
-                f"Current text:\n```\n{component_value.text.strip()}\n```\n\n"
-                f"Reflective dataset:\n{dataset_markdown}"
-            )
-            sections.append(section)
+            lines.append(f"### Component: `{component}`")
+            lines.append("Current value:")
+            lines.append("```")
+            lines.append(component_value.text.strip())
+            lines.append("```")
+            lines.append("")
 
-        return "\n".join(header_lines + ["\n\n".join(sections)])
+            # For ComponentReflectiveDataset, show component-specific traces
+            if isinstance(reflective_data, ComponentReflectiveDataset):
+                component_records = reflective_data.records_by_component.get(
+                    component, ()
+                )
+                if component_records:
+                    lines.append("Evidence for this component:")
+                    lines.append("")
+                    cleaned_records = [
+                        {
+                            k: v
+                            for k, v in record.items()
+                            if k not in ("tools", "instructions")
+                        }
+                        for record in component_records
+                    ]
+                    lines.extend(
+                        self._format_trace_sections(
+                            cleaned_records,
+                            heading_level="####",
+                            label="Example",
+                        )
+                    )
+                    lines.append("")
+
+        return "\n".join(lines)
+
+    def _collect_tools(
+        self, reflective_data: ReflectiveDataset
+    ) -> list[dict[str, Any]]:
+        """Collect unique tools from all records in the reflective dataset."""
+        tools_map: dict[str, dict[str, Any]] = {}
+
+        records: Sequence[Mapping[str, Any]]
+        if isinstance(reflective_data, SharedReflectiveDataset):
+            records = reflective_data.records
+        else:
+            # Flatten all component records
+            all_records: list[Mapping[str, Any]] = []
+            for component_records in reflective_data.records_by_component.values():
+                all_records.extend(component_records)
+            records = all_records
+
+        for record in records:
+            if "tools" in record and record["tools"]:
+                for tool in record["tools"]:
+                    if isinstance(tool, dict) and "function" in tool:
+                        tool_name = tool["function"].get("name")
+                        if tool_name and tool_name not in tools_map:
+                            tools_map[tool_name] = tool
+
+        return list(tools_map.values())
 
     def _format_dataset(self, records: Sequence[Mapping[str, Any]]) -> str:
         if not records:
@@ -220,6 +348,105 @@ class InstructionProposalGenerator:
         if value is None:
             return "null"
         return str(value).strip()
+
+    def _format_trace_sections(
+        self,
+        records: Sequence[Mapping[str, Any]],
+        *,
+        heading_level: str,
+        label: str,
+    ) -> list[str]:
+        """Render reflective records in a readable structure."""
+        if not records:
+            return ["No reflective examples were provided.", ""]
+
+        lines: list[str] = []
+        for idx, record in enumerate(records, start=1):
+            heading = f"{heading_level} {label} {idx}"
+            user_prompt = record.get("user_prompt")
+            if isinstance(user_prompt, str) and user_prompt.strip():
+                heading += f": {user_prompt.strip()}"
+            lines.append(heading)
+
+            summary_lines: list[str] = []
+            summary_fields = (
+                "score",
+                "success",
+                "feedback",
+                "assistant_response",
+                "error",
+            )
+            for field in summary_fields:
+                value = record.get(field)
+                if value not in (None, ""):
+                    formatted_label = field.replace("_", " ").title()
+                    summary_lines.append(
+                        f"- **{formatted_label}:** {self._format_scalar(value)}"
+                    )
+
+            if summary_lines:
+                lines.extend(summary_lines)
+                lines.append("")
+
+            messages = record.get("messages")
+            primary_instructions = self._extract_primary_instructions(messages)
+            if messages:
+                sanitized_messages = self._strip_duplicate_instructions(
+                    messages,
+                    primary_instructions,
+                )
+                lines.append("- **Messages:**")
+                lines.append("```json")
+                lines.append(json.dumps(sanitized_messages, indent=2))
+                lines.append("```")
+
+            run_usage = record.get("run_usage")
+            if run_usage:
+                lines.append("- **Usage:**")
+                lines.append("```json")
+                lines.append(json.dumps(run_usage, indent=2))
+                lines.append("```")
+
+            lines.append("")
+
+        return lines
+
+    @staticmethod
+    def _extract_primary_instructions(messages: Any) -> str | None:
+        if not isinstance(messages, Sequence):
+            return None
+        for message in messages:
+            if isinstance(message, Mapping):
+                instructions = message.get("instructions")
+                if isinstance(instructions, str) and instructions.strip():
+                    return instructions.strip()
+        return None
+
+    @staticmethod
+    def _strip_duplicate_instructions(
+        messages: Any,
+        canonical: str | None,
+    ) -> Any:
+        if not isinstance(messages, list):
+            return messages
+
+        sanitized: list[Any] = []
+        for message in messages:
+            if not isinstance(message, dict):
+                sanitized.append(message)
+                continue
+
+            message_copy = dict(message)
+            instructions = message_copy.get("instructions")
+            if (
+                isinstance(instructions, str)
+                and canonical
+                and instructions.strip() == canonical
+            ):
+                message_copy.pop("instructions", None)
+
+            sanitized.append(message_copy)
+        return sanitized
 
 
 __all__ = [

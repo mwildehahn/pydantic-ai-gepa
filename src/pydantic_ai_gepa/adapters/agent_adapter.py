@@ -11,6 +11,7 @@ import json
 from typing import TYPE_CHECKING, Any, Generic
 
 from pydantic import BaseModel
+from pydantic_ai._tool_types import ToolDefinition
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import (
     AudioUrl,
@@ -43,6 +44,7 @@ from ..evaluation_models import EvaluationBatch
 from ..inspection import InspectionAborted
 from ..signature import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
+from ..tool_components import get_or_create_tool_optimizer
 from ..types import (
     DataInst,
     DataInstT,
@@ -280,6 +282,7 @@ class AgentAdapterTrajectory(Trajectory):
     messages: list[ModelMessage]
     final_output: Any
     instructions: str | None = None
+    function_tools: list[ToolDefinition] | None = None
     error: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
     data_inst: DataInst | None = None
@@ -330,6 +333,25 @@ class AgentAdapterTrajectory(Trajectory):
             )
         return serialized
 
+    def _serialize_tools(self) -> list[dict[str, Any]] | None:
+        """Serialize function tools to JSON schema format."""
+        if not self.function_tools:
+            return None
+
+        serialized_tools = []
+        for tool in self.function_tools:
+            tool_dict = {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "parameters": tool.parameters_json_schema,
+                },
+            }
+            if tool.description:
+                tool_dict["function"]["description"] = tool.description
+            serialized_tools.append(tool_dict)
+        return serialized_tools
+
     def to_reflective_record(self) -> dict[str, Any]:
         user_msg = self._extract_user_message()
         assistant_msg = self._extract_assistant_message()
@@ -344,13 +366,20 @@ class AgentAdapterTrajectory(Trajectory):
         else:
             response = "No output"
 
-        return {
+        record = {
             "user_prompt": user_msg or "No user message",
             "assistant_response": response,
             "error": self.error,
             "messages": self._serialize_messages_with_instructions(),
             "run_usage": self.usage or None,
         }
+
+        # Add tools if available
+        tools = self._serialize_tools()
+        if tools:
+            record["tools"] = tools
+
+        return record
 
 
 class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
@@ -369,6 +398,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         *,
         input_type: InputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
+        optimize_tools: bool = False,
     ):
         """Initialize the adapter.
 
@@ -380,6 +410,8 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             input_type: Optional structured input specification whose instructions and field
                             descriptions will be optimized alongside the agent's prompts.
             cache_manager: The cache manager to use for caching.
+            optimize_tools: If True, install tool optimization support so plain agents
+                expose tool description/parameter components.
         """
         self.agent = agent
         self.metric = metric
@@ -387,6 +419,20 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             build_input_spec(input_type) if input_type else None
         )
         self.cache_manager = cache_manager
+        self.optimize_tools = optimize_tools
+        if optimize_tools:
+            self._configure_tool_optimizer()
+
+    def _configure_tool_optimizer(self) -> None:
+        """Install tool optimization support for plain agents when requested."""
+        try:
+            get_or_create_tool_optimizer(self.agent)
+        except Exception:
+            logger.debug(
+                "Tool optimization not available for agent %s",
+                getattr(self.agent, "name", self.agent.__class__.__name__),
+                exc_info=True,
+            )
 
     async def evaluate(
         self,
@@ -561,6 +607,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 AgentAdapterTrajectory(
                     messages=[],
                     instructions=None,
+                    function_tools=None,
                     final_output=None,
                     error=str(e),
                     usage={},
@@ -612,14 +659,17 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 target_agent = target_agent.wrapped
 
             instructions_text = None
+            function_tools = None
             for message in messages:
                 if isinstance(message, ModelRequest):
                     instructions_text = message.instructions
+                    function_tools = message.function_tools
                     break
 
             trajectory = AgentAdapterTrajectory(
                 messages=messages,
                 instructions=instructions_text,
+                function_tools=function_tools,
                 final_output=final_output,
                 error=None,
                 usage=asdict(result.usage()),  # Convert RunUsage to dict
@@ -638,6 +688,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             trajectory = AgentAdapterTrajectory(
                 messages=messages,
                 instructions=None,
+                function_tools=None,
                 final_output=None,
                 error=str(e),
                 usage={},

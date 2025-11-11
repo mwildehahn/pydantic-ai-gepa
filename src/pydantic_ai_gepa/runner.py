@@ -160,6 +160,8 @@ async def optimize_agent(
     deterministic_proposer: Any | None = None,
     # Reflection sampler
     reflection_sampler: ReflectionSampler | None = None,
+    # Tool configuration
+    optimize_tools: bool = False,
 ) -> GepaOptimizationResult:
     """Optimizes a pydantic-ai agent (and optional signature inputs) using the GEPA graph backend.
 
@@ -212,6 +214,10 @@ async def optimize_agent(
                                it will be called to sample records when needed. If None,
                                all reflection records are kept without sampling.
 
+        # Tool configuration
+        optimize_tools: Enable optimization of tool descriptions and parameter schemas
+            for plain agents without requiring a SignatureAgent wrapper.
+
     Returns:
         GepaOptimizationResult with the best candidate and metadata.
     """
@@ -245,6 +251,7 @@ async def optimize_agent(
         metric=metric,
         input_type=input_type,
         cache_manager=cache_manager,
+        optimize_tools=optimize_tools,
     )
 
     config = _build_gepa_config(
