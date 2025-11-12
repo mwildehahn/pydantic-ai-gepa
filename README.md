@@ -4,24 +4,15 @@ GEPA-driven prompt optimization for [pydantic-ai](https://github.com/pydantic/py
 
 ## About
 
-This library is a reimplementation of [gepa-ai/gepa](https://github.com/gepa-ai/gepa), which pioneered the GEPA (Genetic Evolution with Perspective Aggregation) algorithm for optimizing text-based system components. We've adapted the core concepts for a native integration with pydantic-ai.
+This is a reimplementation of [gepa-ai/gepa](https://github.com/gepa-ai/gepa) adapted for pydantic-ai. Huge thanks to the gepa-ai team for the original GEPA algorithm - we rebuilt it here because we needed tight integration with pydantic-ai's async patterns and wanted to use pydantic-graph for workflow management. Check out the [original gepa library](https://github.com/gepa-ai/gepa) for the canonical implementation.
 
-### Key Differentiators
+## Features
 
-While based on gepa-ai's algorithm, this implementation:
+Two main things this library adds to pydantic-ai:
 
-- **Native pydantic-ai integration**: Works directly with pydantic-ai agents and structured outputs
-- **Async-first**: Built from the ground up for async LLM operations
-- **pydantic-graph execution**: Uses [pydantic-graph](https://ai.pydantic.dev/graph/) to manage the optimization workflow with automatic checkpointing and resumption
-- **Simplified architecture**: Focused specifically on pydantic-ai use cases, reducing configuration complexity
+**1. SignatureAgent - Structured Inputs**
 
-### New Contributions
-
-This library introduces two novel concepts to pydantic-ai:
-
-**1. SignatureAgent - DSPy-Inspired Structured Inputs**
-
-Inspired by [DSPy's signatures](https://dspy-docs.vercel.app/docs/building-blocks/signatures), we introduce `SignatureAgent` which adds structured `input_type` support to pydantic-ai agents. Similar to how pydantic-ai uses `output_type` for structured outputs, SignatureAgent enables defining agent inputs as rich Pydantic models:
+Inspired by [DSPy's signatures](https://dspy-docs.vercel.app/docs/building-blocks/signatures), `SignatureAgent` adds `input_type` support to pydantic-ai. Just like pydantic-ai uses `output_type` for structured outputs, SignatureAgent lets you define structured inputs:
 
 ```python
 from pydantic import BaseModel, Field
@@ -57,19 +48,17 @@ result = await agent.run_signature(
 )
 ```
 
-Like DSPy signatures, the model docstring becomes system instructions, and field descriptions become input specifications. This creates a declarative interface between your data and the agent.
+The model docstring becomes system instructions, and field descriptions become input specs.
 
 **2. Optimizable Components**
 
-GEPA can optimize multiple aspects of your agent using evolutionary search:
+GEPA can optimize different parts of your agent:
 
-- **System prompts** - Agent instructions and context
-- **Signature fields** - Input/output schema descriptions (when using SignatureAgent)
-  - Model docstrings → System instructions
-  - Field descriptions → Input/output specifications
-- **Tool descriptions** - Tool docstrings and parameter schemas (when `optimize_tools=True`)
+- System prompts
+- Signature field descriptions (when using SignatureAgent)
+- Tool descriptions (when `optimize_tools=True`)
 
-Each component is treated as an evolvable text field. GEPA uses reflective mutation (LLM-guided improvements) to iteratively improve all components together:
+All these text components evolve together using LLM-guided improvements:
 
 ```python
 # Optimize agent with SignatureAgent
@@ -92,16 +81,6 @@ print(result.best_candidate.components)
 # }
 ```
 
-This unifies prompt engineering, schema design, and tool documentation into a single optimization target.
-
-### Credits
-
-This work builds on:
-
-- **[gepa-ai/gepa](https://github.com/gepa-ai/gepa)**: Original GEPA algorithm and evolutionary optimization framework
-- **[pydantic-ai](https://github.com/pydantic/pydantic-ai)**: Agent framework and structured output system
-- **[pydantic-graph](https://ai.pydantic.dev/graph/)**: Workflow execution and state management
-- Conceptually influenced by **[dspy](https://github.com/stanfordnlp/dspy)** for structured optimization patterns
 
 ## Quick Start
 
@@ -118,7 +97,7 @@ uv run python examples/math_tools.py
 
 ### GEPA Graph Architecture
 
-This library reimplements the GEPA algorithm on top of pydantic-graph, providing an async-native, checkpointed workflow:
+The optimization runs as a pydantic-graph workflow:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -138,7 +117,7 @@ This library reimplements the GEPA algorithm on top of pydantic-graph, providing
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Node Responsibilities:**
+**Nodes:**
 
 - **StartNode** - Extract seed candidate from agent, initialize state
 - **EvaluateNode** - Run validation set evaluation (parallel), update Pareto fronts
@@ -146,29 +125,16 @@ This library reimplements the GEPA algorithm on top of pydantic-graph, providing
 - **ReflectNode** - Sample minibatch, analyze failures, propose improvements via LLM
 - **MergeNode** - Genetic crossover of successful candidates (when enabled)
 
-**Key Benefits:**
-
-- **Async-native** - All LLM operations use async/await for better concurrency
-- **Parallel evaluation** - Validate multiple examples concurrently (~10x speedup)
-- **Automatic checkpointing** - Every node transition saved, resume from any point
-- **Observable** - Full visibility into optimization state at each step
-- **Type-safe** - Pydantic models for all state and configuration
+Each node transition is checkpointed, so you can resume from any point. Evaluations run in parallel for speed.
 
 ### Optimization Process
 
-GEPA optimizes agents through evolutionary search:
+1. **Evaluate** - Score candidates on validation examples
+2. **Reflect** - LLM analyzes failures and proposes improvements
+3. **Merge** - Combine successful strategies (optional)
+4. **Repeat** - Until convergence or budget exhausted
 
-1. **Evaluate** - Score candidate prompts on validation examples (parallel)
-2. **Reflect** - Use LLM to analyze failures and propose improvements
-3. **Merge** - Combine successful strategies (genetic crossover)
-4. **Repeat** - Iterate until convergence or budget exhausted
-
-The optimization maintains:
-
-- Pareto front of best-performing candidates per validation instance
-- Genealogy tracking (parent-child relationships)
-- LLM result caching to avoid redundant API calls
-- Configurable stopping conditions (max evaluations, iterations, or custom)
+Results are cached to avoid redundant LLM calls.
 
 ## Example
 
@@ -264,39 +230,12 @@ examples/             # Example optimization workflows
 tests/                # Test suite
 ```
 
-## Core Concepts
+## More Info
 
-### Algorithm Reference
-
-For detailed algorithm specifications, see:
-
-- **[docs/gepa.md](docs/gepa.md)** - Complete GEPA algorithm documentation
-- **[gepa-ai/gepa docs](https://github.com/gepa-ai/gepa)** - Original implementation and research
-
-### Implementation Patterns
-
-This library uses pydantic-graph for workflow execution. For implementation details:
-
-- **[pydantic-graph docs](https://ai.pydantic.dev/graph/)** - Graph execution patterns, state management, checkpointing
-- **[pydantic-ai docs](https://ai.pydantic.dev/)** - Agent framework and structured outputs
-
-Key patterns we use:
-
-- **Class-based nodes**: Each GEPA phase (Evaluate, Reflect, Generate, Merge) is a graph node
-- **Shared state**: Single `GepaState` dataclass tracks all candidates, scores, and Pareto fronts
-- **Signature components**: Input schemas (docstrings, field descriptions) treated as optimizable components
-- **Automatic checkpointing**: Graph snapshots enable resumption after crashes
-- **Parallel evaluation**: Concurrent LLM calls within nodes using `asyncio.gather()`
-- **Result caching**: LLM outputs cached per (input, candidate) pair
-
-### Async Architecture
-
-All LLM operations are async-native:
-
-- Uses `async/await` throughout
-- Concurrent evaluation of validation examples
-- Parallel reflection across multiple components
-- Rate-limited to respect API constraints
+- **[docs/gepa.md](docs/gepa.md)** - GEPA algorithm details
+- **[gepa-ai/gepa](https://github.com/gepa-ai/gepa)** - Original implementation
+- **[pydantic-graph docs](https://ai.pydantic.dev/graph/)** - Workflow execution
+- **[pydantic-ai docs](https://ai.pydantic.dev/)** - Agent framework
 
 ## Configuration
 
@@ -379,13 +318,9 @@ result = await optimize_agent(
 # Second run reuses cached LLM results
 ```
 
-## Experimental Status
+## Experimental
 
-This library is experimental and depends on:
-
-- **pydantic-ai PR #2926** (not yet merged)
-
-Expect API changes as both pydantic-ai and this library evolve.
+This library is experimental and depends on pydantic-ai PR #2926 (not yet merged). Expect API changes.
 
 ## Contributing
 
@@ -394,10 +329,3 @@ See `AGENTS.md` for coding standards and contribution guidelines.
 ## License
 
 MIT License - see LICENSE file for details.
-
-## References
-
-- **GEPA Algorithm**: [gepa-ai/gepa](https://github.com/gepa-ai/gepa)
-- **pydantic-ai**: [ai.pydantic.dev](https://ai.pydantic.dev/)
-- **pydantic-graph**: [ai.pydantic.dev/graph/](https://ai.pydantic.dev/graph/)
-- **DSPy**: [dspy docs](https://dspy-docs.vercel.app/)
