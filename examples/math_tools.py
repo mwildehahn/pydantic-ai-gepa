@@ -15,7 +15,7 @@ from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModel
 from pydantic_evals import Case, Dataset
 from utils import run_python_tool
 
-from pydantic_ai_gepa import InspectingModel, InspectionAborted
+from pydantic_ai_gepa import InspectionAborted
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.gepa_graph import (
@@ -436,7 +436,7 @@ def extract_seed_candidate(
         ("original", result.original_candidate),
     ]
     candidate_options.extend(
-        (f"candidate", candidate) for candidate in result.candidates
+        ("candidate", candidate) for candidate in result.candidates
     )
 
     seen_indices: set[int] = set()
