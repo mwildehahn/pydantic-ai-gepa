@@ -64,20 +64,10 @@ from ..adapter import Adapter, ReflectiveDataset, SharedReflectiveDataset
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
 
-try:  # pragma: no cover - optional dependency guard
-    from pydantic_ai.exceptions import ToolRetryError as _ToolRetryError
-except Exception:  # pragma: no cover
-    _TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = ()
-else:  # pragma: no cover - import path depends on runtime env
-    _TOOL_ERROR_TYPES = (_ToolRetryError,)
+from pydantic_ai.exceptions import ToolRetryError as _ToolRetryError
+from pydantic_ai.exceptions import UsageLimitExceeded as _UsageLimitExceeded
 
-try:  # pragma: no cover - optional dependency guard
-    from pydantic_ai.exceptions import UsageLimitExceeded
-except Exception:  # pragma: no cover
-    class UsageLimitExceeded(RuntimeError):  # type: ignore[override]
-        """Fallback UsageLimitExceeded when running against older pydantic-ai versions."""
-
-        pass
+_TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = (_ToolRetryError,)
 
 
 logger = logging.getLogger(__name__)
@@ -877,7 +867,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             raise
         except UsageBudgetExceeded:
             raise
-        except UsageLimitExceeded as exc:
+        except _UsageLimitExceeded as exc:
             case_id = getattr(instance, "case_id", "unknown")
             log_structured(
                 _structured_logger,
@@ -989,7 +979,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             raise
         except UsageBudgetExceeded:
             raise
-        except UsageLimitExceeded as exc:
+        except _UsageLimitExceeded as exc:
             case_id = getattr(instance, "case_id", "unknown")
             log_structured(
                 _structured_logger,
