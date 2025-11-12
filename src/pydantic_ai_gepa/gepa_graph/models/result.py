@@ -7,9 +7,10 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 
 from .candidate import CandidateProgram
+from .state import EvaluationErrorEvent
 
 if TYPE_CHECKING:
-    from .state import EvaluationErrorEvent, GepaState
+    from .state import GepaState
 
 
 class GepaResult(BaseModel):

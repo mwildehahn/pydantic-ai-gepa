@@ -9,11 +9,10 @@ from typing import Any
 import logfire
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.mcp import MCPServerStdio
 from pydantic_ai.models import KnownModelName, Model, infer_model
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
-from mcp_run_python import async_prepare_deno_env
+from utils import run_python_tool
 
 from pydantic_ai_gepa import InspectingModel, InspectionAborted
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
@@ -25,7 +24,6 @@ from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutpu
 logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
 logfire.instrument_httpx(capture_all=True)
-logfire.instrument_mcp()
 
 
 class MathProblemInput(BaseModel):
@@ -242,21 +240,23 @@ signature_dataset = [
 # agent_model = InspectingModel(infer_model("openai:gpt-5-nano"))
 agent_model = infer_model("openai:gpt-5-mini")
 
+# Create agent that invokes the local sandbox tool for execution
+agent = Agent(
+    model=agent_model,
+    instructions=(
+        "Solve math problems by calling the `run_python` sandbox tool. "
+        "Write complete Python scripts with all necessary imports and print the final result. "
+        "You may only use the Python standard library; third-party packages are unavailable."
+    ),
+    output_type=MathProblemOutput,
+    tools=[run_python_tool],
+)
 
-def create_agent(mcp_server: MCPServerStdio) -> Agent[MathProblemInput, MathProblemOutput]:
-    """Create the math problem solving agent with MCP server."""
-    return Agent(
-        model=agent_model,
-        instructions=(
-            "Solve math problems using the run_python tool from MCP. "
-            "Write complete Python scripts with all necessary imports. "
-            "You have access to ALL Python libraries including math, datetime, decimal, fractions, numpy, etc. "
-            "The script should compute the answer and print it as the final output. "
-            "Write clear code with intermediate steps if needed."
-        ),
-        output_type=MathProblemOutput,
-        toolsets=[mcp_server],
-    )
+signature_agent = SignatureAgent(
+    agent,
+    input_type=MathProblemInput,
+    optimize_tools=True,
+)
 
 
 def metric(
@@ -287,8 +287,8 @@ def metric(
             feedback=f"{prefix}Missing code used to compute the answer. {hint}",
         )
 
-    # For MCP-based execution, we trust the agent's reported answer
-    # since we can't easily re-execute arbitrary Python scripts in the metric
+    # We trust the agent's reported answer from the sandbox execution
+    # The code is available for inspection but not re-executed in the metric
     if target is None:
         return MetricResult(score=0.0, feedback="Missing reference target.")
 
@@ -315,48 +315,34 @@ async def run_math_tools_optimization(
     valset: Sequence[DataInstWithInput[MathProblemInput]],
     reflection_model: Model | KnownModelName | str,
 ) -> GepaResult:
-    # Set up Deno environment and MCP server
-    async with async_prepare_deno_env('stdio') as deno_env:
-        mcp_server = MCPServerStdio('deno', args=deno_env.args, cwd=deno_env.cwd, timeout=30)
+    cache_manager = CacheManager(
+        cache_dir=".gepa_cache",
+        enabled=True,
+        verbose=True,
+    )
 
-        # Create agent with MCP server
-        agent = create_agent(mcp_server)
+    adapter = AgentAdapter(
+        agent=signature_agent,
+        metric=metric,
+        input_type=MathProblemInput,
+        cache_manager=cache_manager,
+    )
 
-        # Create signature agent for optimization
-        signature_agent = SignatureAgent(
-            agent,
-            input_type=MathProblemInput,
-            optimize_tools=True,
-        )
+    config = GepaConfig(
+        max_evaluations=50,
+        component_selector="all",
+        max_concurrent_evaluations=10,
+        enable_parallel_reflection=True,
+        reflection_model=reflection_model,
+    )
 
-        cache_manager = CacheManager(
-            cache_dir=".gepa_cache",
-            enabled=True,
-            verbose=True,
-        )
-
-        adapter = AgentAdapter(
-            agent=signature_agent,
-            metric=metric,
-            input_type=MathProblemInput,
-            cache_manager=cache_manager,
-        )
-
-        config = GepaConfig(
-            max_evaluations=50,
-            component_selector="all",
-            max_concurrent_evaluations=10,
-            enable_parallel_reflection=True,
-            reflection_model=reflection_model,
-        )
-
-        return await optimize(
-            adapter=adapter,
-            config=config,
-            trainset=trainset,
-            valset=valset,
-            show_progress=True,
-        )
+    return await optimize(
+        adapter=adapter,
+        config=config,
+        trainset=trainset,
+        valset=valset,
+        show_progress=True,
+    )
 
 
 async def main() -> None:

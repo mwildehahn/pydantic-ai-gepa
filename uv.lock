@@ -1516,13 +1516,9 @@ wheels = [
 [[package]]
 name = "mcp-run-python"
 version = "0.0.21"
-source = { registry = "https://pypi.org/simple" }
+source = { git = "https://github.com/PeterRodenkirchAA/mcp-run-python?rev=feat%2Fstateless-streamable-http-mode#1393c5d199a8e5398d25f561fd89c6889b227725" }
 dependencies = [
     { name = "mcp" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/66/e0/dba9a1fdb5e5173ee29fb6cf55cdfbf03b45a43f7d8d6bd3c3d398031507/mcp_run_python-0.0.21.tar.gz", hash = "sha256:1ea77501b7bccb637192186adf7fc2048e21ee0c1c515de9e35c0c2f61916c04", size = 23296, upload-time = "2025-09-04T02:02:46.12Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/3d/fad699dcb312f91f6a7fc4509c74b0cba8ddd8e2b6f0fd75e8d4b1436d91/mcp_run_python-0.0.21-py3-none-any.whl", hash = "sha256:18b8bc4129e7b5be084904c5bbfb7fc7d1caae9f84fb2d84aa194180e732dc09", size = 26103, upload-time = "2025-09-04T02:02:44.961Z" },
 ]
 
 [[package]]
@@ -2161,7 +2157,7 @@ dev = [
 requires-dist = [
     { name = "cloudpickle", specifier = ">=3.0.0" },
     { name = "logfire", specifier = ">=4.14.2" },
-    { name = "mcp-run-python", specifier = ">=0.0.21" },
+    { name = "mcp-run-python", git = "https://github.com/PeterRodenkirchAA/mcp-run-python?rev=feat%2Fstateless-streamable-http-mode" },
     { name = "pydantic-ai", git = "file:///Users/mh/labs/pydantic-ai?rev=eeeddc5ec9bb99eaa5bd986aaad2773697aaae24" },
     { name = "pydantic-graph", git = "file:///Users/mh/labs/pydantic-ai?subdirectory=pydantic_graph&rev=eeeddc5ec9bb99eaa5bd986aaad2773697aaae24" },
     { name = "rich", specifier = ">=13.7.1" },
