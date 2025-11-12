@@ -83,12 +83,12 @@ def test_signature_basic():
     assert system_instructions == snapshot("""\
 Analyze emails for key information and sentiment.
 
-Inputs
+Inputs:
 
 - `<emails>` (list[Email]): List of email messages to analyze. Look for sentiment and key topics.
 - `<context>` (str): Additional context about the email thread or conversation.
 
-Schemas
+Schemas:
 
 Email
   - `<subject>` (str): The subject field
@@ -146,12 +146,12 @@ def test_apply_candidate():
     assert system_instructions == snapshot("""\
 Extract actionable insights from customer emails.
 
-Inputs
+Inputs:
 
 - `<emails>` (list[Email]): Customer emails requiring detailed analysis.
 - `<context>` (str): Background information to inform the analysis.
 
-Schemas
+Schemas:
 
 Email
   - `<subject>` (str): The subject field
@@ -205,7 +205,7 @@ def test_signature_without_explicit_field_description():
     assert system_instructions == snapshot("""\
 A simple signature for testing.
 
-Inputs
+Inputs:
 
 - `<text>` (str): The text input
 - `<number>` (int): A number to process\
@@ -278,7 +278,7 @@ def test_separation_of_concerns():
     assert system_instructions == snapshot("""\
 Process user data with care.
 
-Inputs
+Inputs:
 
 - `<user_input>` (str): Raw user input that may contain sensitive data
 - `<admin_notes>` (str): Internal notes for processing

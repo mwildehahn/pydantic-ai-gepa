@@ -28,9 +28,9 @@ from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 
 def _dummy_reasoning() -> TrajectoryAnalysis:
     return TrajectoryAnalysis(
-        what_went_well="baseline behavior recorded for testing",
-        what_went_wrong="placeholder summary for unit tests",
-        areas_to_improve="placeholder improvements for unit tests",
+        pattern_discovery="baseline patterns observed in testing",
+        creative_hypothesis="placeholder hypothesis for unit tests",
+        experimental_approach="placeholder approach for unit tests",
     )
 
 

@@ -16,13 +16,14 @@ if TYPE_CHECKING:
     from .continue_node import ContinueNode
 
 
-
 @dataclass(slots=True)
 class EvaluateNode(GepaNode):
     """Evaluate the most recent candidate on the validation set."""
 
     async def run(self, ctx: GepaRunContext) -> "ContinueNode":
-        from .continue_node import ContinueNode  # Local import to avoid circular dependency
+        from .continue_node import (
+            ContinueNode,
+        )  # Local import to avoid circular dependency
 
         state = ctx.state
         previous_best_idx = state.best_candidate_idx
@@ -30,12 +31,18 @@ class EvaluateNode(GepaNode):
         candidate = self._current_candidate(state)
         validation_batch = self._get_validation_batch(state)
 
-        results = await ctx.deps.evaluator.evaluate_batch(
-            candidate=candidate,
-            batch=validation_batch,
-            adapter=ctx.deps.adapter,
-            max_concurrent=state.config.max_concurrent_evaluations,
-        )
+        with logfire.span(
+            "evaluate candidate",
+            candidate_idx=candidate.idx,
+            validation_batch_size=len(validation_batch),
+        ):
+            results = await ctx.deps.evaluator.evaluate_batch(
+                candidate=candidate,
+                batch=validation_batch,
+                adapter=ctx.deps.adapter,
+                max_concurrent=state.config.max_concurrent_evaluations,
+            )
+
         state.record_evaluation_errors(
             candidate_idx=candidate.idx,
             stage="validation",
@@ -56,10 +63,7 @@ class EvaluateNode(GepaNode):
         state.recompute_best_candidate()
         new_best_idx = state.best_candidate_idx
         new_best_score = state.best_score
-        if (
-            new_best_idx != previous_best_idx
-            or new_best_score != previous_best_score
-        ):
+        if new_best_idx != previous_best_idx or new_best_score != previous_best_score:
             logfire.info(
                 "EvaluateNode promoted best candidate",
                 candidate_idx=new_best_idx,
@@ -89,11 +93,15 @@ class EvaluateNode(GepaNode):
     @staticmethod
     def _get_validation_batch(state: GepaState) -> list[DataInst]:
         if not state.validation_set:
-            raise ValueError("GepaState.validation_set must be populated before evaluation.")
+            raise ValueError(
+                "GepaState.validation_set must be populated before evaluation."
+            )
         return list(state.validation_set)
 
     @staticmethod
-    def _apply_results(candidate: CandidateProgram, results: EvaluationResults[str]) -> None:
+    def _apply_results(
+        candidate: CandidateProgram, results: EvaluationResults[str]
+    ) -> None:
         for data_id, score, output in results:
             candidate.record_validation(
                 data_id=data_id,
@@ -115,7 +123,11 @@ class EvaluateNode(GepaNode):
     ) -> None:
         components = deps.adapter.get_components()
 
-        missing = {key: text for key, text in components.items() if key not in candidate.components}
+        missing = {
+            key: text
+            for key, text in components.items()
+            if key not in candidate.components
+        }
         if not missing:
             return
 

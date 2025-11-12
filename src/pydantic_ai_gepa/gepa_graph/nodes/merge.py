@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, TYPE_CHECKING
 
+import logfire
+
 from ...types import DataInst
 from ..models import CandidateProgram, GepaState
 from .base import GepaNode, GepaRunContext
@@ -69,12 +71,18 @@ class MergeNode(GepaNode):
         if not subsample:
             return reject()
 
-        merged_results = await deps.evaluator.evaluate_batch(
-            candidate=merged_candidate,
-            batch=subsample,
-            adapter=deps.adapter,
-            max_concurrent=state.config.max_concurrent_evaluations,
-        )
+        with logfire.span(
+            "evaluate merged candidate",
+            candidate_idx=merged_candidate.idx,
+            subsample_size=len(subsample),
+        ):
+            merged_results = await deps.evaluator.evaluate_batch(
+                candidate=merged_candidate,
+                batch=subsample,
+                adapter=deps.adapter,
+                max_concurrent=state.config.max_concurrent_evaluations,
+            )
+
         state.record_evaluation_errors(
             candidate_idx=merged_candidate.idx,
             stage="merge",
@@ -110,7 +118,9 @@ class MergeNode(GepaNode):
 
     @staticmethod
     def _count_accepted_merges(state: GepaState) -> int:
-        return sum(1 for candidate in state.candidates if candidate.creation_type == "merge")
+        return sum(
+            1 for candidate in state.candidates if candidate.creation_type == "merge"
+        )
 
     def _matches_existing_candidate(
         self,
@@ -124,8 +134,15 @@ class MergeNode(GepaNode):
         return False
 
     @staticmethod
-    def _component_signature(candidate: CandidateProgram) -> tuple[tuple[str, str], ...]:
-        return tuple(sorted((name, component.text) for name, component in candidate.components.items()))
+    def _component_signature(
+        candidate: CandidateProgram,
+    ) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            sorted(
+                (name, component.text)
+                for name, component in candidate.components.items()
+            )
+        )
 
     @staticmethod
     def _record_partial_validation(

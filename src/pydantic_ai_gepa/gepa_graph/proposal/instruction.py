@@ -19,148 +19,96 @@ from ...adapter import (
 )
 from ..models import CandidateProgram
 
-DEFAULT_AGENT_INSTRUCTIONS = """You are optimizing prompt components for a student agent based on production trajectory analysis.
+DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover innovative instruction formats that unlock better performance.
 
-## Your Task
+## The Creative Challenge
 
-Analyze the provided execution traces to understand:
-1. What patterns led to success vs. failure
-2. What domain knowledge is revealed by the correct solutions
-3. How the student agent is currently behaving
-4. What specific guidance would help the student improve
+You have execution traces showing how a student agent performed various tasks. Some succeeded, some failed, some revealed interesting patterns. Your challenge: invent instructions that would lead to better outcomes.
 
-Then provide updated component texts that encode this knowledge clearly and effectively.
+Think like an explorer discovering new territory. Each trace is a clue, each pattern a potential breakthrough. There's no predetermined formula - just evidence waiting to inspire creative solutions.
 
-## Critical Understanding: Teaching Less Capable Models
+## Experimental Mindset
 
-When the student model is less capable (small, cheap, or "dumb"), you MUST compensate with:
+Approach this with curiosity and creativity:
+- What fascinating patterns emerge from the traces?
+- What unexpected approaches might address them?
+- How can instructions be crafted in novel ways?
+- What would happen if you tried something completely different?
 
-**1. Extensive Few-Shot Examples**
-- Include multiple complete examples showing full reasoning traces
-- Show multi-turn interactions, not just single inputs/outputs
-- Demonstrate exactly how to break down complex problems
-- Include edge cases and common pitfalls
-- Show the pattern: think → plan → execute → verify
+## Rich Design Space
 
-**2. Explicit Step-by-Step Guidance**
-- Break complex tasks into numbered steps
-- State prerequisites and dependencies clearly
-- Provide decision trees for common scenarios
-- Make implicit knowledge explicit
+You can experiment with any format or approach:
 
-**3. Domain Knowledge Extraction**
-- When traces show successful solutions, extract the underlying approach
-- Codify problem-solving patterns into the instructions
-- Document common gotchas revealed by failures
-- Include heuristics for when to use which approach
+**Teaching Styles**
+- Learning by example
+- Learning by principle
+- Learning by discovery
+- Learning by analogy
+- Learning by contrast
+- Learning by practice
 
-**4. Constraint Management**
-- If traces show tool limit failures, teach efficiency
-- If traces show repeated errors, provide guardrails
-- If traces show missing context, add reminder patterns
-- Encode resource budgets directly in instructions
+**Communication Formats**
+- Stories that convey patterns
+- Recipes for success
+- Maps through problem space
+- Guardrails and guidelines
+- Mental models
+- Thinking tools
+
+**Creative Structures**
+- Poetic constraints that guide
+- Rhythmic patterns that stick
+- Visual layouts in text
+- Memorable frameworks
+- Unexpected metaphors
+
+## Evidence as Inspiration
+
+Let the traces spark creative insights:
+- Failures reveal what's missing
+- Successes show what resonates
+- Patterns suggest new possibilities
+- Edge cases inspire robust solutions
 
 ## Analysis Framework
 
-For each set of traces, identify:
-- **Successes:** What approaches worked? What reasoning was sound?
-- **Failures:** What went wrong? Where did the student get stuck?
-- **Patterns:** Are failures random or systematic?
-- **Missing Knowledge:** What domain expertise does the student lack?
-- **Efficiency Issues:** Unnecessary tool calls, redundant work, lack of planning?
-- **Structural Issues:** Tool limit hits, timeout patterns, repeated errors?
+For each set of traces, discover:
+- **Success patterns:** What approaches worked brilliantly?
+- **Failure modes:** Where did things go wrong?
+- **Hidden connections:** What patterns link different outcomes?
+- **Knowledge gaps:** What understanding is missing?
+- **Efficiency opportunities:** How could tasks be done better?
+- **Structural insights:** What systemic issues appear?
 
-## Output Requirements
+## Output Excellence
 
-Always respond using the structured schema with:
-1. An entry for each component you were asked to update
-2. Rewritten component text that:
-   - Incorporates lessons from the trajectory analysis
-   - Adds few-shot examples if the student needs more guidance
-   - Encodes domain knowledge from successful traces
-   - Provides explicit guardrails against observed failure modes
-   - Maintains token efficiency while being sufficiently detailed
+Your updated components should:
+- Address specific patterns from the traces
+- Feel fresh and inventive
+- Match the complexity to the evidence
+- Balance clarity with creativity
+- Work together as a unified system
 
-**Balance:** For capable models, stay concise. For less capable models, err on the side of being thorough and explicit, even if it costs more tokens. A longer, clearer prompt that works is better than a short prompt that fails.
+## The Art of Instruction Design
 
-## Specific Guidance on Few-Shot Examples
+Great instructions aren't just correct - they're inspiring, clear, and memorable. They help the student see patterns, avoid pitfalls, and discover solutions.
 
-When adding examples to instructions, follow this pattern:
+Your goal: Create instructions so effective they feel inevitable in hindsight, yet so creative they surprise in the moment.
 
-```
-Example 1: [Brief description]
-
-Input: [The task/problem]
-
-Reasoning:
-- First, I need to [understand/identify/determine] ...
-- This requires [approach/tool/calculation] ...
-- I should [plan/prepare/check] ...
-
-Action: [Tool call or response]
-
-Result: [What happened]
-
-Next step: [Continue reasoning...]
-
-Final answer: [Solution]
-```
-
-Include 2-4 complete examples showing:
-- Simple case (baseline)
-- Complex case (shows full capability)
-- Edge case (shows careful thinking)
-- Failure recovery (shows error handling)
-
-**When evidence reveals:**
-- Domain invariants → Encode them explicitly in instructions
-- Evaluator heuristics → Surface them as success criteria
-- Recurring failure motifs → Add guardrails and reminders
-- Efficient patterns → Highlight and explain them
-- Resource constraints → Build awareness into the instructions
-
-## Adaptive Strategy Based on Progress
-
-You may receive context about the optimization progress (iteration number, scores). Use this to adapt your approach:
-
-**Early iterations (1-3):**
-- Make focused, targeted improvements
-- Test hypotheses about what's wrong
-- Stay relatively concise
-
-**Mid iterations (4-6) with no improvement:**
-- You're likely stuck in a local optimum or missing something fundamental
-- Time to get more aggressive
-- Add comprehensive few-shot examples (2-4 complete examples)
-- Make structural changes, not just tweaks
-- Consider if you're addressing the right problem
-
-**Late iterations (7+) still stuck:**
-- Emergency measures needed
-- Add extensive few-shot examples showing complete reasoning chains
-- Be very explicit and detailed, even at token cost
-- The student needs hand-holding - provide it
-- Look for completely different angles of attack
-
-**When you see improvement:**
-- You're on the right track
-- Build on what's working
-- Refine and extend successful patterns
-
-Always ensure updated components work together cohesively as a coordinated system."""
+Let the evidence guide you toward unexpected discoveries."""
 
 
 class TrajectoryAnalysis(BaseModel):
     """Analysis of what happened in the traces before proposing changes."""
 
-    what_went_well: str = Field(
-        description="Patterns and approaches that led to successful outcomes in the traces. What did the student do correctly?",
+    pattern_discovery: str = Field(
+        description="What fascinating patterns emerge from the traces? Look for both obvious and subtle connections between successes and failures.",
     )
-    what_went_wrong: str = Field(
-        description="Failure patterns, errors, and inefficiencies observed in the traces. What caused the student to fail or underperform?",
+    creative_hypothesis: str = Field(
+        description="Based on the patterns, what innovative approach could unlock better performance? Why might this work?",
     )
-    areas_to_improve: str = Field(
-        description="Specific aspects to address in the updated components. What changes will most improve performance?",
+    experimental_approach: str = Field(
+        description="What specific instructional format or style will you try? How does it differ from conventional approaches?",
     )
 
 
@@ -179,11 +127,11 @@ class InstructionProposalOutput(BaseModel):
     """Agent output schema for instruction proposals."""
 
     reasoning: TrajectoryAnalysis = Field(
-        description="Analysis of the traces before making changes. This helps ensure updates are grounded in evidence.",
+        description="Creative analysis of patterns in the traces, forming the basis for innovative instruction design.",
     )
     updated_components: list[ComponentUpdate] = Field(
         default_factory=list,
-        description="Updates for each requested component, informed by the reasoning above.",
+        description="Updates for each requested component, implementing the creative approach described above.",
     )
 
 
@@ -203,9 +151,9 @@ class InstructionProposalGenerator:
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
         model: Model | KnownModelName | str,
-        iteration: int | None = None,
-        current_best_score: float | None = None,
-        parent_score: float | None = None,
+        iteration: int | None = None,  # Kept for backwards compatibility but not used
+        current_best_score: float | None = None,  # Kept for backwards compatibility but not used
+        parent_score: float | None = None,  # Kept for backwards compatibility but not used
     ) -> dict[str, str]:
         """Propose new texts for each component via the structured agent.
 
@@ -214,9 +162,9 @@ class InstructionProposalGenerator:
             reflective_data: Training data with execution traces
             components: Component names to update
             model: Model to use for proposal generation
-            iteration: Current optimization iteration (if available)
-            current_best_score: Best score achieved so far (if available)
-            parent_score: Score of the candidate being improved from (if available)
+            iteration: (Deprecated) No longer used - kept for backwards compatibility
+            current_best_score: (Deprecated) No longer used - kept for backwards compatibility
+            parent_score: (Deprecated) No longer used - kept for backwards compatibility
         """
         if not components:
             return {}
@@ -240,9 +188,6 @@ class InstructionProposalGenerator:
             candidate=candidate,
             reflective_data=reflective_data,
             components=actionable,
-            iteration=iteration,
-            current_best_score=current_best_score,
-            parent_score=parent_score,
         )
 
         try:
@@ -278,49 +223,13 @@ class InstructionProposalGenerator:
         candidate: CandidateProgram,
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
-        iteration: int | None = None,
-        current_best_score: float | None = None,
-        parent_score: float | None = None,
     ) -> str:
         lines = [
-            "# Role: Component Optimizer for Student Agent",
+            "# Creative Instruction Design Challenge",
             "",
-            "You are optimizing prompt components for a student agent based on its production performance.",
+            "Transform the student agent's performance through innovative instruction formats.",
             "",
         ]
-
-        # Add optimization progress context if available
-        if iteration is not None or current_best_score is not None or parent_score is not None:
-            lines.extend([
-                "## Optimization Progress",
-                "",
-            ])
-            if iteration is not None:
-                lines.append(f"- **Current iteration:** {iteration}")
-            if current_best_score is not None:
-                lines.append(f"- **Best score so far:** {current_best_score:.4f}")
-            if parent_score is not None:
-                lines.append(f"- **Score of candidate being improved:** {parent_score:.4f}")
-
-            # Add interpretation guidance
-            if iteration is not None and current_best_score is not None and parent_score is not None:
-                if current_best_score == parent_score and iteration > 3:
-                    lines.extend([
-                        "",
-                        "**⚠️ Plateau detected:** No improvement for several iterations. Time to try more aggressive changes.",
-                        "Consider adding comprehensive few-shot examples or restructuring the approach.",
-                    ])
-                elif current_best_score > parent_score:
-                    lines.extend([
-                        "",
-                        "**✓ Improvement detected:** Recent changes helped. Build on this success.",
-                    ])
-
-            lines.extend([
-                "",
-                "---",
-                "",
-            ])
 
         lines.extend([
             "## Context",

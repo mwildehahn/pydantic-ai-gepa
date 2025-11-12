@@ -100,9 +100,9 @@ async def test_llm_generator_updates_components() -> None:
         prompts.append(prompt)
         content = """{
             "reasoning": {
-                "what_went_well": "Some things worked",
-                "what_went_wrong": "Some things didn't work",
-                "areas_to_improve": "Need to improve clarity"
+                "pattern_discovery": "Some things worked",
+                "creative_hypothesis": "Some things didn't work",
+                "experimental_approach": "Need to improve clarity"
             },
             "updated_components": [
                 {"component_name": "instructions", "optimized_value": "Improved instructions"},
@@ -145,9 +145,9 @@ async def test_llm_generator_skips_components_without_records() -> None:
         assert "### Component: `tools`" not in prompt
         content = """{
             "reasoning": {
-                "what_went_well": "Some things worked",
-                "what_went_wrong": "Some things didn't work",
-                "areas_to_improve": "Need to improve clarity"
+                "pattern_discovery": "Some things worked",
+                "creative_hypothesis": "Some things didn't work",
+                "experimental_approach": "Need to improve clarity"
             },
             "updated_components": [
                 {"component_name": "instructions", "optimized_value": "Improved instructions"}
@@ -226,9 +226,9 @@ async def test_prompt_includes_output_tool_details() -> None:
         captured_prompt = messages[-1].parts[0].content
         content = """{
             \"reasoning\": {
-                \"what_went_well\": \"OK\",
-                \"what_went_wrong\": \"Needs a finale\",
-                \"areas_to_improve\": \"Explain how to finish\"
+                \"pattern_discovery\": \"OK\",
+                \"creative_hypothesis\": \"Needs a finale\",
+                \"experimental_approach\": \"Explain how to finish\"
             },
             \"updated_components\": [
                 {\"component_name\": \"instructions\", \"optimized_value\": \"Updated instructions\"}
@@ -263,9 +263,9 @@ async def test_catalog_tools_fall_back_when_no_reflective_records() -> None:
         captured_prompt = messages[-1].parts[0].content
         content = """{
             \"reasoning\": {
-                \"what_went_well\": \"OK\",
-                \"what_went_wrong\": \"Needs finalization\",
-                \"areas_to_improve\": \"Be explicit\"
+                \"pattern_discovery\": \"OK\",
+                \"creative_hypothesis\": \"Needs finalization\",
+                \"experimental_approach\": \"Be explicit\"
             },
             \"updated_components\": [
                 {\"component_name\": \"instructions\", \"optimized_value\": \"Updated instructions\"}
@@ -327,9 +327,9 @@ async def test_llm_generator_handles_shared_dataset() -> None:
         prompts.append(prompt)
         content = """{
             "reasoning": {
-                "what_went_well": "Some things worked",
-                "what_went_wrong": "Some things didn't work",
-                "areas_to_improve": "Need to improve clarity"
+                "pattern_discovery": "Some things worked",
+                "creative_hypothesis": "Some things didn't work",
+                "experimental_approach": "Need to improve clarity"
             },
             "updated_components": [
                 {"component_name": "instructions", "optimized_value": "Improved instructions"},
@@ -348,13 +348,13 @@ async def test_llm_generator_handles_shared_dataset() -> None:
     )
 
     assert result == snapshot(
-        {"instructions": "Improved instructions", "tools": "Improved tools"}
+        {"instructions": 'Improved instructions', "tools": 'Improved tools'}
     )
     prompt = prompts[-1]
     assert prompt == snapshot("""\
-# Role: Component Optimizer for Student Agent
+# Creative Instruction Design Challenge
 
-You are optimizing prompt components for a student agent based on its production performance.
+Transform the student agent's performance through innovative instruction formats.
 
 ## Context
 - A student agent has been running with the configuration shown below
@@ -609,9 +609,9 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
         import json
         content = json.dumps({
             "reasoning": {
-                "what_went_well": "Tool usage patterns were good",
-                "what_went_wrong": "Could be more explicit",
-                "areas_to_improve": "Add more guidance about when to use tools"
+                "pattern_discovery": "Tool usage patterns were good",
+                "creative_hypothesis": "Could be more explicit",
+                "experimental_approach": "Add more guidance about when to use tools"
             },
             "updated_components": updated
         })
@@ -635,9 +635,9 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
 
     # Verify the complete prompt with snapshot
     assert captured_prompt == snapshot("""\
-# Role: Component Optimizer for Student Agent
+# Creative Instruction Design Challenge
 
-You are optimizing prompt components for a student agent based on its production performance.
+Transform the student agent's performance through innovative instruction formats.
 
 ## Context
 - A student agent has been running with the configuration shown below

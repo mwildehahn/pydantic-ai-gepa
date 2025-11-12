@@ -301,11 +301,6 @@ class ReflectNode(GepaNode):
             reflective_data=reflective_dataset,
             components=components,
             model=model,
-            iteration=state.iteration,
-            current_best_score=state.best_score,
-            parent_score=parent.avg_validation_score
-            if parent.validation_scores
-            else None,
         )
 
     def _create_candidate(

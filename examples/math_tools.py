@@ -24,6 +24,7 @@ from pydantic_ai_gepa.gepa_graph import (
     GepaResult,
     optimize,
 )
+from pydantic_ai_gepa.gepa_graph.models import CandidateProgram
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
 
@@ -322,9 +323,7 @@ def metric(
     penalty = 0.0
     if tool_calls is not None and tool_calls > 1:
         penalty = min(0.1 * (tool_calls - 1), 0.5)
-        penalty_feedback = (
-            f"Used `run_python` {tool_calls} times; consolidate into a single sandbox execution when possible."
-        )
+        penalty_feedback = f"Used `run_python` {tool_calls} times; consolidate into a single sandbox execution when possible."
 
     if penalty:
         score = max(0.0, score - penalty)
@@ -338,6 +337,7 @@ async def run_math_tools_optimization(
     trainset: Sequence[DataInstWithInput[MathProblemInput]],
     valset: Sequence[DataInstWithInput[MathProblemInput]],
     reflection_model: Model | KnownModelName | str,
+    seed_candidate: dict[str, str] | None = None,
 ) -> GepaResult:
     cache_manager = CacheManager(
         cache_dir=".gepa_cache",
@@ -354,10 +354,10 @@ async def run_math_tools_optimization(
     )
 
     config = GepaConfig(
-        max_evaluations=50,
+        max_evaluations=200,
         component_selector="all",
         candidate_selector=CandidateSelectorStrategy.CURRENT_BEST,
-        max_concurrent_evaluations=10,
+        max_concurrent_evaluations=20,
         enable_parallel_reflection=True,
         reflection_model=reflection_model,
     )
@@ -367,6 +367,7 @@ async def run_math_tools_optimization(
         config=config,
         trainset=trainset,
         valset=valset,
+        seed_candidate=seed_candidate,
         show_progress=True,
     )
 
@@ -379,6 +380,14 @@ def parse_args() -> argparse.Namespace:
         "--load-latest",
         action="store_true",
         help="Load the most recent math_tools optimization result and print a summary.",
+    )
+    parser.add_argument(
+        "--resume-from-latest",
+        action="store_true",
+        help=(
+            "Resume optimization from the best candidate stored in the most recent result. "
+            "Implies loading the latest file."
+        ),
     )
     parser.add_argument(
         "--results-dir",
@@ -417,8 +426,41 @@ def print_result_summary(result: GepaResult, location_message: str) -> None:
         print("   Improvement: N/A")
 
 
-async def main(load_latest: bool, results_dir: Path) -> None:
-    if load_latest:
+def extract_seed_candidate(
+    result: GepaResult,
+) -> tuple[dict[str, str], str] | None:
+    """Select the best available candidate payload for seeding future runs."""
+
+    candidate_options: list[tuple[str, CandidateProgram | None]] = [
+        ("best", result.best_candidate),
+        ("original", result.original_candidate),
+    ]
+    candidate_options.extend(
+        (f"candidate", candidate) for candidate in result.candidates
+    )
+
+    seen_indices: set[int] = set()
+    for label, candidate in candidate_options:
+        if candidate is None:
+            continue
+        idx = getattr(candidate, "idx", None)
+        if idx is not None and idx in seen_indices:
+            continue
+        if idx is not None:
+            seen_indices.add(idx)
+            descriptor = f"{label} candidate (idx={idx})"
+        else:
+            descriptor = f"{label} candidate"
+        return candidate.to_dict_str(), descriptor
+
+    return None
+
+
+async def main(load_latest: bool, resume_from_latest: bool, results_dir: Path) -> None:
+    latest_result: GepaResult | None = None
+    latest_file: Path | None = None
+
+    if load_latest or resume_from_latest:
         if not results_dir.exists():
             print(f"No optimization results directory found at: {results_dir}")
             return
@@ -429,10 +471,34 @@ async def main(load_latest: bool, results_dir: Path) -> None:
             return
 
         with latest_file.open("r") as file:
-            result = GepaResult.model_validate_json(file.read())
+            latest_result = GepaResult.model_validate_json(file.read())
 
-        print_result_summary(result, f"Loaded optimization result from: {latest_file}")
-        return
+        summary_prefix = (
+            "Resuming optimization from"
+            if resume_from_latest
+            else "Loaded optimization result from"
+        )
+        print_result_summary(
+            latest_result,
+            f"{summary_prefix}: {latest_file}",
+        )
+
+        if load_latest and not resume_from_latest:
+            return
+
+    seed_candidate: dict[str, str] | None = None
+    if resume_from_latest:
+        if latest_result is None:
+            print("Unable to resume because no previous result could be loaded.")
+        else:
+            seed_payload = extract_seed_candidate(latest_result)
+            if seed_payload is None:
+                print(
+                    "Latest result does not contain any candidates; starting from the default seed."
+                )
+            else:
+                seed_candidate, descriptor = seed_payload
+                print(f"Continuing optimization from {descriptor}.")
 
     output_dir = results_dir
     output_dir.mkdir(exist_ok=True)
@@ -440,9 +506,9 @@ async def main(load_latest: bool, results_dir: Path) -> None:
     reflection_model = OpenAIResponsesModel(
         model_name="gpt-5",
         settings=OpenAIResponsesModelSettings(
-            openai_reasoning_effort="medium",
+            openai_reasoning_effort="high",
             openai_reasoning_summary="detailed",
-            openai_text_verbosity="medium",
+            openai_text_verbosity="high",
         ),
     )
     # reflection_model = InspectingModel(reflection_model)
@@ -453,7 +519,12 @@ async def main(load_latest: bool, results_dir: Path) -> None:
     valset = signature_dataset[split_index:]
 
     try:
-        result = await run_math_tools_optimization(trainset, valset, reflection_model)
+        result = await run_math_tools_optimization(
+            trainset,
+            valset,
+            reflection_model,
+            seed_candidate=seed_candidate,
+        )
     except InspectionAborted as exc:
         snapshot = exc.snapshot
         print("\n🔎 OpenAI request intercepted for inspection. Payload:")
@@ -471,4 +542,10 @@ async def main(load_latest: bool, results_dir: Path) -> None:
 
 if __name__ == "__main__":
     args = parse_args()
-    asyncio.run(main(load_latest=args.load_latest, results_dir=args.results_dir))
+    asyncio.run(
+        main(
+            load_latest=args.load_latest,
+            resume_from_latest=args.resume_from_latest,
+            results_dir=args.results_dir,
+        )
+    )

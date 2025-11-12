@@ -84,7 +84,7 @@ def test_signature_agent_basic():
         """\
 Ask a question about geography.
 
-Inputs
+Inputs:
 
 - `<question>` (str): The geography question to ask
 - `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
@@ -94,7 +94,7 @@ Inputs
 You're an expert in geography.
 Ask a question about geography.
 
-Inputs
+Inputs:
 
 - `<question>` (str): The geography question to ask
 - `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
@@ -146,7 +146,7 @@ def test_signature_agent_with_override_candidate():
         """\
 Focus on European capitals.
 
-Inputs
+Inputs:
 
 - `<question>` (str): The capital city question
 - `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
@@ -157,7 +157,7 @@ Inputs
 Be concise and accurate.
 Focus on European capitals.
 
-Inputs
+Inputs:
 
 - `<question>` (str): The capital city question
 - `<region>` (UnionType[str, NoneType]): Specific region to focus on, if applicable\
@@ -279,7 +279,7 @@ def test_prompt_generation_with_candidate():
     assert system_instructions == snapshot("""\
 Focus on major waterways and their importance.
 
-Inputs
+Inputs:
 
 - `<question>` (str): Geographic inquiry:
 - `<region>` (UnionType[str, NoneType]): Area of focus:\

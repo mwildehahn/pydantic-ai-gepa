@@ -41,6 +41,7 @@ ATTACHMENT_TYPE_TO_LABEL: dict[type, str] = {
     BinaryContent: "binary",
 }
 
+
 class SignatureSuffix:
     """Marker for fields that should be appended as plain text without formatting."""
 
@@ -221,7 +222,8 @@ class _InputShared:
             return origin_name
 
         arg_names = ", ".join(
-            _InputShared._get_type_name(arg) for arg in args  # type: ignore[attr-defined]
+            _InputShared._get_type_name(arg)
+            for arg in args  # type: ignore[attr-defined]
         )
         return f"{origin_name}[{arg_names}]"
 
@@ -257,10 +259,7 @@ class _InputShared:
             article = "an" if label[0].lower() in {"a", "e", "i", "o", "u"} else "a"
             return f"Provide {article} {label} reference using the appropriate attachment type."
         joined = ", ".join(sorted(labels))
-        return (
-            f"Provide references using the appropriate attachment types "
-            f"({joined})."
-        )
+        return f"Provide references using the appropriate attachment types ({joined})."
 
     @staticmethod
     def _format_field_label(field_name: str) -> str:
@@ -401,11 +400,11 @@ class _InputModelView(_InputShared):
                     schema_descriptions[model_type] = schema_desc
 
         if input_lines:
-            instruction_sections.append("Inputs")
+            instruction_sections.append("\nInputs:")
             instruction_sections.append("\n".join(input_lines))
 
         if schema_descriptions:
-            instruction_sections.append("Schemas")
+            instruction_sections.append("\nSchemas:")
             instruction_sections.append("\n\n".join(schema_descriptions.values()))
 
         if suffix_parts:
@@ -433,7 +432,9 @@ class _InputModelView(_InputShared):
             transformed_value = self._replace_attachments_with_refs(
                 field_value, registry
             )
-            formatted_value = self._format_field_value_xml(field_name, transformed_value)
+            formatted_value = self._format_field_value_xml(
+                field_name, transformed_value
+            )
             if formatted_value:
                 content_sections.append(formatted_value)
 
@@ -531,9 +532,9 @@ class _InputClassView(_InputShared):
         components: dict[str, str] = {}
 
         if self.model_cls.__doc__:
-            components[
-                f"signature:{self.model_cls.__name__}:instructions"
-            ] = self.model_cls.__doc__ or ""
+            components[f"signature:{self.model_cls.__name__}:instructions"] = (
+                self.model_cls.__doc__ or ""
+            )
 
         for field_name, field_info in self.model_cls.model_fields.items():
             desc = field_info.description or f"The {field_name} input"

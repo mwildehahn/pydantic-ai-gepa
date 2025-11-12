@@ -183,13 +183,13 @@ def test_signature_with_optimized_candidate():
     assert system_instructions == snapshot("""\
 You are an expert support agent. Identify critical issues immediately.
 
-Inputs
+Inputs:
 
 - `<emails>` (list[Email]): URGENT: Customer emails showing frustration. Extract key problems.
 - `<previous_interactions>` (UnionType[str, NoneType]): Historical context - look for patterns.
 - `<company_policies>` (str): Critical policies that must be followed.
 
-Schemas
+Schemas:
 
 Email
   - `<header>` (EmailHeader): The header of the email.
