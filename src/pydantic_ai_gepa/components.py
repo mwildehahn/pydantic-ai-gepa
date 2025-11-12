@@ -83,7 +83,9 @@ def apply_candidate_to_agent(
         A context manager for the temporary override.
     """
     instructions_raw = candidate.get("instructions") if candidate else None
-    instructions = normalize_component_text(instructions_raw) if instructions_raw else None
+    instructions = (
+        normalize_component_text(instructions_raw) if instructions_raw else None
+    )
 
     target_agent = agent
     if isinstance(agent, WrapperAgent):
@@ -155,11 +157,11 @@ def validate_components(
     return list(components)
 
 
-def extract_seed_candidate_with_signature(
+def extract_seed_candidate_with_input_type(
     agent: AbstractAgent[Any, Any],
     input_type: InputSpec[BaseModel] | None = None,
 ) -> dict[str, str]:
-    """Extract initial prompts from an agent and optionally a signature as a GEPA candidate.
+    """Extract prompts from an agent and optional input specification as a GEPA candidate.
 
     Args:
         agent: The agent to extract prompts from.
@@ -182,15 +184,15 @@ def extract_seed_candidate_with_signature(
 
 
 @contextmanager
-def apply_candidate_to_agent_and_signature(
+def apply_candidate_to_agent_and_input_type(
     candidate: dict[str, str] | None,
     agent: AbstractAgent[Any, Any],
     input_type: InputSpec[BaseModel] | None = None,
 ) -> Iterator[None]:
-    """Apply a GEPA candidate to an agent and optionally a signature.
+    """Apply a GEPA candidate to an agent and optionally an input specification.
 
     This context manager temporarily applies the candidate to the agent
-    (via override()) and optionally to a signature class.
+    (via override()) and optionally to a structured input specification.
 
     Args:
         candidate: The candidate mapping component names to text.
@@ -206,9 +208,10 @@ def apply_candidate_to_agent_and_signature(
         # Apply to agent
         stack.enter_context(apply_candidate_to_agent(agent, candidate))
 
-        # Apply to signature if provided
+        # Apply to input specification if provided
         if input_type:
             spec = build_input_spec(input_type)
             stack.enter_context(spec.apply_candidate(candidate))
 
         yield
+

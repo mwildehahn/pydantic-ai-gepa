@@ -72,12 +72,12 @@ def test_duplicate_attachment_reuses_placeholder() -> None:
 
     system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
-Inputs
+Inputs:
 
 - `<reference>` (ReferenceModel): Structured reference data
 - `<repeated>` (Sequence[UnionType[str, ImageUrl, AudioUrl, DocumentUrl, VideoUrl, BinaryContent]]): Repeated attachments for reuse. Provide references using the appropriate attachment types (audio, binary, document, image, video).
 
-Schemas
+Schemas:
 
 ReferenceModel
   - `<attachment>` (ImageUrl): The attachment field. Provide an image reference using the appropriate attachment type.

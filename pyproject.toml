@@ -19,8 +19,11 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "cloudpickle>=3.0.0",
-    "gepa>=0.0.12",
-    "pydantic-ai>=1.5.0",
+    "pydantic-ai @ git+file:///Users/mh/labs/pydantic-ai@1f4d88e07a0450cb74c4d1c94d85b87fb391932e",
+    "pydantic-graph @ git+file:///Users/mh/labs/pydantic-ai@1f4d88e07a0450cb74c4d1c94d85b87fb391932e#subdirectory=pydantic_graph",
+    "rich>=13.7.1",
+    "logfire>=4.14.2",
+    "mcp-run-python>=0.0.21",
 ]
 
 [dependency-groups]
@@ -30,7 +33,7 @@ dev = [
     "inline-snapshot>=0.29.0",
     "pytest-asyncio>=1.2.0",
     "ipdb>=0.13.13",
-    "logfire>=4.7.0",
+    "logfire>=4.14.2",
     "pyright>=1.1.405",
     "time-machine>=2.19.0",
 ]

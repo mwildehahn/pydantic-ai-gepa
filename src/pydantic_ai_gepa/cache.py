@@ -10,7 +10,14 @@ from typing import Any, Callable, TypeVar
 
 import cloudpickle
 
-from .types import DataInst, DataInstWithPrompt, DataInstWithInput, RolloutOutput, Trajectory
+from .types import (
+    DataInst,
+    DataInstWithPrompt,
+    DataInstWithInput,
+    MetricResult,
+    RolloutOutput,
+    Trajectory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +37,7 @@ class CacheManager:
         cache_dir: str | Path | None = None,
         enabled: bool = True,
         verbose: bool = False,
+        model_identifier: str | None = None,
     ):
         """Initialize the cache manager.
 
@@ -38,9 +46,13 @@ class CacheManager:
                       in the current working directory.
             enabled: Whether caching is enabled.
             verbose: Whether to log cache hits and misses.
+            model_identifier: Optional string that scopes cache entries to a specific
+                model (e.g., ``openai:gpt-4o``). When provided, cache keys include
+                this identifier so different models never share cached artifacts.
         """
         self.enabled = enabled
         self.verbose = verbose
+        self.model_identifier = model_identifier
 
         if cache_dir is None:
             cache_dir = Path.cwd() / ".gepa_cache"
@@ -52,7 +64,8 @@ class CacheManager:
             if self.verbose:
                 logger.info(f"Cache enabled at: {self.cache_dir}")
 
-    def _serialize_for_key(self, obj: Any) -> str:
+    @staticmethod
+    def _serialize_for_key(obj: Any) -> str:
         """Convert an object to a stable string representation for cache key generation.
 
         This handles various types including dataclasses, dicts, lists, and primitives.
@@ -62,11 +75,13 @@ class CacheManager:
         elif isinstance(obj, (str, int, float, bool)):
             return str(obj)
         elif isinstance(obj, (list, tuple)):
-            return f"[{','.join(self._serialize_for_key(item) for item in obj)}]"
+            return (
+                f"[{','.join(CacheManager._serialize_for_key(item) for item in obj)}]"
+            )
         elif isinstance(obj, dict):
             # Sort dict keys for stable serialization
             sorted_items = sorted(obj.items())
-            return f"{{{','.join(f'{self._serialize_for_key(k)}:{self._serialize_for_key(v)}' for k, v in sorted_items)}}}"
+            return f"{{{','.join(f'{CacheManager._serialize_for_key(k)}:{CacheManager._serialize_for_key(v)}' for k, v in sorted_items)}}}"
         # Special handling for pydantic-ai message parts to exclude timestamp
         elif type(obj).__name__ in [
             "UserPromptPart",
@@ -81,20 +96,20 @@ class CacheManager:
             # For message parts, exclude timestamp field for stable cache keys
             obj_dict = obj.__dict__.copy() if hasattr(obj, "__dict__") else {}
             obj_dict.pop("timestamp", None)  # Remove timestamp if present
-            return self._serialize_for_key(obj_dict)
+            return CacheManager._serialize_for_key(obj_dict)
         elif is_dataclass(obj):
             # Convert dataclass to dict and serialize
             # Handle dataclass instances
             if not isinstance(obj, type):
                 from dataclasses import asdict
 
-                return self._serialize_for_key(asdict(obj))
+                return CacheManager._serialize_for_key(asdict(obj))
             else:
                 # If it's a dataclass type (not instance), use its name
                 return f"DataclassType:{obj.__name__}"
         elif hasattr(obj, "__dict__"):
             # For other objects, try to use their __dict__
-            return self._serialize_for_key(obj.__dict__)
+            return CacheManager._serialize_for_key(obj.__dict__)
         else:
             # Fallback to string representation
             return str(obj)
@@ -105,6 +120,7 @@ class CacheManager:
         output: RolloutOutput[Any] | None,
         candidate: dict[str, str],
         key_type: str = "metric",
+        model_identifier: str | None = None,
     ) -> str:
         """Generate a unique cache key.
 
@@ -115,6 +131,12 @@ class CacheManager:
         - The candidate prompts being evaluated
         """
         key_parts = [f"type:{key_type}"]
+
+        resolved_model_identifier = model_identifier or self.model_identifier
+        if resolved_model_identifier:
+            key_parts.append(
+                f"model:{self._serialize_for_key(resolved_model_identifier)}"
+            )
 
         # Add data instance information
         if isinstance(data_inst, DataInstWithPrompt):
@@ -149,18 +171,25 @@ class CacheManager:
         hash_obj = hashlib.sha256(combined.encode("utf-8"))
         return hash_obj.hexdigest()
 
+    def set_model_identifier(self, model_identifier: str | None) -> None:
+        """Configure the default model identifier used for cache keys."""
+        self.model_identifier = model_identifier
+
     def get_cached_metric_result(
         self,
         data_inst: DataInst,
         output: RolloutOutput[Any],
         candidate: dict[str, str],
-    ) -> tuple[float, str | None] | None:
+        model_identifier: str | None = None,
+    ) -> MetricResult | None:
         """Get cached metric result if available.
 
         Args:
             data_inst: The data instance being evaluated.
             output: The output from the agent run.
             candidate: The candidate prompts being evaluated.
+            model_identifier: Optional override for the model identifier to use when
+                computing the cache key. Defaults to the manager-level identifier.
 
         Returns:
             Cached (score, feedback) tuple if found, None otherwise.
@@ -168,17 +197,23 @@ class CacheManager:
         if not self.enabled:
             return None
 
-        cache_key = self._generate_cache_key(data_inst, output, candidate, "metric")
+        cache_key = self._generate_cache_key(
+            data_inst,
+            output,
+            candidate,
+            "metric",
+            model_identifier=model_identifier,
+        )
         cache_file = self.cache_dir / f"{cache_key}.pkl"
 
         if cache_file.exists():
             try:
                 with open(cache_file, "rb") as f:
-                    cached_result = cloudpickle.load(f)
+                    cached_result: MetricResult = cloudpickle.load(f)
 
                 if self.verbose:
                     logger.info(
-                        f"Cache hit for case {data_inst.case_id}: score={cached_result[0]}"
+                        f"Cache hit for case {data_inst.case_id}: score={cached_result.score}"
                     )
 
                 return cached_result
@@ -196,8 +231,8 @@ class CacheManager:
         data_inst: DataInst,
         output: RolloutOutput[Any],
         candidate: dict[str, str],
-        score: float,
-        feedback: str | None,
+        metric_result: MetricResult,
+        model_identifier: str | None = None,
     ) -> None:
         """Cache a metric evaluation result.
 
@@ -205,22 +240,27 @@ class CacheManager:
             data_inst: The data instance that was evaluated.
             output: The output from the agent run.
             candidate: The candidate prompts that were evaluated.
-            score: The computed score.
-            feedback: Optional feedback string.
+            metric_result: The computed metric result.
         """
         if not self.enabled:
             return
 
-        cache_key = self._generate_cache_key(data_inst, output, candidate, "metric")
+        cache_key = self._generate_cache_key(
+            data_inst,
+            output,
+            candidate,
+            "metric",
+            model_identifier=model_identifier,
+        )
         cache_file = self.cache_dir / f"{cache_key}.pkl"
 
         try:
             with open(cache_file, "wb") as f:
-                cloudpickle.dump((score, feedback), f)
+                cloudpickle.dump(metric_result, f)
 
             if self.verbose:
                 logger.debug(
-                    f"Cached result for case {data_inst.case_id}: score={score}"
+                    f"Cached result for case {data_inst.case_id}: score={metric_result.score}"
                 )
         except Exception as e:
             logger.warning(f"Failed to cache result: {e}")
@@ -245,6 +285,7 @@ class CacheManager:
         data_inst: DataInst,
         candidate: dict[str, str],
         capture_traces: bool,
+        model_identifier: str | None = None,
     ) -> tuple[Trajectory | None, RolloutOutput[Any]] | None:
         """Get cached agent run result if available.
 
@@ -259,7 +300,13 @@ class CacheManager:
         if not self.enabled:
             return None
 
-        cache_key = self._generate_cache_key(data_inst, None, candidate, "agent_run")
+        cache_key = self._generate_cache_key(
+            data_inst,
+            None,
+            candidate,
+            "agent_run",
+            model_identifier=model_identifier,
+        )
         # Add capture_traces to the key to differentiate
         cache_key = f"{cache_key}_traces_{capture_traces}"
         cache_file = self.cache_dir / f"{cache_key}.pkl"
@@ -289,6 +336,7 @@ class CacheManager:
         trajectory: Trajectory | None,
         output: RolloutOutput[Any],
         capture_traces: bool,
+        model_identifier: str | None = None,
     ) -> None:
         """Cache an agent run result.
 
@@ -302,7 +350,13 @@ class CacheManager:
         if not self.enabled:
             return
 
-        cache_key = self._generate_cache_key(data_inst, None, candidate, "agent_run")
+        cache_key = self._generate_cache_key(
+            data_inst,
+            None,
+            candidate,
+            "agent_run",
+            model_identifier=model_identifier,
+        )
         # Add capture_traces to the key to differentiate
         cache_key = f"{cache_key}_traces_{capture_traces}"
         cache_file = self.cache_dir / f"{cache_key}.pkl"
@@ -338,10 +392,12 @@ class CacheManager:
 
 
 def create_cached_metric(
-    metric: Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]],
+    metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
     cache_manager: CacheManager,
     candidate: dict[str, str],
-) -> Callable[[DataInstT, RolloutOutput[Any]], tuple[float, str | None]]:
+    *,
+    model_identifier: str | None = None,
+) -> Callable[[DataInstT, RolloutOutput[Any]], MetricResult]:
     """Create a cached version of a metric function.
 
     This wrapper function checks the cache before calling the actual metric,
@@ -351,6 +407,8 @@ def create_cached_metric(
         metric: The original metric function.
         cache_manager: The cache manager to use.
         candidate: The current candidate being evaluated.
+        model_identifier: Optional override for the model identifier. When not
+            provided, the cache manager's configured identifier (if any) is used.
 
     Returns:
         A wrapped metric function that uses caching.
@@ -359,21 +417,30 @@ def create_cached_metric(
     def cached_metric(
         data_inst: DataInstT,
         output: RolloutOutput[Any],
-    ) -> tuple[float, str | None]:
+    ) -> MetricResult:
         # Check cache first
         cached_result = cache_manager.get_cached_metric_result(
-            data_inst, output, candidate
+            data_inst,
+            output,
+            candidate,
+            model_identifier=model_identifier,
         )
 
         if cached_result is not None:
             return cached_result
 
         # Call the actual metric
-        score, feedback = metric(data_inst, output)
+        metric_result = metric(data_inst, output)
 
         # Cache the result
-        cache_manager.cache_metric_result(data_inst, output, candidate, score, feedback)
+        cache_manager.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            metric_result,
+            model_identifier=model_identifier,
+        )
 
-        return score, feedback
+        return metric_result
 
     return cached_metric

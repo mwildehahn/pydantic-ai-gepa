@@ -4,15 +4,34 @@ from __future__ import annotations
 
 import tempfile
 
+import pytest
 from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
 
 from pydantic_ai_gepa.cache import CacheManager, create_cached_metric
-from pydantic_ai_gepa.reflection import ProposalOutput, UpdatedComponent
-from pydantic_ai_gepa.runner import optimize_agent_prompts
-from pydantic_ai_gepa.types import DataInstWithInput, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
+    ComponentUpdate,
+    InstructionProposalOutput,
+    TrajectoryAnalysis,
+)
+from pydantic_ai_gepa.runner import optimize_agent
+from pydantic_ai_gepa.types import (
+    DataInstWithInput,
+    DataInstWithPrompt,
+    MetricResult,
+    RolloutOutput,
+)
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
+
+
+def _dummy_reasoning() -> TrajectoryAnalysis:
+    return TrajectoryAnalysis(
+        pattern_discovery="baseline patterns observed in testing",
+        creative_hypothesis="placeholder hypothesis for unit tests",
+        experimental_approach="placeholder approach for unit tests",
+    )
 
 
 def test_cache_manager_basic():
@@ -36,12 +55,17 @@ def test_cache_manager_basic():
         assert result is None
 
         # Cache a result
-        cache.cache_metric_result(data_inst, output, candidate, 0.95, "Good job")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            MetricResult(score=0.95, feedback="Good job"),
+        )
 
         # Now cache should hit
         result = cache.get_cached_metric_result(data_inst, output, candidate)
         assert result is not None
-        assert result == (0.95, "Good job")
+        assert result == MetricResult(score=0.95, feedback="Good job")
 
         # Different candidate should miss
         different_candidate = {"instructions": "Different instructions"}
@@ -62,6 +86,78 @@ def test_cache_manager_basic():
         cache.clear_cache()
         stats = cache.get_cache_stats()
         assert stats["num_cached_results"] == 0
+
+
+def test_cache_scopes_entries_by_model():
+    """Cache keys should include the model identifier."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache = CacheManager(cache_dir=tmpdir, enabled=True, verbose=False)
+
+        data_inst = DataInstWithPrompt(
+            user_prompt=UserPromptPart(content="Test prompt"),
+            message_history=None,
+            metadata={"label": "positive"},
+            case_id="case-1",
+        )
+        output = RolloutOutput.from_success("positive")
+        candidate = {"instructions": "Classify sentiment"}
+
+        result_a = MetricResult(score=0.9, feedback="model-a")
+        result_b = MetricResult(score=0.5, feedback="model-b")
+
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            result_a,
+            model_identifier="model-a",
+        )
+
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-a",
+            )
+            == result_a
+        )
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-b",
+            )
+            is None
+        )
+
+        cache.set_model_identifier("model-b")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            result_b,
+        )
+
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-b",
+            )
+            == result_b
+        )
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-a",
+            )
+            == result_a
+        )
 
 
 def test_cache_manager_with_signature():
@@ -88,11 +184,16 @@ def test_cache_manager_with_signature():
         }
 
         # Cache a result
-        cache.cache_metric_result(data_inst, output, candidate, 1.0, "Correct")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            MetricResult(score=1.0, feedback="Correct"),
+        )
 
         # Should get cache hit with same inputs
         result = cache.get_cached_metric_result(data_inst, output, candidate)
-        assert result == (1.0, "Correct")
+        assert result == MetricResult(score=1.0, feedback="Correct")
 
         # Different signature value should miss
         data_inst2 = DataInstWithInput(
@@ -123,7 +224,12 @@ def test_cache_manager_disabled():
     assert result is None
 
     # Caching should be no-op
-    cache.cache_metric_result(data_inst, output, candidate, 0.5, "Feedback")
+    cache.cache_metric_result(
+        data_inst,
+        output,
+        candidate,
+        MetricResult(score=0.5, feedback="Feedback"),
+    )
     result = cache.get_cached_metric_result(data_inst, output, candidate)
     assert result is None
 
@@ -143,7 +249,7 @@ def test_create_cached_metric():
         def mock_metric(data_inst, output):
             nonlocal call_count
             call_count += 1
-            return 0.8, f"Call {call_count}"
+            return MetricResult(score=0.8, feedback=f"Call {call_count}")
 
         # Create cached version
         candidate = {"instructions": "Test"}
@@ -159,15 +265,15 @@ def test_create_cached_metric():
         output = RolloutOutput.from_success("Result")
 
         # First call should invoke the metric
-        score, feedback = cached_metric(data_inst, output)
-        assert score == 0.8
-        assert feedback == "Call 1"
+        result = cached_metric(data_inst, output)
+        assert result.score == 0.8
+        assert result.feedback == "Call 1"
         assert call_count == 1
 
         # Second call with same inputs should use cache
-        score, feedback = cached_metric(data_inst, output)
-        assert score == 0.8
-        assert feedback == "Call 1"  # Same feedback
+        result = cached_metric(data_inst, output)
+        assert result.score == 0.8
+        assert result.feedback == "Call 1"  # Same feedback
         assert call_count == 1  # Metric not called again
 
         # Different inputs should invoke metric again
@@ -177,14 +283,15 @@ def test_create_cached_metric():
             metadata={},
             case_id="test-2",
         )
-        score, feedback = cached_metric(data_inst2, output)
-        assert score == 0.8
-        assert feedback == "Call 2"
+        result = cached_metric(data_inst2, output)
+        assert result.score == 0.8
+        assert result.feedback == "Call 2"
         assert call_count == 2
 
 
-def test_optimize_agent_prompts_with_caching():
-    """Test that optimize_agent_prompts works with caching enabled."""
+@pytest.mark.asyncio
+async def test_optimize_agent_with_caching():
+    """Test that optimize_agent works with caching enabled."""
     with tempfile.TemporaryDirectory() as tmpdir:
         # Create a simple dataset
         trainset = [
@@ -205,7 +312,7 @@ def test_optimize_agent_prompts_with_caching():
             predicted = str(output.result).lower() if output.success else ""
             expected = data_inst.metadata.get("label", "").lower()
             score = 1.0 if predicted == expected else 0.0
-            return score, f"Score: {score}"
+            return MetricResult(score=score, feedback=f"Score: {score}")
 
         # Create agent
         agent = Agent(
@@ -213,26 +320,26 @@ def test_optimize_agent_prompts_with_caching():
             instructions="Classify text as positive, negative, or neutral.",
         )
 
-        reflection_output = ProposalOutput(
+        reflection_output = InstructionProposalOutput(
+            reasoning=_dummy_reasoning(),
             updated_components=[
-                UpdatedComponent(
-                    component_name="instructions", optimized_value="Updated"
+                ComponentUpdate(
+                    component_name="instructions",
+                    optimized_value="Updated",
                 )
-            ]
+            ],
         )
         reflection_model = TestModel(
             custom_output_args=reflection_output.model_dump(mode="python")
         )
 
         # First run with caching enabled
-        result1 = optimize_agent_prompts(
+        result1 = await optimize_agent(
             agent=agent,
             trainset=trainset,
             metric=metric,
             reflection_model=reflection_model,
             max_metric_calls=15,
-            display_progress_bar=False,
-            track_best_outputs=False,
             seed=42,
             enable_cache=True,
             cache_dir=tmpdir,
@@ -247,14 +354,12 @@ def test_optimize_agent_prompts_with_caching():
         metric_calls.clear()
 
         # Second run should use cache for overlapping evaluations
-        result2 = optimize_agent_prompts(
+        result2 = await optimize_agent(
             agent=agent,
             trainset=trainset,
             metric=metric,
             reflection_model=reflection_model,
             max_metric_calls=15,
-            display_progress_bar=False,
-            track_best_outputs=False,
             seed=42,  # Same seed to get same behavior
             enable_cache=True,
             cache_dir=tmpdir,
@@ -287,12 +392,15 @@ def test_cache_handles_errors():
 
         # Should be able to cache error results
         cache.cache_metric_result(
-            data_inst, error_output, candidate, 0.0, "Error occurred"
+            data_inst,
+            error_output,
+            candidate,
+            MetricResult(score=0.0, feedback="Error occurred"),
         )
 
         # Should retrieve cached error result
         result = cache.get_cached_metric_result(data_inst, error_output, candidate)
-        assert result == (0.0, "Error occurred")
+        assert result == MetricResult(score=0.0, feedback="Error occurred")
 
         # Success output with same data should be different cache key
         success_output = RolloutOutput.from_success("Result")
@@ -314,9 +422,7 @@ def test_cache_agent_runs():
         )
 
         output = RolloutOutput.from_success("Agent result")
-        from pydantic_ai_gepa.types import Trajectory
-
-        trajectory = Trajectory(messages=[], final_output="Agent result", error=None)
+        trajectory = AgentAdapterTrajectory(messages=[], final_output="Agent result", error=None)
         candidate = {"instructions": "Test instructions"}
 
         # Initially, cache should miss
@@ -382,11 +488,16 @@ def test_cache_key_stability():
         }
 
         # Cache with first candidate
-        cache.cache_metric_result(data_inst, output, candidate1, 0.9, "Good")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate1,
+            MetricResult(score=0.9, feedback="Good"),
+        )
 
         # Should get cache hit with reordered candidate
         result = cache.get_cached_metric_result(data_inst, output, candidate2)
-        assert result == (0.9, "Good")
+        assert result == MetricResult(score=0.9, feedback="Good")
 
         # Test with reordered metadata
         data_inst2 = DataInstWithPrompt(
@@ -398,4 +509,4 @@ def test_cache_key_stability():
 
         # Should still get cache hit
         result = cache.get_cached_metric_result(data_inst2, output, candidate1)
-        assert result == (0.9, "Good")
+        assert result == MetricResult(score=0.9, feedback="Good")

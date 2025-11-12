@@ -2,48 +2,19 @@
 
 from __future__ import annotations
 
-import asyncio
 import contextvars
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from threading import Thread
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 from pydantic_ai._run_context import RunContext
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.agent.wrapper import WrapperAgent
-from pydantic_ai.models import Model
-from pydantic_ai.models.test import TestModel
+from pydantic_ai.builtin_tools import AbstractBuiltinTool
 from pydantic_ai.tools import ToolDefinition
-from pydantic_ai.usage import RunUsage
 
 ToolCandidate = dict[str, str]
-
-
-def _run_coro_sync(coro: asyncio.Future[Any] | asyncio.coroutines.Coroutine[Any, Any, Any]) -> Any:
-    """Run a coroutine in sync context, even if an event loop is already running."""
-    try:
-        asyncio.get_running_loop()
-    except RuntimeError:
-        return asyncio.run(coro)
-
-    result: list[Any] = []
-    error: list[BaseException] = []
-
-    def _runner() -> None:
-        try:
-            result.append(asyncio.run(coro))
-        except BaseException as exc:  # noqa: BLE001
-            error.append(exc)
-
-    thread = Thread(target=_runner)
-    thread.start()
-    thread.join()
-
-    if error:
-        raise error[0]
-    return result[0] if result else None
 
 
 def _unwrap_agent(agent: AbstractAgent[Any, Any]) -> AbstractAgent[Any, Any]:
@@ -52,17 +23,6 @@ def _unwrap_agent(agent: AbstractAgent[Any, Any]) -> AbstractAgent[Any, Any]:
     while isinstance(current, WrapperAgent):
         current = current.wrapped
     return current
-
-
-def _build_run_context(agent: AbstractAgent[Any, Any]) -> RunContext[Any]:
-    """Create a minimal RunContext for tool preparation."""
-    model = getattr(agent, "model", None)
-    if not isinstance(model, Model):
-        model_instance: Model = TestModel()
-    else:
-        model_instance = model
-
-    return RunContext(deps=None, model=model_instance, usage=RunUsage())
 
 
 def _description_key(tool_name: str) -> str:
@@ -139,37 +99,62 @@ def _set_schema_description(schema: dict[str, Any], path: tuple[str, ...], value
 
 
 @dataclass
-class ToolComponentInfo:
-    """Component metadata for a single tool."""
+class ToolMetadata:
+    """Collected metadata for an individual tool."""
 
+    name: str
     description_key: str | None
     parameter_paths: dict[str, tuple[str, ...]]
 
 
-def _extract_components(tool_defs: Iterable[ToolDefinition]) -> tuple[dict[str, str], dict[str, ToolComponentInfo]]:
-    """Extract component seeds and metadata from tool definitions."""
-    seed_components: dict[str, str] = {}
-    component_info: dict[str, ToolComponentInfo] = {}
+class ToolComponentCatalog:
+    """Tracks tool component metadata and seed values."""
 
-    for tool_def in tool_defs:
+    def __init__(self) -> None:
+        self._seed_components: dict[str, str] = {}
+        self._metadata: dict[str, ToolMetadata] = {}
+
+    def ingest(self, tool_defs: Iterable[ToolDefinition]) -> None:
+        """Add tool definitions to the catalog."""
+        for tool_def in tool_defs:
+            metadata = self._describe_tool(tool_def)
+            if metadata is None:
+                continue
+            self._metadata[metadata.name] = metadata
+
+    def _describe_tool(self, tool_def: ToolDefinition) -> ToolMetadata | None:
         description_key: str | None = None
         parameter_paths: dict[str, tuple[str, ...]] = {}
 
         if isinstance(tool_def.description, str) and tool_def.description.strip():
             description_key = _description_key(tool_def.name)
-            seed_components[description_key] = tool_def.description
+            self._seed_components.setdefault(description_key, tool_def.description)
 
         for path, desc in _iter_schema_descriptions(tool_def.parameters_json_schema):
             key = _parameter_key(tool_def.name, path)
-            seed_components[key] = desc
             parameter_paths[key] = path
+            self._seed_components.setdefault(key, desc)
 
-        component_info[tool_def.name] = ToolComponentInfo(
+        if not description_key and not parameter_paths:
+            return None
+
+        return ToolMetadata(
+            name=tool_def.name,
             description_key=description_key,
             parameter_paths=parameter_paths,
         )
 
-    return seed_components, component_info
+    def seed_snapshot(self) -> dict[str, str]:
+        """Return a copy of the seed component values."""
+        return dict(self._seed_components)
+
+    def component_keys(self) -> list[str]:
+        """Return the ordered list of component keys."""
+        return list(self._seed_components.keys())
+
+    def metadata_for(self, tool_name: str) -> ToolMetadata | None:
+        """Return metadata for a specific tool if available."""
+        return self._metadata.get(tool_name)
 
 
 class ToolOptimizationManager:
@@ -181,8 +166,8 @@ class ToolOptimizationManager:
         self._candidate_var: contextvars.ContextVar[ToolCandidate | None] = contextvars.ContextVar(
             "gepa_tool_candidate", default=None
         )
-        self._tool_components: dict[str, ToolComponentInfo] = {}
-        self._seed_components: dict[str, str] | None = None
+        self._catalog = ToolComponentCatalog()
+        self._latest_builtin_tools: list[AbstractBuiltinTool] = []
 
         # Install wrapper only once.
         if getattr(self._base_agent, "_gepa_tool_prepare_wrapper", None) is None:
@@ -191,29 +176,30 @@ class ToolOptimizationManager:
 
     def get_seed_components(self) -> dict[str, str]:
         """Return cached seed components, collecting them if necessary."""
-        if self._seed_components is not None:
-            return dict(self._seed_components)
-
-        try:
-            tool_defs = _run_coro_sync(self._fetch_tool_definitions()) or []
-        except Exception:
-            return {}
-
-        if not tool_defs:
-            return {}
-
-        seed_components, component_info = _extract_components(tool_defs)
-        self._seed_components = dict(seed_components)
-        self._tool_components = component_info
-        return dict(seed_components)
+        return self._catalog.seed_snapshot()
 
     def get_component_keys(self) -> list[str]:
         """Return all known component keys."""
-        components = self.get_seed_components()
-        return list(components.keys())
+        return self._catalog.component_keys()
+
+    def record_model_request(
+        self,
+        *,
+        function_tools: Iterable[ToolDefinition] | None = None,
+        builtin_tools: Iterable[AbstractBuiltinTool] | None = None,
+    ) -> None:
+        """Update internal state from a completed ModelRequest."""
+        if function_tools:
+            self._catalog.ingest(function_tools)
+        if builtin_tools:
+            self._latest_builtin_tools = list(builtin_tools)
+
+    def latest_builtin_tools(self) -> list[AbstractBuiltinTool]:
+        """Return the most recent builtin tools observed."""
+        return list(self._latest_builtin_tools)
 
     @contextmanager
-    def candidate_context(self, candidate: dict[str, str] | None) -> Iterable[None]:
+    def candidate_context(self, candidate: dict[str, str] | None) -> Iterator[None]:
         """Context manager to apply a candidate during tool preparation."""
         filtered = self._filter_candidate(candidate)
         token = self._candidate_var.set(filtered)
@@ -221,14 +207,6 @@ class ToolOptimizationManager:
             yield
         finally:
             self._candidate_var.reset(token)
-
-    async def _fetch_tool_definitions(self) -> list[ToolDefinition]:
-        toolset = self._base_agent._get_toolset()  # type: ignore[attr-defined]
-        ctx = _build_run_context(self._base_agent)
-
-        async with toolset:
-            tools_dict = await toolset.get_tools(ctx)
-        return [tool.tool_def for tool in tools_dict.values()]
 
     def _filter_candidate(self, candidate: dict[str, str] | None) -> ToolCandidate | None:
         if not candidate:
@@ -246,13 +224,7 @@ class ToolOptimizationManager:
                 return None
             prepared = prepared_result
 
-        seed_components, component_info = _extract_components(prepared)
-        if self._seed_components is None:
-            self._seed_components = dict(seed_components)
-        else:
-            for key, value in seed_components.items():
-                self._seed_components.setdefault(key, value)
-        self._tool_components = component_info
+        self._catalog.ingest(prepared)
 
         candidate = self._candidate_var.get()
         if not candidate:
@@ -271,14 +243,14 @@ class ToolOptimizationManager:
     def _apply_candidate_to_tool(
         self, tool_def: ToolDefinition, candidate: ToolCandidate
     ) -> ToolDefinition:
-        info = self._tool_components.get(tool_def.name)
-        if not info:
+        metadata = self._catalog.metadata_for(tool_def.name)
+        if metadata is None:
             return tool_def
 
         updates: dict[str, Any] = {}
 
-        if info.description_key:
-            raw_value = candidate.get(info.description_key)
+        if metadata.description_key:
+            raw_value = candidate.get(metadata.description_key)
             if raw_value is not None:
                 new_description = str(raw_value)
                 if tool_def.description != new_description:
@@ -287,7 +259,7 @@ class ToolOptimizationManager:
         schema_copy: dict[str, Any] | None = None
         schema_changed = False
 
-        for key, path in info.parameter_paths.items():
+        for key, path in metadata.parameter_paths.items():
             if key not in candidate:
                 continue
             raw_value = candidate[key]
@@ -305,6 +277,7 @@ class ToolOptimizationManager:
         if updates:
             return replace(tool_def, **updates)
         return tool_def
+
 
 
 def get_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimizationManager | None:
@@ -325,5 +298,32 @@ def get_or_create_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimiza
 
     manager = ToolOptimizationManager(base_agent)
     setattr(base_agent, "_gepa_tool_optimizer", manager)
+    initial = _collect_registered_tool_defs(base_agent)
+    if initial:
+        manager.record_model_request(function_tools=initial)
     return manager
 
+
+def _collect_registered_tool_defs(agent: AbstractAgent[Any, Any]) -> list[ToolDefinition]:
+    """Return ToolDefinition objects for currently registered function tools."""
+    toolset = getattr(agent, "_function_toolset", None)
+    tools = getattr(toolset, "tools", None) if toolset is not None else None
+    if not isinstance(tools, dict):
+        return []
+
+    definitions: list[ToolDefinition] = []
+    for tool in tools.values():
+        schema = getattr(tool, "function_schema", None)
+        json_schema = getattr(schema, "json_schema", None)
+        if not isinstance(json_schema, dict):
+            continue
+        description = getattr(tool, "description", None)
+        name = getattr(tool, "name", getattr(tool, "__name__", "tool"))
+        definitions.append(
+            ToolDefinition(
+                name=name,
+                description=description,
+                parameters_json_schema=json_schema,
+            )
+        )
+    return definitions

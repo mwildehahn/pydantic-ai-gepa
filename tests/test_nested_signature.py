@@ -121,14 +121,14 @@ def test_to_user_content_with_nested_models():
     assert system_instructions == snapshot("""\
 Help the customer quickly
 
-Inputs
+Inputs:
 
 - `<customer_name>` (str): OPTIMIZED: Customer full legal name
 - `<query>` (str): The customer's question or issue
 - `<billing_address>` (Address): Customer's billing address
 - `<shipping_address>` (UnionType[Address, NoneType]): Optional shipping address
 
-Schemas
+Schemas:
 
 Address
   - `<street>` (str): Street address

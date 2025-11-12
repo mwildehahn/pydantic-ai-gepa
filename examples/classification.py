@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime
 from pathlib import Path
@@ -9,9 +10,9 @@ from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
 
-from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent_prompts
+from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
+from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -303,14 +304,14 @@ eval_signature_agent = SignatureAgent(
 def metric(
     data_inst: DataInstWithInput[ClassificationInput],
     output: RolloutOutput[ClassificationOutput],
-) -> tuple[float, str | None]:
+) -> MetricResult:
     if (
         output.success
         and output.result
         and output.result.category == data_inst.metadata["label"]
     ):
         print("Correct")
-        return 1.0, "Correct"
+        return MetricResult(score=1.0, feedback="Correct")
 
     eval_signature = EvaluationInput(
         text=data_inst.input.text,
@@ -328,10 +329,10 @@ def metric(
 
     score = eval_output.output.score
     feedback = eval_output.output.feedback
-    return score, feedback
+    return MetricResult(score=score, feedback=feedback)
 
 
-if __name__ == "__main__":
+async def main() -> None:
     output_dir = Path("optimization_results")
     output_dir.mkdir(exist_ok=True)
 
@@ -350,7 +351,7 @@ if __name__ == "__main__":
         ),
     )
 
-    result = optimize_agent_prompts(
+    result = await optimize_agent(
         agent=signature_agent,
         seed_candidate=seed_result.best_candidate,
         trainset=signature_dataset[:15],
@@ -360,8 +361,6 @@ if __name__ == "__main__":
         input_type=ClassificationInput,
         reflection_model=reflection_model,
         max_metric_calls=200,
-        display_progress_bar=True,
-        track_best_outputs=True,
         enable_cache=True,
         cache_dir=".gepa_cache",
         cache_verbose=True,
@@ -379,10 +378,21 @@ if __name__ == "__main__":
         json.dump(result_dict, f, indent=2)
 
     print(f"\n✅ Optimization result saved to: {output_file}")
-    print(f"   Best score: {result.best_score:.4f}")
+    if result.best_score is not None:
+        print(f"   Best score: {result.best_score:.4f}")
+    else:
+        print("   Best score: N/A")
     print(f"   Iterations: {result.num_iterations}")
     print(f"   Metric calls: {result.num_metric_calls}")
-    print(f"   Improvement: {result.improvement_ratio():.4f}")
+    improvement = result.improvement_ratio()
+    if improvement is not None:
+        print(f"   Improvement: {improvement:.4f}")
+    else:
+        print("   Improvement: N/A")
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
 
 # The original prompt was roughly:
 #

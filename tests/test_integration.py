@@ -1,18 +1,27 @@
 """Integration tests for pydantic-ai-gepa."""
 
 from typing import Any
+
+import pytest
 from inline_snapshot import snapshot
-from pydantic_ai_gepa.adapter import PydanticAIGEPAAdapter
+from pydantic_ai import Agent
+from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.models.test import TestModel
+import time_machine
+
+import pydantic_ai_gepa.adapters.agent_adapter as agent_adapter_module
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
-
-from pydantic_ai import Agent
-from pydantic_ai.messages import UserPromptPart
-from pydantic_ai.models.test import TestModel
-import time_machine
+from pydantic_ai_gepa.adapter import SharedReflectiveDataset
+from pydantic_ai_gepa.types import (
+    DataInst,
+    DataInstWithPrompt,
+    MetricResult,
+    RolloutOutput,
+)
 
 
 def test_extract_seed_candidate():
@@ -41,20 +50,19 @@ def test_get_component_names():
     assert len(components) == 1
 
 
-def test_process_data_instance():
+@pytest.mark.asyncio
+async def test_process_data_instance():
     """Test processing a single data instance."""
     agent = Agent(
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(
-        data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> tuple[float, str | None]:
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
         if output.success:
-            return (0.8, "Good")
-        return (0.0, "Failed")
+            return MetricResult(score=0.8, feedback="Good")
+        return MetricResult(score=0.0, feedback="Failed")
 
-    adapter = PydanticAIGEPAAdapter(agent, metric)
+    adapter = AgentAdapter(agent, metric)
 
     # Test without traces
     data_inst = DataInstWithPrompt(
@@ -63,7 +71,7 @@ def test_process_data_instance():
         metadata={},
         case_id="test-4",
     )
-    result = adapter.process_data_instance(data_inst, capture_traces=False)
+    result = await adapter.process_data_instance(data_inst, capture_traces=False)
 
     assert "output" in result
     assert "score" in result
@@ -72,7 +80,9 @@ def test_process_data_instance():
     assert "trajectory" not in result
 
     # Test with traces
-    result_with_trace = adapter.process_data_instance(data_inst, capture_traces=True)
+    result_with_trace = await adapter.process_data_instance(
+        data_inst, capture_traces=True
+    )
 
     assert "output" in result_with_trace
     assert "score" in result_with_trace
@@ -82,21 +92,78 @@ def test_process_data_instance():
     assert result_with_trace["trajectory"].final_output == "Test response"
 
 
+@pytest.mark.asyncio
+async def test_process_data_instance_captures_messages_on_tool_error():
+    """Ensure traces include prompt/response history even when tools fail."""
+    agent = Agent(TestModel(), instructions="Be helpful")
+
+    @agent.tool
+    async def broken_tool(ctx, code: str) -> str:
+        raise ValueError("boom")
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        return MetricResult(score=0.0, feedback="failed")
+
+    adapter = AgentAdapter(agent, metric)
+    data_inst = DataInstWithPrompt(
+        user_prompt=UserPromptPart(content="Hello"),
+        message_history=None,
+        metadata={},
+        case_id="tool-error",
+    )
+
+    result = await adapter.process_data_instance(data_inst, capture_traces=True)
+
+    assert result["output"].success is False
+    assert result["output"].error_kind == "tool"
+    trajectory = result["trajectory"]
+    assert trajectory.messages, "expected captured messages for debugging"
+    assert any(isinstance(message, ModelRequest) for message in trajectory.messages)
+
+
+@pytest.mark.asyncio
+async def test_process_data_instance_skips_system_error_trajectory(monkeypatch):
+    """System/library errors should not be surfaced to reflection trajectories."""
+    agent = Agent(TestModel(), instructions="Be helpful")
+
+    @agent.tool
+    async def broken_tool(ctx, code: str) -> str:
+        raise ValueError("boom")
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        return MetricResult(score=0.0, feedback="failed")
+
+    adapter = AgentAdapter(agent, metric)
+    data_inst = DataInstWithPrompt(
+        user_prompt=UserPromptPart(content="Hello"),
+        message_history=None,
+        metadata={},
+        case_id="system-error",
+    )
+
+    monkeypatch.setattr(agent_adapter_module, "_classify_exception", lambda exc: "system")
+
+    result = await adapter.process_data_instance(data_inst, capture_traces=True)
+
+    assert result["output"].success is False
+    assert result["output"].error_kind == "system"
+    assert "trajectory" not in result
+
+
+@pytest.mark.asyncio
 @time_machine.travel("2023-01-01", tick=False)
-def test_make_reflective_dataset():
+async def test_make_reflective_dataset():
     """Test making a reflective dataset."""
     agent = Agent(
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(
-        data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> tuple[float, str | None]:
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
         if output.success:
-            return (0.8, "Good")
-        return (0.0, "Failed")
+            return MetricResult(score=0.8, feedback="Good")
+        return MetricResult(score=0.0, feedback="Failed")
 
-    adapter = PydanticAIGEPAAdapter(agent, metric)
+    adapter = AgentAdapter(agent, metric)
     candidate = extract_seed_candidate(agent)
 
     data_inst = DataInstWithPrompt(
@@ -105,14 +172,16 @@ def test_make_reflective_dataset():
         metadata={},
         case_id="test-4",
     )
-    result = adapter.evaluate([data_inst], candidate, capture_traces=True)
+    result = await adapter.evaluate([data_inst], candidate, capture_traces=True)
 
     reflective_dataset = adapter.make_reflective_dataset(
-        candidate, result, ["instructions"]
+        candidate=candidate,
+        eval_batch=result,
+        components_to_update=["instructions"],
     )
     assert reflective_dataset == snapshot(
-        {
-            "instructions": [
+        SharedReflectiveDataset(
+            records=[
                 {
                     "user_prompt": "Hello",
                     "assistant_response": "Test response",
@@ -125,7 +194,7 @@ def test_make_reflective_dataset():
                                     "type": "user_prompt",
                                     "role": "user",
                                     "content": "Hello",
-                                    "timestamp": '2023-01-01T08:00:00+00:00',
+                                    "timestamp": "2023-01-01T08:00:00+00:00",
                                 }
                             ],
                             "instructions": "Be helpful",
@@ -133,7 +202,7 @@ def test_make_reflective_dataset():
                         {
                             "kind": "response",
                             "model_name": "test",
-                            "timestamp": '2023-01-01T08:00:00+00:00',
+                            "timestamp": "2023-01-01T08:00:00+00:00",
                             "parts": [
                                 {
                                     "type": "text",
@@ -171,5 +240,5 @@ def test_make_reflective_dataset():
                     "feedback": "Good",
                 }
             ]
-        }
+        )
     )

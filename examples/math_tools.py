@@ -1,105 +1,52 @@
+import argparse
+import asyncio
 import json
-import math
+import pprint
+from collections.abc import Sequence
 from datetime import datetime
-from decimal import Decimal
-from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import logfire
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent, RunContext
+from pydantic_ai import Agent, UsageLimits
+from pydantic_ai.models import KnownModelName, Model, infer_model
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
+from utils import run_python_tool
 
-from pydantic_ai_gepa.runner import optimize_agent_prompts
+from pydantic_ai_gepa import InspectingModel, InspectionAborted
+from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
+from pydantic_ai_gepa.cache import CacheManager
+from pydantic_ai_gepa.gepa_graph import (
+    CandidateSelectorStrategy,
+    GepaConfig,
+    GepaResult,
+    optimize,
+)
+from pydantic_ai_gepa.gepa_graph.models import CandidateProgram
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
+from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
 
-logfire.configure()
+logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
 logfire.instrument_httpx(capture_all=True)
 
 
-ALLOWED_BUILTINS: dict[str, Any] = {
-    "abs": abs,
-    "all": all,
-    "any": any,
-    "float": float,
-    "int": int,
-    "len": len,
-    "max": max,
-    "min": min,
-    "pow": pow,
-    "range": range,
-    "round": round,
-    "sorted": sorted,
-    "str": str,
-    "sum": sum,
-}
-
-EVAL_GLOBALS: dict[str, Any] = {
-    "__builtins__": ALLOWED_BUILTINS,
-    "Decimal": Decimal,
-    "Fraction": Fraction,
-    "math": math,
-}
-
-
-def evaluate_expression(expression: str) -> tuple[float, str]:
-    """Evaluate a Python expression inside the constrained math sandbox."""
-    stripped = expression.strip()
-    if not stripped:
-        raise ValueError("Expression is empty.")
-
-    try:
-        compiled = compile(stripped, "<python_eval>", "eval")
-    except SyntaxError as exc:
-        raise ValueError(
-            f"Expression must be a valid Python expression: {exc}"
-        ) from exc
-
-    try:
-        result = eval(compiled, EVAL_GLOBALS, {})
-    except Exception as exc:  # noqa: BLE001
-        raise ValueError(f"Expression raised an error: {exc}") from exc
-
-    if isinstance(result, bool):
-        raise ValueError("Expression returned a boolean, expected a numeric result.")
-
-    if isinstance(result, Decimal):
-        numeric = float(result)
-        display = format(result, "f")
-    elif isinstance(result, Fraction):
-        numeric = float(result)
-        display = f"{result.numerator}/{result.denominator}"
-    elif isinstance(result, (int, float)):
-        numeric = float(result)
-        display = str(result)
-    else:
-        raise TypeError(
-            f"Unsupported result type {type(result).__name__}; expected numeric output."
-        )
-
-    return numeric, display
-
-
 class MathProblemInput(BaseModel):
-    """A structured math prompt describing the calculation to perform."""
-
     problem: str = Field(
-        description="The math task that needs an exact numeric answer."
+        description="A math problem that needs an exact numeric answer."
     )
 
 
 class MathProblemOutput(BaseModel):
-    """The solved value and the expression that produced it."""
+    """The solved value and the code that produced it."""
 
     explanation: str = Field(
-        description="Two sentences max summarizing how the expression solves the problem."
+        description="Two sentences max summarizing how the code solves the problem."
     )
     expression: str = Field(
-        description="The Python expression evaluated via python_eval."
+        description="The complete Python script used to compute the answer (can be multi-line with imports)."
     )
     answer: float = Field(description="Numeric answer rounded only if necessary.")
 
@@ -112,7 +59,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.comb(100, 5)",
         "expected": 75_287_520.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 1,
         "feedback": "Use the combinatorics function from the math module to compute binomial coefficients directly.",
     },
     {
@@ -121,7 +67,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(int(d) for d in str(2 ** 200))",
         "expected": 256.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 1,
         "feedback": "Convert the large integer to a string first, then sum each digit character after converting back to int.",
     },
     {
@@ -130,7 +75,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.prod([2, 3, 5, 7, 11, 13, 17, 19, 23, 29])",
         "expected": 6_469_693_230.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 1,
         "feedback": "Use the product aggregation function from the math module to multiply list elements.",
     },
     # TIER 2: Conceptual ambiguity cases (boundary interpretation)
@@ -140,7 +84,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(11, 20))",
         "expected": 135.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "The phrase 'between A and B' typically excludes both endpoints. Verify whether the count matches your interpretation.",
     },
     {
@@ -149,7 +92,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(n**2 for n in range(5, 16)) / len(range(5, 16))",
         "expected": 110.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "The phrase 'from A through B' indicates inclusive bounds. Check that your range includes both endpoints.",
     },
     {
@@ -158,7 +100,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.prod(range(2, 13, 2))",
         "expected": 46080.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "The phrase 'up to N' is ambiguous—it may include or exclude N. Verify against the expected result which interpretation is correct.",
     },
     {
@@ -167,7 +108,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "round(math.sqrt(50))",
         "expected": 7.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "Use the rounding function explicitly when the problem requests rounding to a specific precision.",
     },
     {
@@ -176,7 +116,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.floor(100 / 7)",
         "expected": 14.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "Rounded down means floor division. Use the appropriate math function for floor operations.",
     },
     {
@@ -185,7 +124,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(6, 16))",
         "expected": 105.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 2,
         "feedback": "Pay attention to strict inequalities (>) versus inclusive inequalities (≤). Translate each bound correctly.",
     },
     # TIER 3: Multi-step reasoning cases
@@ -195,7 +133,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "(lambda primes: sum(primes) * max(primes))([n for n in range(2, 50) if all(n % d for d in range(2, int(n**0.5) + 1))])",
         "expected": 15416.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Break the problem into steps: first identify all primes in the range, then compute the sum and find the maximum, then multiply them.",
     },
     {
@@ -204,7 +141,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(int(d) for d in str(math.factorial(15)))",
         "expected": 45.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Compute the factorial first, convert to string, then sum the individual digit characters.",
     },
     {
@@ -213,7 +149,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "(lambda: [t := [0, 1, 1], [t.append(sum(t[-3:])) for _ in range(17)], t[-1]][2])()",
         "expected": 35890.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Iteratively compute the sequence using a list to track the last three values, updating as you progress.",
     },
     {
@@ -222,7 +157,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.gcd((lambda a, b: abs(a * b) // math.gcd(a, b))((lambda a, b: abs(a * b) // math.gcd(a, b))(12, 18), 24), 144)",
         "expected": 72.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Compute LCM step-by-step for pairs using the formula LCM(a,b) = |a*b|/GCD(a,b), then apply GCD to the final result.",
     },
     {
@@ -231,7 +165,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(1 for k in range(1, 73) if math.gcd(k, 72) == 1)",
         "expected": 24.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Count how many integers in the range have a GCD of 1 with the target number.",
     },
     {
@@ -240,7 +173,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(((-1) ** (n + 1)) * (n ** 2) for n in range(1, 21))",
         "expected": -210.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 3,
         "feedback": "Use a sign factor that alternates based on the index: positive for odd indices, negative for even.",
     },
     # TIER 4: Adversarial edge cases
@@ -250,7 +182,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "math.factorial(100) // math.factorial(99)",
         "expected": 100.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "Notice the mathematical identity: n! / (n-1)! = n. Avoid computing huge factorials separately if simplification is possible.",
     },
     {
@@ -259,7 +190,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(20, 10))",
         "expected": 0.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "When the start exceeds the stop in a range, the result is an empty sequence. The sum of an empty sequence is zero.",
     },
     {
@@ -268,7 +198,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "sum(range(105, 106, 7)) / max(len(range(105, 106, 7)), 1)",
         "expected": 105.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "Only one multiple exists in this narrow range. Ensure you handle single-element averages correctly.",
     },
     {
@@ -277,7 +206,6 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expression": "(-1)**50 + (-1)**51 + (-1)**52",
         "expected": 1.0,
         "tolerance": 1e-9,
-        "difficulty_tier": 4,
         "feedback": "Even powers of -1 yield 1, odd powers yield -1. Sum the results directly.",
     },
 ]
@@ -310,39 +238,26 @@ signature_dataset = [
             "ideal_expression": dataset_case.expected_output.expression
             if dataset_case.expected_output
             else None,
-            "difficulty_tier": CASE_DEFINITIONS[index]["difficulty_tier"],
         },
         case_id=dataset_case.name or f"case-{index}",
     )
     for index, dataset_case in enumerate(dataset.cases)
 ]
 
+# agent_model = InspectingModel(infer_model("openai:gpt-5-nano"))
+agent_model = infer_model("openai:gpt-5-nano")
+
+# Create agent that invokes the local sandbox tool for execution
 agent = Agent(
-    model="openai:gpt-5-nano-2025-08-07",
+    model=agent_model,
     instructions=(
-        "Solve deterministic math problems. Always use the python_eval tool to compute the numeric answer before "
-        "responding. Return JSON with fields: answer, expression, explanation."
+        "Solve math problems by calling the `run_python` sandbox tool. "
+        "Write complete Python scripts with all necessary imports and print the final result. "
+        "You may only use the Python standard library; third-party packages are unavailable."
     ),
     output_type=MathProblemOutput,
+    tools=[run_python_tool],
 )
-
-
-class PythonEvalOutput(BaseModel):
-    numeric_result: float
-
-
-@agent.tool(
-    name="python_eval",
-    description="Execute a pure Python expression using math helpers to recover precise numeric answers.",
-)
-def python_eval_tool(
-    ctx: RunContext[Any],
-    expression: str,
-) -> PythonEvalOutput:
-    """Evaluate deterministic numeric Python expressions using the math module."""
-    numeric, _ = evaluate_expression(expression)
-    return PythonEvalOutput(numeric_result=numeric)
-
 
 signature_agent = SignatureAgent(
     agent,
@@ -354,9 +269,12 @@ signature_agent = SignatureAgent(
 def metric(
     data_inst: DataInstWithInput[MathProblemInput],
     output: RolloutOutput[MathProblemOutput],
-) -> tuple[float, str | None]:
+) -> MetricResult:
     if not output.success or output.result is None:
-        return 0.0, output.error_message or "Agent failed to produce an output."
+        return MetricResult(
+            score=0.0,
+            feedback=output.error_message or "Agent failed to produce an output.",
+        )
 
     predicted_output = output.result
     predicted = predicted_output.answer
@@ -367,81 +285,251 @@ def metric(
     ideal_expression = data_inst.metadata.get("ideal_expression")
 
     if not expression:
-        hint = "Include the python_eval expression you executed."
+        hint = "Include the Python code you executed."
         if ideal_expression:
-            hint = f"{hint} For reference, one valid approach is `{ideal_expression}`."
+            hint = (
+                f"{hint} For reference, one valid approach uses: `{ideal_expression}`."
+            )
         prefix = f"{base_feedback} " if base_feedback else ""
-        return 0.0, f"{prefix}Missing expression used for python_eval. {hint}"
-
-    try:
-        evaluated, display = evaluate_expression(expression)
-    except Exception as exc:  # noqa: BLE001
-        prefix = f"{base_feedback} " if base_feedback else ""
-        return 0.0, f"{prefix}Expression could not be evaluated: {exc}"
-
-    answer_gap = abs(predicted - evaluated)
-    max_internal_gap = max(tolerance, 1e-9)
-    if answer_gap > max_internal_gap:
-        prefix = f"{base_feedback} " if base_feedback else ""
-        return (
-            0.0,
-            f"{prefix}Reported answer {predicted} disagrees with expression result {display}.",
+        return MetricResult(
+            score=0.0,
+            feedback=f"{prefix}Missing code used to compute the answer. {hint}",
         )
 
+    # We trust the agent's reported answer from the sandbox execution
+    # The code is available for inspection but not re-executed in the metric
     if target is None:
-        return 0.0, "Missing reference target."
+        return MetricResult(score=0.0, feedback="Missing reference target.")
 
-    target_gap = abs(evaluated - target)
+    target_gap = abs(predicted - target)
     effective_tolerance = max(tolerance, 1e-9)
     if target_gap <= effective_tolerance:
-        return 1.0, "Exact match within tolerance."
+        score = 1.0
+        feedback = "Exact match within tolerance."
+    else:
+        normalized_error = target_gap / max(abs(target), 1.0)
+        score = max(0.0, 1.0 - min(normalized_error * 10, 1.0))
+        base = base_feedback or "Re-check the computation with Python."
+        hint = (
+            f"Answer {predicted} deviates from target {target} by {target_gap:.6g}; "
+            "verify the computation logic and any rounding."
+        )
+        if ideal_expression:
+            hint += f" A reliable approach uses: `{ideal_expression}`."
+        feedback = f"{base} {hint}"
 
-    normalized_error = target_gap / max(abs(target), 1.0)
-    score = max(0.0, 1.0 - min(normalized_error * 10, 1.0))
-    base = base_feedback or "Use python_eval to re-check the computation."
-    hint = (
-        f"Expression result {display} deviates from target {target} by {target_gap:.6g}; "
-        "tighten the computation or adjust rounding."
+    tool_calls = getattr(output.usage, "tool_calls", None) if output.usage else None
+    penalty_feedback = None
+    penalty = 0.0
+    if tool_calls is not None and tool_calls > 1:
+        penalty = min(0.1 * (tool_calls - 1), 0.5)
+        penalty_feedback = f"Used `run_python` {tool_calls} times; consolidate into a single sandbox execution when possible."
+
+    if penalty:
+        score = max(0.0, score - penalty)
+        if penalty_feedback:
+            feedback = (f"{feedback} {penalty_feedback}").strip()
+
+    return MetricResult(score=score, feedback=feedback)
+
+
+async def run_math_tools_optimization(
+    trainset: Sequence[DataInstWithInput[MathProblemInput]],
+    valset: Sequence[DataInstWithInput[MathProblemInput]],
+    reflection_model: Model | KnownModelName | str,
+    seed_candidate: dict[str, str] | None = None,
+) -> GepaResult:
+    cache_manager = CacheManager(
+        cache_dir=".gepa_cache",
+        enabled=True,
+        verbose=True,
     )
-    if ideal_expression and ideal_expression != expression:
-        hint += f" A reliable expression is `{ideal_expression}`."
-    feedback = f"{base} {hint}"
-    return score, feedback
+
+    adapter = AgentAdapter(
+        agent=signature_agent,
+        metric=metric,
+        input_type=MathProblemInput,
+        cache_manager=cache_manager,
+        agent_usage_limits=UsageLimits(tool_calls_limit=5),
+    )
+
+    config = GepaConfig(
+        max_evaluations=200,
+        component_selector="all",
+        candidate_selector=CandidateSelectorStrategy.CURRENT_BEST,
+        max_concurrent_evaluations=20,
+        enable_parallel_reflection=True,
+        reflection_model=reflection_model,
+    )
+
+    return await optimize(
+        adapter=adapter,
+        config=config,
+        trainset=trainset,
+        valset=valset,
+        seed_candidate=seed_candidate,
+        show_progress=True,
+    )
 
 
-if __name__ == "__main__":
-    output_dir = Path("optimization_results")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run or inspect the math tools GEPA optimization example."
+    )
+    parser.add_argument(
+        "--load-latest",
+        action="store_true",
+        help="Load the most recent math_tools optimization result and print a summary.",
+    )
+    parser.add_argument(
+        "--resume-from-latest",
+        action="store_true",
+        help=(
+            "Resume optimization from the best candidate stored in the most recent result. "
+            "Implies loading the latest file."
+        ),
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        default=Path("optimization_results"),
+        help="Directory containing saved optimization result JSON files.",
+    )
+    return parser.parse_args()
+
+
+def latest_result_file(results_dir: Path) -> Path | None:
+    result_files = sorted(
+        results_dir.glob("math_tools_optimization_*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return result_files[0] if result_files else None
+
+
+def print_result_summary(result: GepaResult, location_message: str) -> None:
+    print(f"\n{location_message}")
+    if result.original_score is not None:
+        print(f"   Original score: {result.original_score:.4f}")
+    else:
+        print("   Original score: N/A")
+    if result.best_score is not None:
+        print(f"   Best score: {result.best_score:.4f}")
+    else:
+        print("   Best score: N/A")
+    print(f"   Iterations: {result.iterations}")
+    print(f"   Metric calls: {result.total_evaluations}")
+    improvement = result.relative_improvement()
+    if improvement is not None:
+        print(f"   Improvement: {improvement * 100:.2f}%")
+    else:
+        print("   Improvement: N/A")
+
+
+def extract_seed_candidate(
+    result: GepaResult,
+) -> tuple[dict[str, str], str] | None:
+    """Select the best available candidate payload for seeding future runs."""
+
+    candidate_options: list[tuple[str, CandidateProgram | None]] = [
+        ("best", result.best_candidate),
+        ("original", result.original_candidate),
+    ]
+    candidate_options.extend(
+        (f"candidate", candidate) for candidate in result.candidates
+    )
+
+    seen_indices: set[int] = set()
+    for label, candidate in candidate_options:
+        if candidate is None:
+            continue
+        idx = getattr(candidate, "idx", None)
+        if idx is not None and idx in seen_indices:
+            continue
+        if idx is not None:
+            seen_indices.add(idx)
+            descriptor = f"{label} candidate (idx={idx})"
+        else:
+            descriptor = f"{label} candidate"
+        return candidate.to_dict_str(), descriptor
+
+    return None
+
+
+async def main(load_latest: bool, resume_from_latest: bool, results_dir: Path) -> None:
+    latest_result: GepaResult | None = None
+    latest_file: Path | None = None
+
+    if load_latest or resume_from_latest:
+        if not results_dir.exists():
+            print(f"No optimization results directory found at: {results_dir}")
+            return
+
+        latest_file = latest_result_file(results_dir)
+        if latest_file is None:
+            print(f"No optimization result files found in: {results_dir}")
+            return
+
+        with latest_file.open("r") as file:
+            latest_result = GepaResult.model_validate_json(file.read())
+
+        summary_prefix = (
+            "Resuming optimization from"
+            if resume_from_latest
+            else "Loaded optimization result from"
+        )
+        print_result_summary(
+            latest_result,
+            f"{summary_prefix}: {latest_file}",
+        )
+
+        if load_latest and not resume_from_latest:
+            return
+
+    seed_candidate: dict[str, str] | None = None
+    if resume_from_latest:
+        if latest_result is None:
+            print("Unable to resume because no previous result could be loaded.")
+        else:
+            seed_payload = extract_seed_candidate(latest_result)
+            if seed_payload is None:
+                print(
+                    "Latest result does not contain any candidates; starting from the default seed."
+                )
+            else:
+                seed_candidate, descriptor = seed_payload
+                print(f"Continuing optimization from {descriptor}.")
+
+    output_dir = results_dir
     output_dir.mkdir(exist_ok=True)
 
     reflection_model = OpenAIResponsesModel(
         model_name="gpt-5",
         settings=OpenAIResponsesModelSettings(
-            openai_reasoning_effort="medium",
+            openai_reasoning_effort="high",
             openai_reasoning_summary="detailed",
-            openai_text_verbosity="medium",
+            openai_text_verbosity="high",
         ),
     )
+    # reflection_model = InspectingModel(reflection_model)
 
     # 60/40 train/val split to better detect overfitting
     split_index = int(len(signature_dataset) * 0.6)
     trainset = signature_dataset[:split_index]
     valset = signature_dataset[split_index:]
 
-    result = optimize_agent_prompts(
-        agent=signature_agent,
-        trainset=trainset,
-        valset=valset,
-        metric=metric,
-        input_type=MathProblemInput,
-        module_selector="all",
-        reflection_model=reflection_model,
-        max_metric_calls=150,
-        display_progress_bar=True,
-        track_best_outputs=True,
-        enable_cache=True,
-        cache_dir=".gepa_cache",
-        cache_verbose=True,
-    )
+    try:
+        result = await run_math_tools_optimization(
+            trainset,
+            valset,
+            reflection_model,
+            seed_candidate=seed_candidate,
+        )
+    except InspectionAborted as exc:
+        snapshot = exc.snapshot
+        print("\n🔎 OpenAI request intercepted for inspection. Payload:")
+        pprint.pprint(snapshot)
+        return
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = output_dir / f"math_tools_optimization_{timestamp}.json"
@@ -449,10 +537,15 @@ if __name__ == "__main__":
     with output_file.open("w") as file:
         json.dump(result.model_dump(), file, indent=2)
 
-    print(f"\n✅ Optimization result saved to: {output_file}")
-    print(f"   Best score: {result.best_score:.4f}")
-    print(f"   Iterations: {result.num_iterations}")
-    print(f"   Metric calls: {result.num_metric_calls}")
-    improvement = result.improvement_ratio()
-    if improvement is not None:
-        print(f"   Improvement: {improvement * 100:.2f}%")
+    print_result_summary(result, f"✅ Optimization result saved to: {output_file}")
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    asyncio.run(
+        main(
+            load_latest=args.load_latest,
+            resume_from_latest=args.resume_from_latest,
+            results_dir=args.results_dir,
+        )
+    )

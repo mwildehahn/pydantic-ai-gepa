@@ -6,7 +6,7 @@ from typing import Annotated
 
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa.components import extract_seed_candidate_with_signature
+from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
 from pydantic_ai_gepa.signature import (
     SignatureSuffix,
     apply_candidate_to_input_model,
@@ -14,7 +14,6 @@ from pydantic_ai_gepa.signature import (
     generate_user_content,
     get_gepa_components,
 )
-from pydantic_ai_gepa.reflection import ReflectionInput
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
@@ -84,12 +83,12 @@ def test_signature_basic():
     assert system_instructions == snapshot("""\
 Analyze emails for key information and sentiment.
 
-Inputs
+Inputs:
 
 - `<emails>` (list[Email]): List of email messages to analyze. Look for sentiment and key topics.
 - `<context>` (str): Additional context about the email thread or conversation.
 
-Schemas
+Schemas:
 
 Email
   - `<subject>` (str): The subject field
@@ -147,12 +146,12 @@ def test_apply_candidate():
     assert system_instructions == snapshot("""\
 Extract actionable insights from customer emails.
 
-Inputs
+Inputs:
 
 - `<emails>` (list[Email]): Customer emails requiring detailed analysis.
 - `<context>` (str): Background information to inform the analysis.
 
-Schemas
+Schemas:
 
 Email
   - `<subject>` (str): The subject field
@@ -206,7 +205,7 @@ def test_signature_without_explicit_field_description():
     assert system_instructions == snapshot("""\
 A simple signature for testing.
 
-Inputs
+Inputs:
 
 - `<text>` (str): The text input
 - `<number>` (int): A number to process\
@@ -228,7 +227,7 @@ def test_extract_seed_candidate_with_signature():
         TestModel(),
         instructions="Be helpful and professional.",
     )
-    candidate = extract_seed_candidate_with_signature(
+    candidate = extract_seed_candidate_with_input_type(
         agent=agent, input_type=EmailAnalysis
     )
     assert candidate == snapshot(
@@ -240,119 +239,6 @@ def test_extract_seed_candidate_with_signature():
             "signature:EmailAnalysis:suffix:desc": "The suffix input",
         }
     )
-
-
-def test_reflection_signature_formatting():
-    """Ensure the reflection signature produces clear instructions and payload."""
-
-    prompt_components = {
-        "instructions": "Classify text sentiment.",
-        "signature:ClassificationInput:instructions": "Classify the text into a category",
-        "signature:ClassificationInput:text:desc": "The text to classify",
-    }
-    reflection_dataset = {
-        "instructions": [
-            {
-                "user_prompt": "<text>The service was terrible but at least the food was edible</text>",
-                "assistant_response": '{"category":"negative"}',
-                "error": None,
-                "score": 1.0,
-                "success": True,
-                "feedback": 'The student model’s categorization of "negative" is fully correct.',
-            },
-            {
-                "user_prompt": "<text>Things happened</text>",
-                "assistant_response": '{"category":"neutral"}',
-                "error": None,
-                "score": 1.0,
-                "success": True,
-                "feedback": "Correct",
-            },
-            {
-                "user_prompt": "<text>It is what it is</text>",
-                "assistant_response": '{"category":"neutral"}',
-                "error": None,
-                "score": 0.0,
-                "success": True,
-                "feedback": 'Given text: "It is what it is"...',
-            },
-        ]
-    }
-
-    sig = ReflectionInput(
-        prompt_components=prompt_components,
-        reflection_dataset=reflection_dataset,
-        components_to_update=["instructions"],
-    )
-
-    system_instructions = generate_system_instructions(sig)
-    assert system_instructions == snapshot("""\
-Analyze agent performance data and propose improved prompt components.
-
-Your task is to:
-1. Review the reflection dataset showing how the agent performed with current prompts
-2. Read all the assistant responses and the corresponding feedback
-3. Identify patterns in successes and failures
-4. Identify all niche and domain-specific factual information about the task and include it in
-   the instruction, as a lot of it may not be available to the assistant in the future
-5. If the assistant utilized a generalizable strategy to solve the task, include that
-   strategy in the instruction as well
-6. Propose specific improvements to the components listed in 'components_to_update'
-7. If useful, include few shot examples of the task to help the assistant understand the task better
-
-Focus on making prompts clearer, more specific, and better aligned with successful outcomes.
-Extract domain knowledge from the examples to enhance the instructions.
-
-Inputs
-
-- `<instructions>` (UnionType[str, NoneType]): The instructions that were used by the agent.
-- `<prompt_components>` (dict[str, str]): Current prompt components being used by the agent. These map to the instructions above.
-- `<reflection_dataset>` (dict[str, list[dict[str, Any]]]): Performance data showing agent inputs, outputs, scores, and feedback for each component. Analyze these to understand what works and what needs improvement.
-- `<components_to_update>` (list[str]): Specific components to optimize in this iteration. Only modify these components in your response while keeping others unchanged.\
-""")
-
-    user_content = generate_user_content(sig)
-    assert len(user_content) == 1
-    assert user_content[0] == snapshot("""\
-<prompt_components>
-  <instructions>Classify text sentiment.</instructions>
-  <signature:ClassificationInput:instructions>Classify the text into a category</signature:ClassificationInput:instructions>
-  <signature:ClassificationInput:text:desc>The text to classify</signature:ClassificationInput:text:desc>
-</prompt_components>
-
-<reflection_dataset>
-  <instructions>
-    <item>
-      <user_prompt>&lt;text&gt;The service was terrible but at least the food was edible&lt;/text&gt;</user_prompt>
-      <assistant_response>{"category":"negative"}</assistant_response>
-      <error>null</error>
-      <score>1.0</score>
-      <success>True</success>
-      <feedback>The student model’s categorization of "negative" is fully correct.</feedback>
-    </item>
-    <item>
-      <user_prompt>&lt;text&gt;Things happened&lt;/text&gt;</user_prompt>
-      <assistant_response>{"category":"neutral"}</assistant_response>
-      <error>null</error>
-      <score>1.0</score>
-      <success>True</success>
-      <feedback>Correct</feedback>
-    </item>
-    <item>
-      <user_prompt>&lt;text&gt;It is what it is&lt;/text&gt;</user_prompt>
-      <assistant_response>{"category":"neutral"}</assistant_response>
-      <error>null</error>
-      <score>0.0</score>
-      <success>True</success>
-      <feedback>Given text: "It is what it is"...</feedback>
-    </item>
-  </instructions>
-</reflection_dataset>
-
-<components_to_update>
-  <item>instructions</item>
-</components_to_update>\
-""")
 
 
 def test_separation_of_concerns():
@@ -392,7 +278,7 @@ def test_separation_of_concerns():
     assert system_instructions == snapshot("""\
 Process user data with care.
 
-Inputs
+Inputs:
 
 - `<user_input>` (str): Raw user input that may contain sensitive data
 - `<admin_notes>` (str): Internal notes for processing

@@ -1,0 +1,79 @@
+"""Pareto-front management utilities."""
+
+from __future__ import annotations
+
+from ..models import CandidateProgram, GepaState, ParetoFrontEntry
+from .evaluator import EvaluationResults
+
+SCORE_EPSILON = 1e-6
+
+
+class ParetoFrontManager:
+    """Maintain per-instance Pareto fronts and dominator calculations."""
+
+    def update_fronts(
+        self,
+        state: GepaState,
+        candidate_idx: int,
+        eval_results: EvaluationResults,
+    ) -> None:
+        """Merge evaluation results into the state's Pareto fronts."""
+        for data_id, score, output in eval_results:
+            entry = state.pareto_front.get(data_id)
+            if entry is None:
+                entry = ParetoFrontEntry(data_id=data_id)
+                state.pareto_front[data_id] = entry
+            entry.update(
+                candidate_idx=candidate_idx,
+                score=score,
+                output=output,
+            )
+
+    def find_dominators(self, state: GepaState) -> list[int]:
+        """Return indices of non-dominated candidates."""
+        candidates = state.candidates
+        if not candidates:
+            return []
+
+        dominated: set[int] = set()
+        for idx, candidate in enumerate(candidates):
+            if idx in dominated:
+                continue
+            if not candidate.validation_scores:
+                # Until evaluated, treat as potentially useful.
+                continue
+            for other_idx, other in enumerate(candidates):
+                if idx == other_idx or other_idx in dominated:
+                    continue
+                if self._dominates(other, candidate):
+                    dominated.add(idx)
+                    break
+
+        return [idx for idx in range(len(candidates)) if idx not in dominated]
+
+    def _dominates(
+        self,
+        candidate_a: CandidateProgram,
+        candidate_b: CandidateProgram,
+    ) -> bool:
+        """Return True if ``candidate_a`` dominates ``candidate_b``."""
+        scores_a = candidate_a.validation_scores
+        scores_b = candidate_b.validation_scores
+        if not scores_a or not scores_b:
+            return False
+
+        coverage_b = set(scores_b.keys())
+        shared = coverage_b & set(scores_a.keys())
+        if not shared or shared != coverage_b:
+            return False
+
+        strictly_better = False
+        for data_id in shared:
+            score_a = scores_a[data_id]
+            score_b = scores_b[data_id]
+            if score_a + SCORE_EPSILON < score_b:
+                return False
+            if score_a - SCORE_EPSILON > score_b:
+                strictly_better = True
+
+        return strictly_better
