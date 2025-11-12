@@ -18,7 +18,12 @@ from utils import run_python_tool
 from pydantic_ai_gepa import InspectingModel, InspectionAborted
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
-from pydantic_ai_gepa.gepa_graph import GepaConfig, GepaResult, optimize
+from pydantic_ai_gepa.gepa_graph import (
+    CandidateSelectorStrategy,
+    GepaConfig,
+    GepaResult,
+    optimize,
+)
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
 
@@ -351,6 +356,7 @@ async def run_math_tools_optimization(
     config = GepaConfig(
         max_evaluations=50,
         component_selector="all",
+        candidate_selector=CandidateSelectorStrategy.CURRENT_BEST,
         max_concurrent_evaluations=10,
         enable_parallel_reflection=True,
         reflection_model=reflection_model,
