@@ -4,7 +4,7 @@ GEPA-driven prompt optimization for [pydantic-ai](https://github.com/pydantic/py
 
 ## About
 
-This library is heavily inspired by and based on [gepa-ai/gepa](https://github.com/gepa-ai/gepa), which pioneered the GEPA (Genetic Evolution with Perspective Aggregation) algorithm for optimizing text-based system components. We've adapted the core concepts for a native integration with pydantic-ai.
+This library is a reimplementation of [gepa-ai/gepa](https://github.com/gepa-ai/gepa), which pioneered the GEPA (Genetic Evolution with Perspective Aggregation) algorithm for optimizing text-based system components. We've adapted the core concepts for a native integration with pydantic-ai.
 
 ### Key Differentiators
 
