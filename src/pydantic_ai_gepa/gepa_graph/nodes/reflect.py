@@ -33,7 +33,7 @@ class ReflectNode(GepaNode):
         deps = ctx.deps
 
         parent_idx, parent = self._select_parent(state, deps)
-        minibatch = self._sample_minibatch(state, deps)
+        minibatch = await self._sample_minibatch(state, deps)
         with logfire.span(
             "evaluate first minibatch",
             parent_idx=parent_idx,
@@ -204,12 +204,12 @@ class ReflectNode(GepaNode):
             raise IndexError(f"Candidate selector returned invalid index {idx}.")
         return idx, state.candidates[idx]
 
-    def _sample_minibatch(
+    async def _sample_minibatch(
         self,
         state: GepaState,
         deps: GepaDeps,
     ) -> list[DataInst]:
-        minibatch = deps.batch_sampler.sample(
+        minibatch = await deps.batch_sampler.sample(
             state.training_set,
             state,
             state.config.minibatch_size,

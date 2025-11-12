@@ -6,9 +6,10 @@ import hashlib
 import math
 import random
 from dataclasses import dataclass, field
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 from ...types import DataInst
+from ..datasets import DataLoader, data_id_for_instance
 from ..models import CandidateProgram, ComponentValue, GepaState
 
 _SCORE_EPSILON = 1e-6
@@ -114,12 +115,12 @@ class MergeProposalBuilder:
             discovered_at_evaluation=state.total_evaluations,
         )
 
-    def select_merge_subsample(
+    async def select_merge_subsample(
         self,
         state: GepaState,
         parent1_idx: int,
         parent2_idx: int,
-    ) -> list[DataInst]:
+    ) -> list[tuple[str, DataInst]]:
         """Return a stratified subsample of shared validation instances."""
         parent1 = state.candidates[parent1_idx]
         parent2 = state.candidates[parent2_idx]
@@ -148,12 +149,12 @@ class MergeProposalBuilder:
             needed = target - len(selected_ids)
             selected_ids.extend(self._sample(remaining, needed))
 
-        lookup = self._build_validation_lookup(state.validation_set or ())
-        subsample: list[DataInst] = []
+        lookup = await self._build_validation_lookup(state.validation_set)
+        subsample: list[tuple[str, DataInst]] = []
         for data_id in selected_ids:
             instance = lookup.get(data_id)
             if instance is not None:
-                subsample.append(instance)
+                subsample.append((data_id, instance))
         return subsample
 
     def register_candidate(
@@ -187,17 +188,17 @@ class MergeProposalBuilder:
             hasher.update(payload)
         return hasher.hexdigest()
 
-    def _build_validation_lookup(
+    async def _build_validation_lookup(
         self,
-        validation_set: Sequence[DataInst],
+        validation_set: DataLoader[Any, DataInst] | None,
     ) -> dict[str, DataInst]:
+        if validation_set is None or len(validation_set) == 0:
+            return {}
+        ids = list(await validation_set.all_ids())
+        batch = await validation_set.fetch(ids)
         lookup: dict[str, DataInst] = {}
-        for idx, instance in enumerate(validation_set):
-            case_id = getattr(instance, "case_id", None)
-            if case_id is not None:
-                lookup[str(case_id)] = instance
-            else:
-                lookup[str(idx)] = instance
+        for idx, instance in enumerate(batch):
+            lookup[data_id_for_instance(instance, idx)] = instance
         return lookup
 
     def _sample(self, pool: Sequence[str], count: int) -> list[str]:

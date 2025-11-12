@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 
 from pydantic_graph import Graph
 
@@ -11,6 +11,7 @@ from ..adapter import Adapter
 from ..exceptions import UsageBudgetExceeded
 from ..types import DataInstT
 from .deps import GepaDeps
+from .datasets import DatasetInput, resolve_dataset
 from .graph import create_gepa_graph
 from .helpers import create_deps
 from .models import GepaConfig, GepaResult, GepaState
@@ -26,8 +27,8 @@ async def optimize(
     *,
     adapter: Adapter[DataInstT],
     config: GepaConfig,
-    trainset: Sequence[DataInstT],
-    valset: Sequence[DataInstT] | None = None,
+    trainset: DatasetInput,
+    valset: DatasetInput | None = None,
     seed_candidate: Mapping[str, str] | None = None,
     deps: GepaDeps[DataInstT] | None = None,
     graph: Graph[GepaState, GepaDeps[DataInstT], GepaResult] | None = None,
@@ -39,8 +40,8 @@ async def optimize(
     Args:
         adapter: Implementation of the Adapter protocol that powers evaluation/reflection.
         config: Immutable optimization configuration.
-        trainset: Training dataset used for minibatch reflections.
-        valset: Optional validation dataset; defaults to ``trainset`` when omitted.
+        trainset: Training dataset or loader used for minibatch reflections.
+        valset: Optional validation dataset specification; defaults to ``trainset`` when omitted.
         seed_candidate: Mapping of component names to their initial text. Required unless
             already attached to ``deps``.
         deps: Preconstructed dependency bundle; ``create_deps`` used when omitted.
@@ -65,7 +66,14 @@ async def optimize(
         if graph is not None
         else create_gepa_graph(adapter=adapter, config=config)
     )
-    state = GepaState(config=config, training_set=trainset, validation_set=valset)
+    training_loader = await resolve_dataset(trainset, name="trainset")
+    validation_loader = await resolve_dataset(valset, name="valset") if valset is not None else None
+
+    state = GepaState(
+        config=config,
+        training_set=training_loader,
+        validation_set=validation_loader,
+    )
     start = start_node if start_node is not None else StartNode()
 
     run_result = None

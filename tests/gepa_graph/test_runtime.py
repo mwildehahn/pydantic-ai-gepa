@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import cast
 
 import pytest
@@ -34,3 +35,26 @@ async def test_optimize_completes_successfully() -> None:
     assert result.best_score is not None
     assert result.original_score is not None
     assert result.best_score >= result.original_score
+
+
+@pytest.mark.asyncio
+async def test_optimize_supports_async_dataset_loader() -> None:
+    adapter = cast(Adapter[DataInst], AdapterStub())
+    config = GepaConfig(
+        max_evaluations=20,
+        minibatch_size=1,
+        seed=3,
+        reflection_model="reflection-model",
+    )
+
+    async def load_remote_dataset():
+        await asyncio.sleep(0)
+        return make_dataset(2)
+
+    result = await optimize(
+        adapter=adapter,
+        config=config,
+        trainset=load_remote_dataset,
+    )
+
+    assert result.best_score is not None

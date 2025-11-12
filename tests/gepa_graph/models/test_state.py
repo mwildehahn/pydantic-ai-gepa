@@ -30,7 +30,8 @@ def test_state_requires_training_set() -> None:
         GepaState(config=config, training_set=[])  # type: ignore[arg-type]
 
 
-def test_state_defaults_validation_set_to_training_set() -> None:
+@pytest.mark.asyncio
+async def test_state_defaults_validation_set_to_training_set() -> None:
     config = GepaConfig()
     training_set = [_make_data_inst("1"), _make_data_inst("2")]
 
@@ -40,9 +41,12 @@ def test_state_defaults_validation_set_to_training_set() -> None:
     )
 
     assert len(state.training_set) == 2
-    assert state.validation_set is not None
-    assert state.validation_set == training_set
-    assert state.validation_set is not training_set
+    validation_loader = state.validation_set
+    assert validation_loader is not None
+    assert validation_loader is state.training_set
+    ids = await validation_loader.all_ids()
+    fetched = await validation_loader.fetch(ids)
+    assert fetched == training_set
 
 
 def test_state_add_candidate_and_genealogy() -> None:

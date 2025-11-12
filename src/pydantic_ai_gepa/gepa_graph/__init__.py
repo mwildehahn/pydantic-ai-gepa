@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import evaluation, models
+from . import datasets, evaluation, models
 from .deps import GepaDeps
 from .evaluation import EvaluationResults, ParallelEvaluator, ParetoFrontManager
 from .graph import create_gepa_graph
@@ -18,6 +18,7 @@ from .models import (
 from .runtime import optimize
 
 __all__ = [
+    "datasets",
     "evaluation",
     "models",
     "create_deps",
