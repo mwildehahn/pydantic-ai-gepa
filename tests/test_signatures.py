@@ -381,6 +381,7 @@ async def test_agent_adapter_applies_candidate_to_signature_agent():
 
     assert batch.trajectories is not None
     trajectory = batch.trajectories[0]
+    assert trajectory is not None
     assert trajectory.instructions is not None
     assert trajectory.instructions.splitlines()[0] == candidate["instructions"]
 

@@ -66,7 +66,7 @@ class ReflectNode(GepaNode):
             minibatch_average=parent_avg,
         )
 
-        if parent_results.trajectories is None:
+        if not parent_results.has_trajectories():
             logfire.info(
                 "ReflectNode skipping reflection due to missing trajectories",
                 parent_idx=parent_idx,

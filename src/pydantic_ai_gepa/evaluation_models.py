@@ -15,7 +15,7 @@ class EvaluationBatch:
 
     outputs: list[RolloutOutput[Any]]
     scores: list[float]
-    trajectories: Sequence[Trajectory] | None = None
+    trajectories: Sequence[Trajectory | None] | None = None
 
 
 __all__ = ["EvaluationBatch"]

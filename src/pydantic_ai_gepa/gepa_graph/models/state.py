@@ -137,7 +137,7 @@ class GepaConfig(BaseModel):
         description="Global limit on merge attempts performed during the run.",
     )
     min_shared_validation: int = Field(
-        default=3,
+        default=5,
         description="Minimum overlapping validation examples required before merging candidates.",
     )
     merge_subsample_size: int = Field(

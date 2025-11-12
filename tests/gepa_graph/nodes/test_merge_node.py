@@ -48,7 +48,7 @@ def _make_state() -> GepaState:
     config = GepaConfig(
         max_evaluations=100,
         use_merge=True,
-        min_shared_validation=3,
+        min_shared_validation=5,
     )
     return GepaState(config=config, training_set=validation, validation_set=validation)
 

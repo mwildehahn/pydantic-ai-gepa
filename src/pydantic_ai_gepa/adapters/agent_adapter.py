@@ -1182,15 +1182,18 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         Returns:
             ReflectiveDataset containing shared reflection records for all components.
         """
-        if not eval_batch.trajectories:
+        trajectories = eval_batch.trajectories
+        if not trajectories:
             return SharedReflectiveDataset(records=[])
 
         reflection_records: list[dict[str, Any]] = []
         for trajectory, output, score in zip(
-            eval_batch.trajectories,
+            trajectories,
             eval_batch.outputs,
             eval_batch.scores,
         ):
+            if trajectory is None:
+                continue
             record: dict[str, Any] = trajectory.to_reflective_record()
             record["score"] = score
             record["success"] = output.success
@@ -1214,6 +1217,8 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             record["feedback"] = feedback_text
             reflection_records.append(record)
 
+        if not reflection_records:
+            return SharedReflectiveDataset(records=[])
         return SharedReflectiveDataset(records=reflection_records)
 
     def get_components(self) -> dict[str, str]:

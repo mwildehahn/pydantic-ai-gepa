@@ -22,7 +22,7 @@ class EvaluationResults(Generic[DataIdT]):
     data_ids: list[DataIdT]
     scores: list[float]
     outputs: list[RolloutOutput[Any]]
-    trajectories: list[Trajectory] | None = None
+    trajectories: list[Trajectory | None] | None = None
 
     def __post_init__(self) -> None:
         lengths = {len(self.data_ids), len(self.scores), len(self.outputs)}
@@ -38,7 +38,7 @@ class EvaluationResults(Generic[DataIdT]):
         return iter(zip(self.data_ids, self.scores, self.outputs))
 
     def has_trajectories(self) -> bool:
-        return self.trajectories is not None
+        return bool(self.trajectories) and any(trace is not None for trace in self.trajectories)
 
 
 class ParallelEvaluator:
@@ -104,8 +104,7 @@ class ParallelEvaluator:
         data_ids: list[str] = []
         scores: list[float] = []
         outputs: list[RolloutOutput[Any]] = []
-        trajectories: list[Trajectory] | None = [] if capture_traces else None
-        missing_traces = False
+        trajectories: list[Trajectory | None] | None = [] if capture_traces else None
 
         for data_id, batch in results:
             batch_scores = list(batch.scores)
@@ -120,13 +119,16 @@ class ParallelEvaluator:
 
             if trajectories is not None:
                 batch_traces = batch.trajectories
-                if not batch_traces or len(batch_traces) != len(batch_scores):
-                    missing_traces = True
+                if batch_traces is None:
+                    trajectories.extend([None] * len(batch_scores))
                 else:
-                    trajectories.extend(batch_traces)
+                    batch_traces_list = list(batch_traces)
+                    if len(batch_traces_list) != len(batch_scores):
+                        raise ValueError("Adapter returned mismatched trace count.")
+                    trajectories.extend(batch_traces_list)
 
-        trajectory_payload: list[Trajectory] | None
-        if trajectories is None or not trajectories or missing_traces:
+        trajectory_payload: list[Trajectory | None] | None
+        if trajectories is None:
             trajectory_payload = None
         else:
             trajectory_payload = trajectories
