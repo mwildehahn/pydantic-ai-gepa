@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence, cast
 import logfire
 
 from pydantic_ai.models import KnownModelName, Model
@@ -172,7 +172,7 @@ class ReflectNode(GepaNode):
             state.schedule_merge(state.config.merges_per_accept)
             logfire.info(
                 "ReflectNode accepted candidate",
-                **decision_payload,
+                **cast(dict[str, Any], decision_payload),
             )
             return EvaluateNode()
 
@@ -180,7 +180,7 @@ class ReflectNode(GepaNode):
         logfire.info(
             "ReflectNode rejected candidate",
             failure_reason="not_strict_improvement",
-            **decision_payload,
+            **cast(dict[str, Any], decision_payload),
         )
         return ContinueNode()
 

@@ -8,6 +8,7 @@ import pytest
 from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.tools import ToolDefinition
 
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter, AgentAdapterTrajectory
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
@@ -107,6 +108,39 @@ def test_make_reflective_dataset_handles_missing_trajectories() -> None:
     )
     assert isinstance(dataset, SharedReflectiveDataset)
     assert dataset.records == []
+
+
+def test_reflective_record_includes_output_tool_metadata() -> None:
+    """Ensure serialized records expose output tools for reflection prompts."""
+
+    tool_def = ToolDefinition(
+        name="final_result",
+        description="Return the final structured answer",
+        parameters_json_schema={
+            "type": "object",
+            "properties": {
+                "answer": {"type": "string"},
+            },
+            "required": ["answer"],
+        },
+        kind="output",
+    )
+    trajectory = AgentAdapterTrajectory(
+        messages=[
+            ModelRequest(parts=[UserPromptPart(content="Hi")], instructions="Base instructions"),
+            ModelResponse(parts=[TextPart(content="Hello")]),
+        ],
+        final_output="Hello",
+        instructions="Base instructions",
+        output_tools=[tool_def],
+    )
+
+    record = trajectory.to_reflective_record()
+    tools = record.get("tools")
+    assert tools is not None
+    matching = [tool for tool in tools if tool.get("function", {}).get("name") == "final_result"]
+    assert matching, "Expected serialized output tool merged into tools list"
+    assert matching[0]["kind"] == "output"
 
 
 @pytest.mark.asyncio

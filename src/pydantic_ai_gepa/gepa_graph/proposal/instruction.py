@@ -336,6 +336,8 @@ class InstructionProposalGenerator:
             "",
         ])
 
+        catalog_tool_defs = self._build_tool_definitions_from_candidate(candidate)
+
         # Show non-tool components in the candidate (tools are shown via JSON Schema below)
         for component_name, component_value in candidate.components.items():
             if component_name.startswith("tool:"):
@@ -348,12 +350,40 @@ class InstructionProposalGenerator:
 
         # Collect and show tools if present in evidence
         tools = self._collect_tools(reflective_data)
+        tool_map: dict[str, dict[str, Any]] = {}
+        for tool in tools:
+            name = self._extract_tool_name(tool)
+            if name:
+                tool_map[name] = tool
+
+        for name, catalog_tool in catalog_tool_defs.items():
+            if name in tool_map:
+                self._merge_tool_definitions(tool_map[name], catalog_tool)
+            else:
+                tools.append(catalog_tool)
+                tool_map[name] = catalog_tool
+
+        output_tool_names: list[str] = []
         if tools:
+            for tool in tools:
+                if isinstance(tool, Mapping) and tool.get("kind") == "output":
+                    function_block = tool.get("function")
+                    if isinstance(function_block, Mapping):
+                        name = function_block.get("name")
+                        if isinstance(name, str) and name:
+                            output_tool_names.append(name)
             lines.append("**Tools available to student (JSON Schema):**")
             lines.append("```json")
             lines.append(json.dumps(tools, indent=2))
             lines.append("```")
             lines.append("")
+            if output_tool_names:
+                sample_name = output_tool_names[0]
+                lines.append(
+                    f"_Tools with `\"kind\": \"output\"` (e.g., `{sample_name}`) end the run."
+                    " Teach the student to call the appropriate output tool when finalizing their answer._"
+                )
+                lines.append("")
 
         lines.extend(
             [
@@ -467,15 +497,180 @@ class InstructionProposalGenerator:
                 all_records.extend(component_records)
             records = all_records
 
+        def merge_tool_entries(
+            entries: Any,
+            *,
+            default_kind: str | None = None,
+        ) -> None:
+            if not entries:
+                return
+            for tool in entries:
+                if not isinstance(tool, Mapping):
+                    continue
+                function = tool.get("function")
+                if not isinstance(function, Mapping):
+                    continue
+                tool_name = function.get("name")
+                if not isinstance(tool_name, str) or not tool_name:
+                    continue
+                if tool_name in tools_map:
+                    continue
+                normalized_tool = dict(tool)
+                if default_kind and not normalized_tool.get("kind"):
+                    normalized_tool["kind"] = default_kind
+                tools_map[tool_name] = normalized_tool
+
         for record in records:
-            if "tools" in record and record["tools"]:
-                for tool in record["tools"]:
-                    if isinstance(tool, dict) and "function" in tool:
-                        tool_name = tool["function"].get("name")
-                        if tool_name and tool_name not in tools_map:
-                            tools_map[tool_name] = tool
+            merge_tool_entries(record.get("tools"))
+            merge_tool_entries(record.get("output_tools"), default_kind="output")
 
         return list(tools_map.values())
+
+    @staticmethod
+    def _extract_tool_name(tool: Mapping[str, Any]) -> str | None:
+        function_block = tool.get("function")
+        if isinstance(function_block, Mapping):
+            name = function_block.get("name")
+            if isinstance(name, str) and name.strip():
+                return name
+        return None
+
+    @staticmethod
+    def _merge_tool_definitions(
+        base: dict[str, Any],
+        supplement: dict[str, Any],
+    ) -> None:
+        if "kind" not in base and supplement.get("kind"):
+            base["kind"] = supplement["kind"]
+
+        base_function = base.get("function")
+        supplement_function = supplement.get("function")
+        if not isinstance(base_function, Mapping) or not isinstance(supplement_function, Mapping):
+            return
+
+        if not isinstance(base_function, dict):
+            base_function = dict(base_function)
+            base["function"] = base_function
+
+        if not base_function.get("description") and supplement_function.get("description"):
+            base_function["description"] = supplement_function["description"]
+
+        if not base_function.get("parameters") and supplement_function.get("parameters"):
+            base_function["parameters"] = supplement_function["parameters"]
+
+    def _build_tool_definitions_from_candidate(
+        self,
+        candidate: CandidateProgram,
+    ) -> dict[str, dict[str, Any]]:
+        tool_defs: dict[str, dict[str, Any]] = {}
+
+        for component_name, component_value in candidate.components.items():
+            if not component_name.startswith("tool:"):
+                continue
+
+            remainder = component_name[len("tool:") :]
+            if ":" not in remainder:
+                continue
+
+            tool_name, _, key = remainder.partition(":")
+            if not tool_name:
+                continue
+
+            entry = tool_defs.setdefault(tool_name, self._init_tool_entry(tool_name))
+            function_block = entry["function"]
+            text = component_value.text.strip()
+            if not text:
+                continue
+
+            if key == "description":
+                function_block["description"] = text
+            elif key.startswith("param:"):
+                path = key[len("param:") :]
+                parameters = function_block.setdefault(
+                    "parameters",
+                    {"type": "object", "properties": {}},
+                )
+                self._inject_catalog_parameter(parameters, path, text)
+
+        return {
+            name: entry
+            for name, entry in tool_defs.items()
+            if self._tool_entry_has_content(entry)
+        }
+
+    @staticmethod
+    def _tool_entry_has_content(entry: Mapping[str, Any]) -> bool:
+        function_block = entry.get("function")
+        if not isinstance(function_block, Mapping):
+            return False
+        if function_block.get("description"):
+            return True
+        parameters = function_block.get("parameters")
+        if isinstance(parameters, Mapping):
+            properties = parameters.get("properties")
+            if isinstance(properties, Mapping) and properties:
+                return True
+        return False
+
+    def _init_tool_entry(self, tool_name: str) -> dict[str, Any]:
+        entry: dict[str, Any] = {
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "parameters": {"type": "object", "properties": {}},
+            },
+        }
+        kind = self._guess_tool_kind(tool_name)
+        if kind:
+            entry["kind"] = kind
+        return entry
+
+    @staticmethod
+    def _guess_tool_kind(tool_name: str) -> str | None:
+        normalized = tool_name.casefold()
+        if normalized == "final_result" or normalized.startswith("final_result_"):
+            return "output"
+        return None
+
+    def _inject_catalog_parameter(
+        self,
+        schema: dict[str, Any],
+        path: str,
+        description: str,
+    ) -> None:
+        if not path:
+            return
+
+        segments = [segment for segment in path.split(".") if segment]
+        if not segments:
+            return
+
+        node = schema
+        node.setdefault("type", "object")
+        for idx, raw_segment in enumerate(segments):
+            is_array = raw_segment.endswith("[]")
+            segment = raw_segment[:-2] if is_array else raw_segment
+            if not segment:
+                continue
+
+            properties = node.setdefault("properties", {})
+            child = properties.setdefault(segment, {})
+
+            if is_array:
+                child.setdefault("type", "array")
+                items = child.setdefault("items", {"type": "object"})
+                node = items
+                continue
+
+            if idx < len(segments) - 1:
+                child.setdefault("type", "object")
+                node = child
+            else:
+                node = child
+
+        if "type" not in node:
+            node["type"] = "string"
+        node["description"] = description
 
     @staticmethod
     def _records_for_component(

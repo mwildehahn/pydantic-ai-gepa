@@ -34,6 +34,30 @@ def _make_candidate() -> CandidateProgram:
     )
 
 
+def _make_candidate_with_catalog_tools() -> CandidateProgram:
+    return CandidateProgram(
+        idx=1,
+        components={
+            "instructions": ComponentValue(name="instructions", text="Catalog seed"),
+            "tool:final_result:description": ComponentValue(
+                name="tool:final_result:description",
+                text="Return the final structured answer including reasoning summary.",
+            ),
+            "tool:final_result:param:answer": ComponentValue(
+                name="tool:final_result:param:answer",
+                text="Final user-facing answer as a concise string.",
+            ),
+            "tool:final_result:param:analysis": ComponentValue(
+                name="tool:final_result:param:analysis",
+                text="Short bullet summary of the reasoning steps used.",
+            ),
+        },
+        creation_type="seed",
+        discovered_at_iteration=0,
+        discovered_at_evaluation=0,
+    )
+
+
 def _make_reflective_record() -> dict[str, Any]:
     """Create a realistic reflective record with full message history."""
     return {
@@ -170,6 +194,98 @@ async def test_llm_generator_returns_existing_text_on_agent_failure() -> None:
         "instructions": "Seed instructions",
         "tools": "Seed tools",
     }
+
+
+@pytest.mark.asyncio
+async def test_prompt_includes_output_tool_details() -> None:
+    candidate = _make_candidate()
+    record = _make_reflective_record()
+    record["output_tools"] = [
+        {
+            "type": "function",
+            "function": {
+                "name": "final_result",
+                "description": "Return the final structured answer",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "answer": {"type": "string", "description": "Final response"}
+                    },
+                    "required": ["answer"],
+                },
+            },
+            "kind": "output",
+        }
+    ]
+    reflective_data = SharedReflectiveDataset(records=[record])
+
+    captured_prompt: str | None = None
+
+    async def fake_model(messages, agent_info):
+        nonlocal captured_prompt
+        captured_prompt = messages[-1].parts[0].content
+        content = """{
+            \"reasoning\": {
+                \"what_went_well\": \"OK\",
+                \"what_went_wrong\": \"Needs a finale\",
+                \"areas_to_improve\": \"Explain how to finish\"
+            },
+            \"updated_components\": [
+                {\"component_name\": \"instructions\", \"optimized_value\": \"Updated instructions\"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator()
+    model = FunctionModel(function=fake_model)
+    await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions"],
+        model=model,
+    )
+
+    assert captured_prompt is not None
+    assert "final_result" in captured_prompt
+    assert "kind\": \"output\"" in captured_prompt
+    assert "Teach the student to call the appropriate output tool" in captured_prompt
+
+
+@pytest.mark.asyncio
+async def test_catalog_tools_fall_back_when_no_reflective_records() -> None:
+    candidate = _make_candidate_with_catalog_tools()
+    reflective_data = SharedReflectiveDataset(records=[_make_reflective_record()])
+
+    captured_prompt: str | None = None
+
+    async def fake_model(messages, agent_info):
+        nonlocal captured_prompt
+        captured_prompt = messages[-1].parts[0].content
+        content = """{
+            \"reasoning\": {
+                \"what_went_well\": \"OK\",
+                \"what_went_wrong\": \"Needs finalization\",
+                \"areas_to_improve\": \"Be explicit\"
+            },
+            \"updated_components\": [
+                {\"component_name\": \"instructions\", \"optimized_value\": \"Updated instructions\"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator()
+    model = FunctionModel(function=fake_model)
+    await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions"],
+        model=model,
+    )
+
+    assert captured_prompt is not None
+    assert "**Tools available to student" in captured_prompt
+    assert "final_result" in captured_prompt
+    assert '"kind": "output"' in captured_prompt
 
 
 @pytest.mark.asyncio

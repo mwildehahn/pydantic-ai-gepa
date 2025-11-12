@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 import json
@@ -385,6 +385,7 @@ class AgentAdapterTrajectory(Trajectory):
     final_output: Any
     instructions: str | None = None
     function_tools: list[ToolDefinition] | None = None
+    output_tools: list[ToolDefinition] | None = None
     error: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
     data_inst: DataInst | None = None
@@ -435,14 +436,16 @@ class AgentAdapterTrajectory(Trajectory):
             )
         return serialized
 
-    def _serialize_tools(self) -> list[dict[str, Any]] | None:
-        """Serialize function tools to JSON schema format."""
-        if not self.function_tools:
+    def _serialize_tool_defs(
+        self, tool_defs: list[ToolDefinition] | None
+    ) -> list[dict[str, Any]] | None:
+        """Serialize tool definitions (function or output) into JSON schema format."""
+        if not tool_defs:
             return None
 
-        serialized_tools = []
-        for tool in self.function_tools:
-            tool_dict = {
+        serialized_tools: list[dict[str, Any]] = []
+        for tool in tool_defs:
+            tool_dict: dict[str, Any] = {
                 "type": "function",
                 "function": {
                     "name": tool.name,
@@ -451,8 +454,63 @@ class AgentAdapterTrajectory(Trajectory):
             }
             if tool.description:
                 tool_dict["function"]["description"] = tool.description
+            if tool.kind != "function":
+                tool_dict["kind"] = tool.kind
             serialized_tools.append(tool_dict)
         return serialized_tools
+
+    @staticmethod
+    def _serialized_tool_name(tool: Mapping[str, Any]) -> str | None:
+        function_block = tool.get("function")
+        if isinstance(function_block, Mapping):
+            name = function_block.get("name")
+            if isinstance(name, str) and name.strip():
+                return name
+        return None
+
+    def _merge_serialized_tool_lists(
+        self,
+        primary: list[dict[str, Any]] | None,
+        secondary: list[dict[str, Any]] | None,
+    ) -> list[dict[str, Any]] | None:
+        merged: dict[str, dict[str, Any]] = {}
+
+        def _mutable_copy(tool: Mapping[str, Any]) -> dict[str, Any]:
+            entry = dict(tool)
+            fn_block = entry.get("function")
+            if isinstance(fn_block, Mapping) and not isinstance(fn_block, dict):
+                entry["function"] = dict(fn_block)
+            return entry
+
+        def _ingest(tool: Mapping[str, Any]) -> None:
+            if not isinstance(tool, Mapping):
+                return
+            name = self._serialized_tool_name(tool)
+            if not name:
+                return
+            existing = merged.get(name)
+            if existing is None:
+                merged[name] = _mutable_copy(tool)
+                return
+
+            if tool.get("kind") and not existing.get("kind"):
+                existing["kind"] = tool["kind"]
+
+            existing_fn = existing.get("function")
+            candidate_fn = tool.get("function")
+            if isinstance(existing_fn, dict) and isinstance(candidate_fn, Mapping):
+                if not existing_fn.get("description") and candidate_fn.get("description"):
+                    existing_fn["description"] = candidate_fn["description"]
+                if not existing_fn.get("parameters") and candidate_fn.get("parameters"):
+                    existing_fn["parameters"] = candidate_fn["parameters"]
+
+        for tool_list in (primary, secondary):
+            if not tool_list:
+                continue
+            for tool in tool_list:
+                _ingest(tool)
+
+        return list(merged.values()) if merged else None
 
     def to_reflective_record(self) -> dict[str, Any]:
         user_msg = self._extract_user_message()
@@ -476,8 +534,11 @@ class AgentAdapterTrajectory(Trajectory):
             "run_usage": self.usage or None,
         }
 
-        # Add tools if available
-        tools = self._serialize_tools()
+        # Add tools if available (function + output combined)
+        tools = self._merge_serialized_tool_lists(
+            self._serialize_tool_defs(self.function_tools),
+            self._serialize_tool_defs(self.output_tools),
+        )
         if tools:
             record["tools"] = tools
 
@@ -826,15 +887,33 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
 
     def _extract_instructions_and_tools(
         self, messages: Sequence[ModelMessage]
-    ) -> tuple[str | None, list[ToolDefinition] | None]:
-        """Return the first instruction text and its tool definitions, if any."""
+    ) -> tuple[str | None, list[ToolDefinition] | None, list[ToolDefinition] | None]:
+        """Return instruction text plus recorded tool definitions, if any."""
+        instructions_text: str | None = None
+        function_tools: list[ToolDefinition] | None = None
+        output_tools: list[ToolDefinition] | None = None
+
         for message in messages:
             if not isinstance(message, ModelRequest):
                 continue
-            if message.instructions is None:
-                continue
-            return message.instructions, message.function_tools
-        return None, None
+
+            if instructions_text is None and isinstance(message.instructions, str):
+                instructions_text = message.instructions
+
+            if function_tools is None and message.function_tools:
+                function_tools = list(message.function_tools)
+
+            if output_tools is None and message.output_tools:
+                output_tools = list(message.output_tools)
+
+            if (
+                instructions_text is not None
+                and function_tools is not None
+                and output_tools is not None
+            ):
+                break
+
+        return instructions_text, function_tools, output_tools
 
     def _build_synthetic_request(
         self,
@@ -857,6 +936,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             parts=[instance.user_prompt],
             instructions=instructions_text,
         )
+
 
     def _gather_messages(
         self,
@@ -935,13 +1015,16 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 instance=instance,
                 candidate=candidate,
             )
-            instructions_text, function_tools = self._extract_instructions_and_tools(
-                all_messages
-            )
+            (
+                instructions_text,
+                function_tools,
+                output_tools,
+            ) = self._extract_instructions_and_tools(all_messages)
             trajectory = AgentAdapterTrajectory(
                 messages=all_messages,
                 instructions=instructions_text,
                 function_tools=function_tools,
+                output_tools=output_tools,
                 final_output=None,
                 error=str(exc),
                 usage={},
@@ -970,13 +1053,16 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             )
             trajectory = None
             if error_kind == "tool":
-                instructions_text, function_tools = self._extract_instructions_and_tools(
-                    all_messages
-                )
+                (
+                    instructions_text,
+                    function_tools,
+                    output_tools,
+                ) = self._extract_instructions_and_tools(all_messages)
                 trajectory = AgentAdapterTrajectory(
                     messages=all_messages,
                     instructions=instructions_text,
                     function_tools=function_tools,
+                    output_tools=output_tools,
                     final_output=None,
                     error=str(e),
                     usage={},
@@ -997,14 +1083,17 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         if isinstance(target_agent, WrapperAgent):
             target_agent = target_agent.wrapped
 
-        instructions_text, function_tools = self._extract_instructions_and_tools(
-            final_messages
-        )
+        (
+            instructions_text,
+            function_tools,
+            output_tools,
+        ) = self._extract_instructions_and_tools(final_messages)
 
         trajectory = AgentAdapterTrajectory(
             messages=final_messages,
             instructions=instructions_text,
             function_tools=function_tools,
+            output_tools=output_tools,
             final_output=final_output,
             error=None,
             usage=asdict(run_usage) if run_usage else {},
