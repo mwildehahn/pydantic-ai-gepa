@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping, Sequence
 
 from pydantic_graph import Graph
 
 from ..adapter import Adapter
+from ..exceptions import UsageBudgetExceeded
 from ..types import DataInstT
 from .deps import GepaDeps
 from .graph import create_gepa_graph
@@ -15,6 +17,9 @@ from .models import GepaConfig, GepaResult, GepaState
 from .nodes import StartNode
 from .nodes.base import GepaNode
 from ..progress import OptimizationProgress
+
+
+logger = logging.getLogger(__name__)
 
 
 async def optimize(
@@ -64,23 +69,28 @@ async def optimize(
     start = start_node if start_node is not None else StartNode()
 
     run_result = None
-    with OptimizationProgress(
-        total=config.max_evaluations,
-        description="GEPA optimize",
-        enabled=show_progress,
-    ) as progress_bar:
-        previous_node_name: str | None = None
-        async with resolved_graph.iter(start, state=state, deps=resolved_deps) as run:
-            async for node in run:
-                current_node_name = node.__class__.__name__
-                progress_bar.update(
-                    state.total_evaluations,
-                    current_node=current_node_name,
-                    previous_node=previous_node_name,
-                )
-                previous_node_name = current_node_name
-            run_result = run.result
-        progress_bar.update(state.total_evaluations)
+    try:
+        with OptimizationProgress(
+            total=config.max_evaluations,
+            description="GEPA optimize",
+            enabled=show_progress,
+        ) as progress_bar:
+            previous_node_name: str | None = None
+            async with resolved_graph.iter(start, state=state, deps=resolved_deps) as run:
+                async for node in run:
+                    current_node_name = node.__class__.__name__
+                    progress_bar.update(
+                        state.total_evaluations,
+                        current_node=current_node_name,
+                        previous_node=previous_node_name,
+                    )
+                    previous_node_name = current_node_name
+                run_result = run.result
+            progress_bar.update(state.total_evaluations)
+    except UsageBudgetExceeded:
+        state.mark_stopped(reason="Usage budget exceeded")
+        logger.info("GEPA run stopped early due to usage budget limit.")
+        return GepaResult.from_state(state)
 
     if run_result is None:
         raise RuntimeError("GEPA graph run did not complete.")

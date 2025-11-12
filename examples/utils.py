@@ -2,19 +2,26 @@
 
 from __future__ import annotations
 
+import json
 import time
-from typing import Literal
+from typing import Literal, TypeAlias, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Tool
+
 from typing_extensions import TypeAliasType
 
 from mcp_run_python import code_sandbox
 
-JsonValue = TypeAliasType(
-    "JsonValue",
-    str | bool | int | float | None | list["JsonValue"] | dict[str, "JsonValue"],
-)
+if TYPE_CHECKING:
+    JsonValue: TypeAlias = (
+        str | bool | int | float | None | list["JsonValue"] | dict[str, "JsonValue"]
+    )
+else:
+    JsonValue = TypeAliasType(
+        "JsonValue",
+        str | bool | int | float | None | list["JsonValue"] | dict[str, "JsonValue"],
+    )
 
 
 class SandboxExecutionResult(BaseModel):
@@ -22,10 +29,6 @@ class SandboxExecutionResult(BaseModel):
 
     status: Literal["success", "install-error", "run-error"] = Field(
         description="Overall execution status returned by the sandbox.",
-    )
-    stdout: str = Field(
-        default="",
-        description="Combined stdout/stderr emitted by the executed code.",
     )
     return_value: JsonValue | None = Field(
         default=None,
@@ -35,13 +38,40 @@ class SandboxExecutionResult(BaseModel):
         default=None,
         description="Error message when the sandbox reports an installation or runtime failure.",
     )
-    logs: list[str] = Field(
+    output_lines: list[str] = Field(
         default_factory=list,
-        description="Diagnostic log lines emitted while preparing the sandbox environment.",
+        description="Ordered stdout/stderr lines emitted by the executed code.",
+    )
+    answer_text: str | None = Field(
+        default=None,
+        description="Best-effort single-line summary of the computed answer.",
+    )
+    answer_source: Literal["return_value", "stdout", "none"] = Field(
+        default="none",
+        description="Where the answer_text was derived from.",
     )
     elapsed_seconds: float = Field(
         description="Total wall-clock time spent creating the sandbox and executing the script.",
     )
+
+
+def _summarize_answer(
+    return_value: JsonValue | None,
+    output_lines: list[str],
+) -> tuple[str | None, Literal["return_value", "stdout", "none"]]:
+    if return_value is not None:
+        if isinstance(return_value, str):
+            answer = return_value
+        else:
+            answer = json.dumps(return_value, ensure_ascii=False, separators=(",", ":"))
+        return answer, "return_value"
+
+    for line in reversed(output_lines):
+        stripped = line.strip()
+        if stripped:
+            return stripped, "stdout"
+
+    return None, "none"
 
 
 async def _run_python_in_sandbox(
@@ -60,10 +90,8 @@ async def _run_python_in_sandbox(
         and predictable. Use only the Python standard library.
     """
 
-    logs: list[str] = []
-
-    def log_handler(level: str, message: str) -> None:
-        logs.append(f"{level.lower()}: {message}")
+    def log_handler(_: str, __: str) -> None:
+        return None
 
     started = time.perf_counter()
 
@@ -78,32 +106,39 @@ async def _run_python_in_sandbox(
         elapsed = time.perf_counter() - started
         return SandboxExecutionResult(
             status="run-error",
-            stdout="",
             return_value=None,
             error=f"Sandbox failed before execution: {exc}",
-            logs=logs,
+            output_lines=[],
+            answer_text=None,
+            answer_source="none",
             elapsed_seconds=elapsed,
         )
 
     elapsed = time.perf_counter() - started
-    stdout = "\n".join(sandbox_result.get("output", []))
+    output_lines: list[str] = sandbox_result.get("output", [])
+    answer_text, answer_source = _summarize_answer(
+        sandbox_result.get("return_value"),
+        output_lines,
+    )
 
     if sandbox_result["status"] == "success":
         return SandboxExecutionResult(
             status="success",
-            stdout=stdout,
             return_value=sandbox_result.get("return_value"),
             error=None,
-            logs=logs,
+            output_lines=output_lines,
+            answer_text=answer_text,
+            answer_source=answer_source,
             elapsed_seconds=elapsed,
         )
 
     return SandboxExecutionResult(
         status=sandbox_result["status"],
-        stdout=stdout,
         return_value=None,
         error=sandbox_result.get("error"),
-        logs=logs,
+        output_lines=output_lines,
+        answer_text=answer_text,
+        answer_source=answer_source,
         elapsed_seconds=elapsed,
     )
 

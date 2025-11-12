@@ -11,6 +11,7 @@ from .inspection import (
     InspectionAborted,
     InspectionSnapshot,
 )
+from .exceptions import UsageBudgetExceeded
 from .runner import GepaOptimizationResult, optimize_agent
 from .signature import (
     BoundInputSpec,
@@ -51,6 +52,7 @@ __all__ = [
     "InspectingModel",
     "InspectionAborted",
     "InspectionSnapshot",
+    "UsageBudgetExceeded",
 ]
 
 __version__ = "0.1.0"

@@ -13,7 +13,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Generic, Literal
 
 from pydantic import BaseModel
-from pydantic_ai import capture_run_messages
+from pydantic_ai import capture_run_messages, usage as _usage
 from pydantic_ai._tool_types import ToolDefinition
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import (
@@ -39,6 +39,7 @@ from pydantic_ai.messages import (
 )
 
 from ..cache import CacheManager
+from ..exceptions import UsageBudgetExceeded
 from ..components import (
     apply_candidate_to_agent,
     extract_seed_candidate_with_input_type,
@@ -69,6 +70,14 @@ except Exception:  # pragma: no cover
     _TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = ()
 else:  # pragma: no cover - import path depends on runtime env
     _TOOL_ERROR_TYPES = (_ToolRetryError,)
+
+try:  # pragma: no cover - optional dependency guard
+    from pydantic_ai.exceptions import UsageLimitExceeded
+except Exception:  # pragma: no cover
+    class UsageLimitExceeded(RuntimeError):  # type: ignore[override]
+        """Fallback UsageLimitExceeded when running against older pydantic-ai versions."""
+
+        pass
 
 
 logger = logging.getLogger(__name__)
@@ -121,6 +130,60 @@ def _truncate_text(value: str, limit: int = 2000) -> str:
 
 def _compact_dict(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None}
+
+
+def _safe_getattr(obj: Any, attr: str) -> Any | None:
+    try:
+        return getattr(obj, attr)
+    except AttributeError:
+        return None
+    except Exception:
+        logger.debug("Failed to read attribute %s from %r", attr, obj, exc_info=True)
+        return None
+
+
+def _serialize_model_reference(model_obj: Any) -> str:
+    if isinstance(model_obj, str):
+        return model_obj
+
+    parts: list[str] = []
+
+    model_name = _safe_getattr(model_obj, "model_name")
+    if model_name:
+        parts.append(str(model_name))
+
+    class_path = (
+        f"{model_obj.__class__.__module__}.{model_obj.__class__.__qualname__}"
+    )
+    parts.append(class_path)
+
+    provider_name = _safe_getattr(model_obj, "provider_name")
+    if provider_name:
+        parts.append(f"provider:{provider_name}")
+    else:
+        provider = _safe_getattr(model_obj, "provider")
+        if provider is not None:
+            provider_class = (
+                f"{provider.__class__.__module__}.{provider.__class__.__qualname__}"
+            )
+            parts.append(f"provider:{provider_class}")
+
+    settings = _safe_getattr(model_obj, "settings")
+    if settings:
+        parts.append(f"settings:{CacheManager._serialize_for_key(settings)}")
+
+    profile = _safe_getattr(model_obj, "profile")
+    if profile:
+        parts.append(f"profile:{CacheManager._serialize_for_key(profile)}")
+
+    return "|".join(parts)
+
+
+def _derive_model_identifier(agent: "AbstractAgent[Any, Any]") -> str | None:
+    model_obj = _safe_getattr(agent, "model")
+    if model_obj is None:
+        return None
+    return _serialize_model_reference(model_obj)
 
 
 def _timestamp_iso(timestamp: Any) -> str | None:
@@ -448,6 +511,8 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         input_type: InputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
+        agent_usage_limits: _usage.UsageLimits | None = None,
+        gepa_usage_limits: _usage.UsageLimits | None = None,
     ):
         """Initialize the adapter.
 
@@ -461,6 +526,8 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             cache_manager: The cache manager to use for caching.
             optimize_tools: If True, install tool optimization support so plain agents
                 expose tool description/parameter components.
+            agent_usage_limits: Optional UsageLimits applied to each agent run during evaluation.
+            gepa_usage_limits: Optional UsageLimits applied cumulatively across the GEPA run.
         """
         self.agent = agent
         self.metric = metric
@@ -468,7 +535,18 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             build_input_spec(input_type) if input_type else None
         )
         self.cache_manager = cache_manager
+        self._model_identifier = _derive_model_identifier(agent)
+        if (
+            self.cache_manager
+            and self._model_identifier
+            and not self.cache_manager.model_identifier
+        ):
+            self.cache_manager.set_model_identifier(self._model_identifier)
         self.optimize_tools = optimize_tools
+        self.agent_usage_limits = agent_usage_limits
+        self._gepa_usage_limits = gepa_usage_limits
+        self._gepa_usage = _usage.RunUsage()
+        self._gepa_usage_lock = asyncio.Lock()
         if optimize_tools:
             self._configure_tool_optimizer()
 
@@ -482,6 +560,71 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 getattr(self.agent, "name", self.agent.__class__.__name__),
                 exc_info=True,
             )
+
+    def _usage_kwargs(self) -> dict[str, Any]:
+        """Return keyword arguments for usage-limited agent invocations."""
+        if self.agent_usage_limits is None:
+            return {}
+        return {"usage_limits": self.agent_usage_limits}
+
+    async def _record_gepa_usage(self, run_usage: _usage.RunUsage | None) -> None:
+        """Accumulate usage for the overall GEPA run and enforce limits."""
+        if self._gepa_usage_limits is None or run_usage is None:
+            return
+        async with self._gepa_usage_lock:
+            self._gepa_usage.incr(run_usage)
+            self._check_gepa_usage_limits()
+
+    def _check_gepa_usage_limits(self) -> None:
+        """Raise if the aggregated usage exceeds configured limits."""
+        limits = self._gepa_usage_limits
+        if limits is None:
+            return
+        usage = self._gepa_usage
+
+        if limits.request_limit is not None and usage.requests > limits.request_limit:
+            self._raise_usage_budget_error(
+                "requests", limits.request_limit, usage.requests
+            )
+        if (
+            limits.tool_calls_limit is not None
+            and usage.tool_calls > limits.tool_calls_limit
+        ):
+            self._raise_usage_budget_error(
+                "tool_calls", limits.tool_calls_limit, usage.tool_calls
+            )
+        if (
+            limits.input_tokens_limit is not None
+            and usage.input_tokens > limits.input_tokens_limit
+        ):
+            self._raise_usage_budget_error(
+                "input_tokens", limits.input_tokens_limit, usage.input_tokens
+            )
+        if (
+            limits.output_tokens_limit is not None
+            and usage.output_tokens > limits.output_tokens_limit
+        ):
+            self._raise_usage_budget_error(
+                "output_tokens", limits.output_tokens_limit, usage.output_tokens
+            )
+        total_tokens_limit = limits.total_tokens_limit
+        total_tokens = usage.total_tokens
+        if (
+            total_tokens_limit is not None
+            and total_tokens > total_tokens_limit
+        ):
+            self._raise_usage_budget_error(
+                "total_tokens", total_tokens_limit, total_tokens
+            )
+
+    @staticmethod
+    def _raise_usage_budget_error(
+        limit_name: str, limit_value: int, actual_value: int
+    ) -> None:
+        raise UsageBudgetExceeded(
+            f"GEPA usage limit exceeded for {limit_name}: "
+            f"limit={limit_value}, actual={actual_value}"
+        )
 
     async def evaluate(
         self,
@@ -527,7 +670,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         return EvaluationBatch(
             outputs=outputs,
             scores=scores,
-            trajectories=trajectories,
+            trajectories=trajectories if trajectories else None,
         )
 
     def _apply_candidate(self, candidate: dict[str, str]):
@@ -575,6 +718,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     data_inst,
                     candidate,
                     capture_traces,
+                    model_identifier=self._model_identifier,
                 )
 
                 if cached_agent_result is not None:
@@ -594,6 +738,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                         trajectory,
                         output,
                         capture_traces,
+                        model_identifier=self._model_identifier,
                     )
             else:
                 if capture_traces:
@@ -612,6 +757,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     data_inst,
                     output,
                     candidate,
+                    model_identifier=self._model_identifier,
                 )
 
                 if cached_result is not None:
@@ -624,6 +770,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                         output,
                         candidate,
                         metric_result,
+                        model_identifier=self._model_identifier,
                     )
             else:
                 # No caching, call metric directly
@@ -649,6 +796,8 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             return result
 
         except InspectionAborted:
+            raise
+        except UsageBudgetExceeded:
             raise
         except Exception as e:
             error_kind = _classify_exception(e)
@@ -701,6 +850,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         messages: list[ModelMessage] = []
         captured_messages: list[ModelMessage] = []
         run_result: Any | None = None
+        usage_kwargs = self._usage_kwargs()
 
         try:
             with capture_run_messages() as run_messages:
@@ -709,6 +859,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     run_result = await self.agent.run(
                         instance.user_prompt.content,
                         message_history=instance.message_history,
+                        **usage_kwargs,
                     )
                 else:
                     assert isinstance(self.agent, SignatureAgent)
@@ -716,11 +867,30 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                         instance.input,
                         message_history=instance.message_history,
                         candidate=candidate,
+                        **usage_kwargs,
                     )
 
                 messages = run_result.new_messages()
+            run_usage = run_result.usage()
+            await self._record_gepa_usage(run_usage)
         except InspectionAborted:
             raise
+        except UsageBudgetExceeded:
+            raise
+        except UsageLimitExceeded as exc:
+            case_id = getattr(instance, "case_id", "unknown")
+            log_structured(
+                _structured_logger,
+                "warning",
+                "Agent run usage limit reached",
+                case_id=case_id,
+            )
+            logger.warning(
+                "Agent run for instance %s exceeded per-run usage limits",
+                case_id,
+            )
+            output = RolloutOutput.from_error(exc, kind="system")
+            return None, output
         except Exception as e:
             error_kind = _classify_exception(e)
             case_id = getattr(instance, "case_id", "unknown")
@@ -744,7 +914,6 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     function_tools=None,
                     final_output=None,
                     error=str(e),
-                    # TODO: handle usage properly
                     usage={},
                     data_inst=instance,
                 )
@@ -778,7 +947,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             function_tools=function_tools,
             final_output=final_output,
             error=None,
-            usage=asdict(run_result.usage()),  # Convert RunUsage to dict
+            usage=asdict(run_usage),  # Convert RunUsage to dict
             data_inst=instance,
         )
         output = RolloutOutput.from_success(final_output)
@@ -796,11 +965,14 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         Returns:
             The rollout output.
         """
+        usage_kwargs = self._usage_kwargs()
+
         try:
             if isinstance(instance, DataInstWithPrompt):
                 result = await self.agent.run(
                     instance.user_prompt.content,
                     message_history=instance.message_history,
+                    **usage_kwargs,
                 )
             else:
                 assert isinstance(self.agent, SignatureAgent)
@@ -808,11 +980,28 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     instance.input,
                     message_history=instance.message_history,
                     candidate=candidate,
+                    **usage_kwargs,
                 )
 
+            await self._record_gepa_usage(result.usage())
             return RolloutOutput.from_success(result.output)
         except InspectionAborted:
             raise
+        except UsageBudgetExceeded:
+            raise
+        except UsageLimitExceeded as exc:
+            case_id = getattr(instance, "case_id", "unknown")
+            log_structured(
+                _structured_logger,
+                "warning",
+                "Agent run usage limit reached",
+                case_id=case_id,
+            )
+            logger.warning(
+                "Agent run for instance %s exceeded per-run usage limits",
+                case_id,
+            )
+            return RolloutOutput.from_error(exc, kind="system")
         except Exception as e:
             error_kind = _classify_exception(e)
             case_id = getattr(instance, "case_id", "unknown")

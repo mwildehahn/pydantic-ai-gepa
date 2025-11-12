@@ -30,7 +30,7 @@ from pydantic_ai_gepa.types import (
     RolloutOutput,
 )
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, usage as _usage
 from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
 from pydantic_evals import Case, Dataset
@@ -318,3 +318,107 @@ async def test_optimize_agent_reports_progress(monkeypatch: pytest.MonkeyPatch):
     assert result.num_metric_calls > 0
     assert updates, "Expected at least one progress update"
     assert updates[-1] == min(result.num_metric_calls, 5)
+
+
+@pytest.mark.asyncio
+async def test_optimize_agent_respects_agent_usage_limits():
+    """Per-run UsageLimits should be enforced for each agent evaluation."""
+
+    trainset: list[DataInst] = [
+        DataInstWithPrompt(
+            user_prompt=UserPromptPart(content="Respond with anything."),
+            message_history=None,
+            metadata={"label": "irrelevant"},
+            case_id="usage-case",
+        )
+    ]
+
+    agent = Agent(
+        TestModel(custom_output_text="ok"),
+        instructions="Always respond with 'ok'.",
+    )
+
+    reflection_output = InstructionProposalOutput(
+        updated_components=[
+            ComponentUpdate(
+                component_name="instructions",
+                optimized_value="Updated instructions",
+            )
+        ]
+    )
+    reflection_model = TestModel(
+        custom_output_args=reflection_output.model_dump(mode="python")
+    )
+
+    metric_outputs: list[bool] = []
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        del data_inst  # unused
+        metric_outputs.append(output.success)
+        # Hitting the per-run request limit should yield a failed rollout.
+        assert output.success is False
+        return MetricResult(score=0.0, feedback="usage limited")
+
+    result = await optimize_agent(
+        agent=agent,
+        trainset=trainset,
+        metric=metric,
+        reflection_model=reflection_model,
+        max_metric_calls=3,
+        agent_usage_limits=_usage.UsageLimits(request_limit=0),
+        seed=0,
+    )
+
+    assert metric_outputs, "metric should have been invoked at least once"
+    assert all(success is False for success in metric_outputs)
+    assert result.num_metric_calls == len(metric_outputs)
+
+
+@pytest.mark.asyncio
+async def test_optimize_agent_stops_on_gepa_usage_budget():
+    """The overall usage budget should stop the optimizer once exceeded."""
+
+    trainset: list[DataInst] = [
+        DataInstWithPrompt(
+            user_prompt=UserPromptPart(content=f"Prompt {i}"),
+            message_history=None,
+            metadata={"label": "ok"},
+            case_id=f"budget-case-{i}",
+        )
+        for i in range(3)
+    ]
+
+    agent = Agent(
+        TestModel(custom_output_text="ok"),
+        instructions="Respond with ok.",
+    )
+
+    reflection_output = InstructionProposalOutput(
+        updated_components=[
+            ComponentUpdate(
+                component_name="instructions",
+                optimized_value="Updated instructions",
+            )
+        ]
+    )
+    reflection_model = TestModel(
+        custom_output_args=reflection_output.model_dump(mode="python")
+    )
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        del data_inst  # unused
+        return MetricResult(score=1.0 if output.success else 0.0, feedback="ok")
+
+    result = await optimize_agent(
+        agent=agent,
+        trainset=trainset,
+        metric=metric,
+        reflection_model=reflection_model,
+        max_metric_calls=50,
+        gepa_usage_limits=_usage.UsageLimits(request_limit=1),
+        seed=0,
+    )
+
+    assert result.raw_result is not None
+    assert result.raw_result.stop_reason == "Usage budget exceeded"
+    assert result.raw_result.stopped is True

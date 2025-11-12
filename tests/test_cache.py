@@ -79,6 +79,78 @@ def test_cache_manager_basic():
         assert stats["num_cached_results"] == 0
 
 
+def test_cache_scopes_entries_by_model():
+    """Cache keys should include the model identifier."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        cache = CacheManager(cache_dir=tmpdir, enabled=True, verbose=False)
+
+        data_inst = DataInstWithPrompt(
+            user_prompt=UserPromptPart(content="Test prompt"),
+            message_history=None,
+            metadata={"label": "positive"},
+            case_id="case-1",
+        )
+        output = RolloutOutput.from_success("positive")
+        candidate = {"instructions": "Classify sentiment"}
+
+        result_a = MetricResult(score=0.9, feedback="model-a")
+        result_b = MetricResult(score=0.5, feedback="model-b")
+
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            result_a,
+            model_identifier="model-a",
+        )
+
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-a",
+            )
+            == result_a
+        )
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-b",
+            )
+            is None
+        )
+
+        cache.set_model_identifier("model-b")
+        cache.cache_metric_result(
+            data_inst,
+            output,
+            candidate,
+            result_b,
+        )
+
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-b",
+            )
+            == result_b
+        )
+        assert (
+            cache.get_cached_metric_result(
+                data_inst,
+                output,
+                candidate,
+                model_identifier="model-a",
+            )
+            == result_a
+        )
+
+
 def test_cache_manager_with_signature():
     """Test cache manager with signature-based data instances."""
     with tempfile.TemporaryDirectory() as tmpdir:

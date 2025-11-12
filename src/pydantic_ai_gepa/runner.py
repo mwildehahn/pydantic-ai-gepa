@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from pydantic_ai import Agent
+from pydantic_ai import usage as _usage
 from pydantic_ai.models import KnownModelName, Model
 
 from .adapters.agent_adapter import AgentAdapter
@@ -20,6 +20,7 @@ from .components import (
     extract_seed_candidate_with_input_type,
     normalize_component_text,
 )
+from .exceptions import UsageBudgetExceeded
 from .gepa_graph import create_deps, create_gepa_graph
 from .gepa_graph.models import (
     CandidateSelectorStrategy,
@@ -161,6 +162,8 @@ async def optimize_agent(
     reflection_sampler: ReflectionSampler | None = None,
     # Tool configuration
     optimize_tools: bool = False,
+    agent_usage_limits: _usage.UsageLimits | None = None,
+    gepa_usage_limits: _usage.UsageLimits | None = None,
 ) -> GepaOptimizationResult:
     """Optimizes a pydantic-ai agent (and optional signature inputs) using the GEPA graph backend.
 
@@ -218,6 +221,12 @@ async def optimize_agent(
         # Tool configuration
         optimize_tools: Enable optimization of tool descriptions and parameter schemas
             for plain agents without requiring a SignatureAgent wrapper.
+        agent_usage_limits: Optional UsageLimits applied to each individual agent run
+            (e.g., cap tool calls per evaluation to prevent runaway tool loops). When None,
+            no per-run usage limits are enforced.
+        gepa_usage_limits: Optional UsageLimits applied cumulatively across the entire
+            GEPA optimization run. When provided, GEPA stops once the aggregated usage
+            exceeds this budget.
 
     Returns:
         GepaOptimizationResult with the best candidate and metadata.
@@ -255,6 +264,8 @@ async def optimize_agent(
         input_type=input_type,
         cache_manager=cache_manager,
         optimize_tools=optimize_tools,
+        agent_usage_limits=agent_usage_limits,
+        gepa_usage_limits=gepa_usage_limits,
     )
 
     config = _build_gepa_config(
@@ -287,6 +298,7 @@ async def optimize_agent(
         validation_set=val_instances,
     )
 
+    gepa_result: GepaResult | None = None
     try:
         run_result = None
         with OptimizationProgress(
@@ -309,6 +321,20 @@ async def optimize_agent(
         if run_result is None:
             raise RuntimeError("GEPA graph run did not produce a result.")
         gepa_result = run_result.output
+    except UsageBudgetExceeded as exc:
+        state.mark_stopped(reason="Usage budget exceeded")
+        log_structured(
+            active_logger,
+            "info",
+            "Optimization stopped due to usage budget",
+            exception=exc,
+            total_evaluations=state.total_evaluations,
+        )
+        module_logger.info(
+            "GEPA usage budget exceeded; returning best-so-far candidate (evaluations=%s)",
+            state.total_evaluations,
+        )
+        gepa_result = GepaResult.from_state(state)
     except Exception as exc:
         if raise_on_exception:
             raise
@@ -320,6 +346,9 @@ async def optimize_agent(
         )
         module_logger.exception("Optimization failed", exc_info=exc)
         return _fallback_result(normalized_seed_candidate)
+
+    if gepa_result is None:
+        raise RuntimeError("GEPA optimization did not produce a result.")
 
     best_candidate_model = gepa_result.best_candidate or state.get_best_candidate()
     if best_candidate_model is None:
