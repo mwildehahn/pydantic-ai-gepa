@@ -34,8 +34,6 @@ class MergeNode(GepaNode):
         if not self._can_attempt_merge(state):
             return reject()
 
-        state.record_merge_attempt()
-
         dominators = deps.pareto_manager.find_dominators(state)
         pair = deps.merge_builder.find_merge_pair(state, dominators)
         if pair is None:
@@ -72,6 +70,8 @@ class MergeNode(GepaNode):
         )
         if not subsample:
             return reject()
+
+        state.record_merge_attempt()
 
         with logfire.span(
             "evaluate merged candidate",

@@ -367,4 +367,4 @@ async def test_merge_node_skips_when_duplicate_detected() -> None:
     assert evaluator.calls == 0
     assert state.last_accepted is False
     assert len(state.candidates) == 3
-    assert state.merge_attempts == 1
+    assert state.merge_attempts == 0
