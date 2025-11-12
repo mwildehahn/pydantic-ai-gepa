@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
-from pydantic_ai import Agent
+
+import pytest
+from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
@@ -21,9 +23,7 @@ from pydantic_ai_gepa.types import (
 def _make_adapter() -> AgentAdapter[DataInst]:
     agent = Agent(TestModel(), instructions="Base instructions")
 
-    def metric(
-        data_inst: DataInst, output: RolloutOutput[Any]
-    ) -> MetricResult:
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
         return MetricResult(score=0.5, feedback="feedback")
 
     return AgentAdapter(agent, metric)
@@ -107,3 +107,33 @@ def test_make_reflective_dataset_handles_missing_trajectories() -> None:
     )
     assert isinstance(dataset, SharedReflectiveDataset)
     assert dataset.records == []
+
+
+@pytest.mark.asyncio
+async def test_run_with_trace_returns_trajectory_on_usage_limit() -> None:
+    agent = Agent(TestModel(), instructions="Base instructions")
+
+    adapter = AgentAdapter(
+        agent,
+        metric=lambda data_inst, output: MetricResult(score=0.0, feedback="unused"),
+        agent_usage_limits=UsageLimits(request_limit=0),
+    )
+
+    data_inst = DataInstWithPrompt(
+        user_prompt=UserPromptPart(content="Hello"),
+        message_history=None,
+        metadata={},
+        case_id="usage-limit-case",
+    )
+
+    trajectory, output = await adapter._run_with_trace(data_inst, candidate=None)
+    assert trajectory is not None
+    assert output.success is False
+    assert trajectory.error is not None
+    assert trajectory.messages, "usage-limit trajectories should capture prompts"
+    assert any(isinstance(message, ModelRequest) for message in trajectory.messages), (
+        "expected to capture the synthesized user request"
+    )
+    record = trajectory.to_reflective_record()
+    assert record["messages"], "reflective record should include serialized messages"
+    assert "request_limit" in (record["error"] or "")

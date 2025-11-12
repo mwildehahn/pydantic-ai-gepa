@@ -14,6 +14,7 @@ from pydantic_ai_gepa.cache import CacheManager, create_cached_metric
 from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
     ComponentUpdate,
     InstructionProposalOutput,
+    TrajectoryAnalysis,
 )
 from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.types import (
@@ -23,6 +24,14 @@ from pydantic_ai_gepa.types import (
     RolloutOutput,
 )
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
+
+
+def _dummy_reasoning() -> TrajectoryAnalysis:
+    return TrajectoryAnalysis(
+        what_went_well="baseline behavior recorded for testing",
+        what_went_wrong="placeholder summary for unit tests",
+        areas_to_improve="placeholder improvements for unit tests",
+    )
 
 
 def test_cache_manager_basic():
@@ -312,12 +321,13 @@ async def test_optimize_agent_with_caching():
         )
 
         reflection_output = InstructionProposalOutput(
+            reasoning=_dummy_reasoning(),
             updated_components=[
                 ComponentUpdate(
                     component_name="instructions",
                     optimized_value="Updated",
                 )
-            ]
+            ],
         )
         reflection_model = TestModel(
             custom_output_args=reflection_output.model_dump(mode="python")

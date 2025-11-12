@@ -8,6 +8,7 @@ import warnings
 from typing import Any, Generic, Literal, Protocol, Sequence, TypeVar
 
 from pydantic import BaseModel
+from pydantic_ai import usage as _usage
 from pydantic_ai.messages import (
     AudioUrl,
     BinaryContent,
@@ -144,11 +145,14 @@ class RolloutOutput(Generic[OutputT]):
     success: bool
     error_message: str | None = None
     error_kind: Literal["tool", "system"] | None = None
+    usage: _usage.RunUsage | None = None
 
     @classmethod
-    def from_success(cls, result: OutputT) -> RolloutOutput[OutputT]:
+    def from_success(
+        cls, result: OutputT, *, usage: _usage.RunUsage | None = None
+    ) -> RolloutOutput[OutputT]:
         """Create from successful execution."""
-        return cls(result=result, success=True)
+        return cls(result=result, success=True, usage=usage)
 
     @classmethod
     def from_error(
@@ -156,6 +160,7 @@ class RolloutOutput(Generic[OutputT]):
         error: Exception,
         *,
         kind: Literal["tool", "system"] | None = None,
+        usage: _usage.RunUsage | None = None,
     ) -> RolloutOutput[OutputT]:
         """Create from failed execution."""
         return cls(
@@ -163,4 +168,5 @@ class RolloutOutput(Generic[OutputT]):
             success=False,
             error_message=str(error),
             error_kind=kind,
+            usage=usage,
         )

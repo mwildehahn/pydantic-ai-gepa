@@ -9,7 +9,7 @@ from typing import Any
 
 import logfire
 from pydantic import BaseModel, Field
-from pydantic_ai import Agent
+from pydantic_ai import Agent, UsageLimits
 from pydantic_ai.models import KnownModelName, Model, infer_model
 from pydantic_ai.models.openai import OpenAIResponsesModel, OpenAIResponsesModelSettings
 from pydantic_evals import Case, Dataset
@@ -298,18 +298,34 @@ def metric(
     target_gap = abs(predicted - target)
     effective_tolerance = max(tolerance, 1e-9)
     if target_gap <= effective_tolerance:
-        return MetricResult(score=1.0, feedback="Exact match within tolerance.")
+        score = 1.0
+        feedback = "Exact match within tolerance."
+    else:
+        normalized_error = target_gap / max(abs(target), 1.0)
+        score = max(0.0, 1.0 - min(normalized_error * 10, 1.0))
+        base = base_feedback or "Re-check the computation with Python."
+        hint = (
+            f"Answer {predicted} deviates from target {target} by {target_gap:.6g}; "
+            "verify the computation logic and any rounding."
+        )
+        if ideal_expression:
+            hint += f" A reliable approach uses: `{ideal_expression}`."
+        feedback = f"{base} {hint}"
 
-    normalized_error = target_gap / max(abs(target), 1.0)
-    score = max(0.0, 1.0 - min(normalized_error * 10, 1.0))
-    base = base_feedback or "Re-check the computation with Python."
-    hint = (
-        f"Answer {predicted} deviates from target {target} by {target_gap:.6g}; "
-        "verify the computation logic and any rounding."
-    )
-    if ideal_expression:
-        hint += f" A reliable approach uses: `{ideal_expression}`."
-    feedback = f"{base} {hint}"
+    tool_calls = getattr(output.usage, "tool_calls", None) if output.usage else None
+    penalty_feedback = None
+    penalty = 0.0
+    if tool_calls is not None and tool_calls > 1:
+        penalty = min(0.1 * (tool_calls - 1), 0.5)
+        penalty_feedback = (
+            f"Used `run_python` {tool_calls} times; consolidate into a single sandbox execution when possible."
+        )
+
+    if penalty:
+        score = max(0.0, score - penalty)
+        if penalty_feedback:
+            feedback = (f"{feedback} {penalty_feedback}").strip()
+
     return MetricResult(score=score, feedback=feedback)
 
 
@@ -329,6 +345,7 @@ async def run_math_tools_optimization(
         metric=metric,
         input_type=MathProblemInput,
         cache_manager=cache_manager,
+        agent_usage_limits=UsageLimits(tool_calls_limit=5),
     )
 
     config = GepaConfig(

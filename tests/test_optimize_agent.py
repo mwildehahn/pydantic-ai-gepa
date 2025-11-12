@@ -19,6 +19,7 @@ from pydantic_ai_gepa.components import (
 from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
     ComponentUpdate,
     InstructionProposalOutput,
+    TrajectoryAnalysis,
 )
 from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
@@ -34,6 +35,14 @@ from pydantic_ai import Agent, usage as _usage
 from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
 from pydantic_evals import Case, Dataset
+
+
+def _fake_reasoning() -> TrajectoryAnalysis:
+    return TrajectoryAnalysis(
+        what_went_well="baseline behavior recorded for testing",
+        what_went_wrong="placeholder summary for unit tests",
+        areas_to_improve="placeholder improvements for unit tests",
+    )
 
 
 @pytest.mark.asyncio
@@ -110,12 +119,13 @@ async def test_optimize_agent_minimal_flow():
         )
 
     reflection_output = InstructionProposalOutput(
+        reasoning=_fake_reasoning(),
         updated_components=[
             ComponentUpdate(
                 component_name="instructions",
                 optimized_value="Optimized",
             )
-        ]
+        ],
     )
     reflection_model = TestModel(
         custom_output_args=reflection_output.model_dump(mode="python")
@@ -218,12 +228,13 @@ async def test_optimize_agent_minimal_flow_with_signature():
         )
 
     reflection_output = InstructionProposalOutput(
+        reasoning=_fake_reasoning(),
         updated_components=[
             ComponentUpdate(
                 component_name="instructions",
                 optimized_value="Optimized",
             )
-        ]
+        ],
     )
     reflection_model = TestModel(
         custom_output_args=reflection_output.model_dump(mode="python")
@@ -272,12 +283,13 @@ async def test_optimize_agent_reports_progress(monkeypatch: pytest.MonkeyPatch):
         return MetricResult(score=1.0, feedback="Fine")
 
     reflection_output = InstructionProposalOutput(
+        reasoning=_fake_reasoning(),
         updated_components=[
             ComponentUpdate(
                 component_name="instructions",
                 optimized_value="Better instructions",
             )
-        ]
+        ],
     )
     reflection_model = TestModel(
         custom_output_args=reflection_output.model_dump(mode="python")
@@ -339,12 +351,13 @@ async def test_optimize_agent_respects_agent_usage_limits():
     )
 
     reflection_output = InstructionProposalOutput(
+        reasoning=_fake_reasoning(),
         updated_components=[
             ComponentUpdate(
                 component_name="instructions",
                 optimized_value="Updated instructions",
             )
-        ]
+        ],
     )
     reflection_model = TestModel(
         custom_output_args=reflection_output.model_dump(mode="python")
@@ -394,12 +407,13 @@ async def test_optimize_agent_stops_on_gepa_usage_budget():
     )
 
     reflection_output = InstructionProposalOutput(
+        reasoning=_fake_reasoning(),
         updated_components=[
             ComponentUpdate(
                 component_name="instructions",
                 optimized_value="Updated instructions",
             )
-        ]
+        ],
     )
     reflection_model = TestModel(
         custom_output_args=reflection_output.model_dump(mode="python")

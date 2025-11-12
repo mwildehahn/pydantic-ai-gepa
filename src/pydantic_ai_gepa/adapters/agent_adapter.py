@@ -12,6 +12,8 @@ import os
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Generic, Literal
 
+import logfire
+
 from pydantic import BaseModel
 from pydantic_ai import capture_run_messages, usage as _usage
 from pydantic_ai._tool_types import ToolDefinition
@@ -46,7 +48,6 @@ from ..components import (
 )
 from ..evaluation_models import EvaluationBatch
 from ..inspection import InspectionAborted
-from ..logging_utils import get_structured_logger, log_structured
 from ..signature import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
 from ..tool_components import get_or_create_tool_optimizer
@@ -71,7 +72,6 @@ _TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = (_ToolRetryError,)
 
 
 logger = logging.getLogger(__name__)
-_structured_logger = get_structured_logger()
 
 ErrorKind = Literal["tool", "system"]
 
@@ -792,9 +792,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         except Exception as e:
             error_kind = _classify_exception(e)
             case_id = getattr(data_inst, "case_id", "unknown")
-            log_structured(
-                _structured_logger,
-                "error",
+            logfire.error(
                 "AgentAdapter failed to process data instance",
                 case_id=case_id,
                 error_kind=error_kind,
@@ -826,6 +824,59 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
 
             return error_result
 
+    def _extract_instructions_and_tools(
+        self, messages: Sequence[ModelMessage]
+    ) -> tuple[str | None, list[ToolDefinition] | None]:
+        """Return the first instruction text and its tool definitions, if any."""
+        for message in messages:
+            if not isinstance(message, ModelRequest):
+                continue
+            if message.instructions is None:
+                continue
+            return message.instructions, message.function_tools
+        return None, None
+
+    def _build_synthetic_request(
+        self,
+        instance: DataInstT,
+        candidate: dict[str, str] | None,
+    ) -> ModelRequest | None:
+        """Synthesize a ModelRequest when no trace messages were captured."""
+        if not isinstance(instance, DataInstWithPrompt):
+            return None
+
+        instructions_text = None
+        if candidate is not None:
+            instructions_text = candidate.get("instructions")
+        if instructions_text is None:
+            maybe_instructions = _safe_getattr(self.agent, "_instructions")
+            if isinstance(maybe_instructions, str):
+                instructions_text = maybe_instructions
+
+        return ModelRequest(
+            parts=[instance.user_prompt],
+            instructions=instructions_text,
+        )
+
+    def _gather_messages(
+        self,
+        *,
+        messages: Sequence[ModelMessage],
+        captured_messages: Sequence[ModelMessage],
+        instance: DataInstT,
+        candidate: dict[str, str] | None,
+    ) -> list[ModelMessage]:
+        """Return recorded messages, falling back to the instance context."""
+        if messages:
+            return list(messages)
+        if captured_messages:
+            return list(captured_messages)
+        history = list(getattr(instance, "message_history", None) or [])
+        synthetic = self._build_synthetic_request(instance, candidate)
+        if synthetic is not None:
+            history.append(synthetic)
+        return history
+
     async def _run_with_trace(
         self, instance: DataInstT, candidate: dict[str, str] | None
     ) -> tuple[AgentAdapterTrajectory | None, RolloutOutput[Any]]:
@@ -840,6 +891,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         messages: list[ModelMessage] = []
         captured_messages: list[ModelMessage] = []
         run_result: Any | None = None
+        run_usage: _usage.RunUsage | None = None
         usage_kwargs = self._usage_kwargs()
 
         try:
@@ -869,9 +921,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             raise
         except _UsageLimitExceeded as exc:
             case_id = getattr(instance, "case_id", "unknown")
-            log_structured(
-                _structured_logger,
-                "warning",
+            logfire.warn(
                 "Agent run usage limit reached",
                 case_id=case_id,
             )
@@ -879,14 +929,30 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 "Agent run for instance %s exceeded per-run usage limits",
                 case_id,
             )
+            all_messages = self._gather_messages(
+                messages=messages,
+                captured_messages=captured_messages,
+                instance=instance,
+                candidate=candidate,
+            )
+            instructions_text, function_tools = self._extract_instructions_and_tools(
+                all_messages
+            )
+            trajectory = AgentAdapterTrajectory(
+                messages=all_messages,
+                instructions=instructions_text,
+                function_tools=function_tools,
+                final_output=None,
+                error=str(exc),
+                usage={},
+                data_inst=instance,
+            )
             output = RolloutOutput.from_error(exc, kind="system")
-            return None, output
+            return trajectory, output
         except Exception as e:
             error_kind = _classify_exception(e)
             case_id = getattr(instance, "case_id", "unknown")
-            log_structured(
-                _structured_logger,
-                "error",
+            logfire.error(
                 "AgentAdapter run_with_trace failed",
                 case_id=case_id,
                 error_kind=error_kind,
@@ -896,40 +962,44 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 "Failed to run agent with traces for instance %s",
                 case_id,
             )
-            all_messages = list(messages or captured_messages)
-            trajectory = (
-                AgentAdapterTrajectory(
+            all_messages = self._gather_messages(
+                messages=messages,
+                captured_messages=captured_messages,
+                instance=instance,
+                candidate=candidate,
+            )
+            trajectory = None
+            if error_kind == "tool":
+                instructions_text, function_tools = self._extract_instructions_and_tools(
+                    all_messages
+                )
+                trajectory = AgentAdapterTrajectory(
                     messages=all_messages,
-                    instructions=None,
-                    function_tools=None,
+                    instructions=instructions_text,
+                    function_tools=function_tools,
                     final_output=None,
                     error=str(e),
                     usage={},
                     data_inst=instance,
                 )
-                if error_kind == "tool"
-                else None
-            )
             output = RolloutOutput.from_error(e, kind=error_kind)
             return trajectory, output
 
         assert run_result is not None
-        final_messages = list(messages or captured_messages)
+        final_messages = self._gather_messages(
+            messages=messages,
+            captured_messages=captured_messages,
+            instance=instance,
+            candidate=candidate,
+        )
         final_output = run_result.output
         target_agent = self.agent
         if isinstance(target_agent, WrapperAgent):
             target_agent = target_agent.wrapped
 
-        instructions_text = None
-        function_tools = None
-        for message in final_messages:
-            if not isinstance(message, ModelRequest):
-                continue
-            if message.instructions is None:
-                continue
-            instructions_text = message.instructions
-            function_tools = message.function_tools
-            break
+        instructions_text, function_tools = self._extract_instructions_and_tools(
+            final_messages
+        )
 
         trajectory = AgentAdapterTrajectory(
             messages=final_messages,
@@ -937,10 +1007,10 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             function_tools=function_tools,
             final_output=final_output,
             error=None,
-            usage=asdict(run_usage),  # Convert RunUsage to dict
+            usage=asdict(run_usage) if run_usage else {},
             data_inst=instance,
         )
-        output = RolloutOutput.from_success(final_output)
+        output = RolloutOutput.from_success(final_output, usage=run_usage)
 
         return trajectory, output
 
@@ -973,17 +1043,16 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     **usage_kwargs,
                 )
 
-            await self._record_gepa_usage(result.usage())
-            return RolloutOutput.from_success(result.output)
+            run_usage = result.usage()
+            await self._record_gepa_usage(run_usage)
+            return RolloutOutput.from_success(result.output, usage=run_usage)
         except InspectionAborted:
             raise
         except UsageBudgetExceeded:
             raise
         except _UsageLimitExceeded as exc:
             case_id = getattr(instance, "case_id", "unknown")
-            log_structured(
-                _structured_logger,
-                "warning",
+            logfire.warn(
                 "Agent run usage limit reached",
                 case_id=case_id,
             )
@@ -995,9 +1064,7 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         except Exception as e:
             error_kind = _classify_exception(e)
             case_id = getattr(instance, "case_id", "unknown")
-            log_structured(
-                _structured_logger,
-                "error",
+            logfire.error(
                 "AgentAdapter run_simple failed",
                 case_id=case_id,
                 error_kind=error_kind,

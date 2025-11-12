@@ -75,6 +75,11 @@ async def test_llm_generator_updates_components() -> None:
         prompt = messages[-1].parts[0].content
         prompts.append(prompt)
         content = """{
+            "reasoning": {
+                "what_went_well": "Some things worked",
+                "what_went_wrong": "Some things didn't work",
+                "areas_to_improve": "Need to improve clarity"
+            },
             "updated_components": [
                 {"component_name": "instructions", "optimized_value": "Improved instructions"},
                 {"component_name": "tools", "optimized_value": "Better tools"}
@@ -115,6 +120,11 @@ async def test_llm_generator_skips_components_without_records() -> None:
         assert "### Component: `instructions`" in prompt
         assert "### Component: `tools`" not in prompt
         content = """{
+            "reasoning": {
+                "what_went_well": "Some things worked",
+                "what_went_wrong": "Some things didn't work",
+                "areas_to_improve": "Need to improve clarity"
+            },
             "updated_components": [
                 {"component_name": "instructions", "optimized_value": "Improved instructions"}
             ]
@@ -200,6 +210,11 @@ async def test_llm_generator_handles_shared_dataset() -> None:
         prompt = messages[-1].parts[0].content
         prompts.append(prompt)
         content = """{
+            "reasoning": {
+                "what_went_well": "Some things worked",
+                "what_went_wrong": "Some things didn't work",
+                "areas_to_improve": "Need to improve clarity"
+            },
             "updated_components": [
                 {"component_name": "instructions", "optimized_value": "Improved instructions"},
                 {"component_name": "tools", "optimized_value": "Improved tools"}
@@ -476,7 +491,14 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
             updated.append({"component_name": tool_comp, "optimized_value": f"Improved {tool_comp}"})
 
         import json
-        content = json.dumps({"updated_components": updated})
+        content = json.dumps({
+            "reasoning": {
+                "what_went_well": "Tool usage patterns were good",
+                "what_went_wrong": "Could be more explicit",
+                "areas_to_improve": "Add more guidance about when to use tools"
+            },
+            "updated_components": updated
+        })
         return ModelResponse(parts=[TextPart(content=content)])
 
     # Run the proposal generator

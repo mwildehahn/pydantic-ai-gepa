@@ -7,6 +7,8 @@ from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+import logfire
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from pydantic_ai import usage as _usage
@@ -30,7 +32,6 @@ from .gepa_graph.models import (
     GepaState,
 )
 from .gepa_graph.nodes import StartNode
-from .logging_utils import StructuredLogger, get_structured_logger, log_structured
 from .signature import InputSpec
 from .reflection import ReflectionSampler
 from .types import DataInstT, MetricResult, RolloutOutput
@@ -150,8 +151,6 @@ async def optimize_agent(
     enable_cache: bool = False,
     cache_dir: str | None = None,
     cache_verbose: bool = False,
-    # Logging
-    logger: StructuredLogger | None = None,
     show_progress: bool = False,
     # Reproducibility
     seed: int = 0,
@@ -202,9 +201,6 @@ async def optimize_agent(
         cache_dir: Directory to store cache files. If None, uses '.gepa_cache' in current directory.
         cache_verbose: Whether to log cache hits and misses.
 
-        # Logging
-        logger: Optional logger to override the default ``logfire`` usage for
-            structured progress/error messages.
         show_progress: Display a Rich progress bar tied to the evaluation budget.
         # Reproducibility
         seed: Random seed for reproducibility.
@@ -255,8 +251,6 @@ async def optimize_agent(
             enabled=True,
             verbose=cache_verbose,
         )
-
-    active_logger = get_structured_logger(logger)
 
     adapter = AgentAdapter(
         agent=agent,
@@ -323,9 +317,7 @@ async def optimize_agent(
         gepa_result = run_result.output
     except UsageBudgetExceeded as exc:
         state.mark_stopped(reason="Usage budget exceeded")
-        log_structured(
-            active_logger,
-            "info",
+        logfire.info(
             "Optimization stopped due to usage budget",
             exception=exc,
             total_evaluations=state.total_evaluations,
@@ -338,9 +330,7 @@ async def optimize_agent(
     except Exception as exc:
         if raise_on_exception:
             raise
-        log_structured(
-            active_logger,
-            "error",
+        logfire.error(
             "Optimization failed",
             exception=exc,
         )
@@ -383,9 +373,8 @@ async def optimize_agent(
 
     if cache_manager and cache_verbose:
         stats = cache_manager.get_cache_stats()
-        log_structured(active_logger, "info", "Cache stats", stats=stats)
-        if active_logger is not module_logger:
-            module_logger.info("Cache stats: %s", stats)
+        logfire.info("Cache stats", stats=stats)
+        module_logger.info("Cache stats: %s", stats)
 
     return result
 

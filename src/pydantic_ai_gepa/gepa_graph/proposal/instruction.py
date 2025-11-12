@@ -19,31 +19,149 @@ from ...adapter import (
 )
 from ..models import CandidateProgram
 
-DEFAULT_AGENT_INSTRUCTIONS = """You are optimizing prompt components for a student agent based on production performance.
+DEFAULT_AGENT_INSTRUCTIONS = """You are optimizing prompt components for a student agent based on production trajectory analysis.
 
-Your task is to:
-1. Review the full student agent configuration to understand the context
-2. Analyze production evidence showing successes and failures
-3. Identify patterns across components and evidence
-4. Consider cross-component dependencies and alignment issues
-5. Capture domain-specific knowledge from examples
-6. Preserve successful patterns; fix what doesn't work
-7. Rewrite only the listed components as a coordinated update
-8. Add few-shot examples when they clarify the task
+## Your Task
 
-Focus on making prompts clearer, more specific, and better aligned with successful outcomes.
-When updating multiple components, ensure they work together cohesively.
+Analyze the provided execution traces to understand:
+1. What patterns led to success vs. failure
+2. What domain knowledge is revealed by the correct solutions
+3. How the student agent is currently behaving
+4. What specific guidance would help the student improve
 
-When evidence reveals domain invariants, evaluator heuristics, or recurring failure motifs, surface them explicitly in the rewritten components. Encode the domain logic that drives scoring so future runs internalize those guardrails rather than relying on ad-hoc fixes.
+Then provide updated component texts that encode this knowledge clearly and effectively.
 
-**Efficiency guidance:**
-- Guide the student towards accurate, efficient tool usage
-- Tool calls aren't necessarily wrong, but unnecessary calls waste resources
-- Encourage the student to gather sufficient information in fewer, well-planned calls
-- Promote patterns where the student thinks through what's needed before acting
-- Avoid patterns that lead to redundant or speculative tool calls
+## Critical Understanding: Teaching Less Capable Models
 
-Always respond using the structured schema with an entry for each component you were asked to update."""
+When the student model is less capable (small, cheap, or "dumb"), you MUST compensate with:
+
+**1. Extensive Few-Shot Examples**
+- Include multiple complete examples showing full reasoning traces
+- Show multi-turn interactions, not just single inputs/outputs
+- Demonstrate exactly how to break down complex problems
+- Include edge cases and common pitfalls
+- Show the pattern: think → plan → execute → verify
+
+**2. Explicit Step-by-Step Guidance**
+- Break complex tasks into numbered steps
+- State prerequisites and dependencies clearly
+- Provide decision trees for common scenarios
+- Make implicit knowledge explicit
+
+**3. Domain Knowledge Extraction**
+- When traces show successful solutions, extract the underlying approach
+- Codify problem-solving patterns into the instructions
+- Document common gotchas revealed by failures
+- Include heuristics for when to use which approach
+
+**4. Constraint Management**
+- If traces show tool limit failures, teach efficiency
+- If traces show repeated errors, provide guardrails
+- If traces show missing context, add reminder patterns
+- Encode resource budgets directly in instructions
+
+## Analysis Framework
+
+For each set of traces, identify:
+- **Successes:** What approaches worked? What reasoning was sound?
+- **Failures:** What went wrong? Where did the student get stuck?
+- **Patterns:** Are failures random or systematic?
+- **Missing Knowledge:** What domain expertise does the student lack?
+- **Efficiency Issues:** Unnecessary tool calls, redundant work, lack of planning?
+- **Structural Issues:** Tool limit hits, timeout patterns, repeated errors?
+
+## Output Requirements
+
+Always respond using the structured schema with:
+1. An entry for each component you were asked to update
+2. Rewritten component text that:
+   - Incorporates lessons from the trajectory analysis
+   - Adds few-shot examples if the student needs more guidance
+   - Encodes domain knowledge from successful traces
+   - Provides explicit guardrails against observed failure modes
+   - Maintains token efficiency while being sufficiently detailed
+
+**Balance:** For capable models, stay concise. For less capable models, err on the side of being thorough and explicit, even if it costs more tokens. A longer, clearer prompt that works is better than a short prompt that fails.
+
+## Specific Guidance on Few-Shot Examples
+
+When adding examples to instructions, follow this pattern:
+
+```
+Example 1: [Brief description]
+
+Input: [The task/problem]
+
+Reasoning:
+- First, I need to [understand/identify/determine] ...
+- This requires [approach/tool/calculation] ...
+- I should [plan/prepare/check] ...
+
+Action: [Tool call or response]
+
+Result: [What happened]
+
+Next step: [Continue reasoning...]
+
+Final answer: [Solution]
+```
+
+Include 2-4 complete examples showing:
+- Simple case (baseline)
+- Complex case (shows full capability)
+- Edge case (shows careful thinking)
+- Failure recovery (shows error handling)
+
+**When evidence reveals:**
+- Domain invariants → Encode them explicitly in instructions
+- Evaluator heuristics → Surface them as success criteria
+- Recurring failure motifs → Add guardrails and reminders
+- Efficient patterns → Highlight and explain them
+- Resource constraints → Build awareness into the instructions
+
+## Adaptive Strategy Based on Progress
+
+You may receive context about the optimization progress (iteration number, scores). Use this to adapt your approach:
+
+**Early iterations (1-3):**
+- Make focused, targeted improvements
+- Test hypotheses about what's wrong
+- Stay relatively concise
+
+**Mid iterations (4-6) with no improvement:**
+- You're likely stuck in a local optimum or missing something fundamental
+- Time to get more aggressive
+- Add comprehensive few-shot examples (2-4 complete examples)
+- Make structural changes, not just tweaks
+- Consider if you're addressing the right problem
+
+**Late iterations (7+) still stuck:**
+- Emergency measures needed
+- Add extensive few-shot examples showing complete reasoning chains
+- Be very explicit and detailed, even at token cost
+- The student needs hand-holding - provide it
+- Look for completely different angles of attack
+
+**When you see improvement:**
+- You're on the right track
+- Build on what's working
+- Refine and extend successful patterns
+
+Always ensure updated components work together cohesively as a coordinated system."""
+
+
+class TrajectoryAnalysis(BaseModel):
+    """Analysis of what happened in the traces before proposing changes."""
+
+    what_went_well: str = Field(
+        description="Patterns and approaches that led to successful outcomes in the traces. What did the student do correctly?",
+    )
+    what_went_wrong: str = Field(
+        description="Failure patterns, errors, and inefficiencies observed in the traces. What caused the student to fail or underperform?",
+    )
+    areas_to_improve: str = Field(
+        description="Specific aspects to address in the updated components. What changes will most improve performance?",
+    )
 
 
 class ComponentUpdate(BaseModel):
@@ -60,9 +178,12 @@ class ComponentUpdate(BaseModel):
 class InstructionProposalOutput(BaseModel):
     """Agent output schema for instruction proposals."""
 
+    reasoning: TrajectoryAnalysis = Field(
+        description="Analysis of the traces before making changes. This helps ensure updates are grounded in evidence.",
+    )
     updated_components: list[ComponentUpdate] = Field(
         default_factory=list,
-        description="Updates for each requested component.",
+        description="Updates for each requested component, informed by the reasoning above.",
     )
 
 
@@ -82,8 +203,21 @@ class InstructionProposalGenerator:
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
         model: Model | KnownModelName | str,
+        iteration: int | None = None,
+        current_best_score: float | None = None,
+        parent_score: float | None = None,
     ) -> dict[str, str]:
-        """Propose new texts for each component via the structured agent."""
+        """Propose new texts for each component via the structured agent.
+
+        Args:
+            candidate: The candidate program to optimize
+            reflective_data: Training data with execution traces
+            components: Component names to update
+            model: Model to use for proposal generation
+            iteration: Current optimization iteration (if available)
+            current_best_score: Best score achieved so far (if available)
+            parent_score: Score of the candidate being improved from (if available)
+        """
         if not components:
             return {}
 
@@ -106,6 +240,9 @@ class InstructionProposalGenerator:
             candidate=candidate,
             reflective_data=reflective_data,
             components=actionable,
+            iteration=iteration,
+            current_best_score=current_best_score,
+            parent_score=parent_score,
         )
 
         try:
@@ -141,12 +278,51 @@ class InstructionProposalGenerator:
         candidate: CandidateProgram,
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
+        iteration: int | None = None,
+        current_best_score: float | None = None,
+        parent_score: float | None = None,
     ) -> str:
         lines = [
             "# Role: Component Optimizer for Student Agent",
             "",
             "You are optimizing prompt components for a student agent based on its production performance.",
             "",
+        ]
+
+        # Add optimization progress context if available
+        if iteration is not None or current_best_score is not None or parent_score is not None:
+            lines.extend([
+                "## Optimization Progress",
+                "",
+            ])
+            if iteration is not None:
+                lines.append(f"- **Current iteration:** {iteration}")
+            if current_best_score is not None:
+                lines.append(f"- **Best score so far:** {current_best_score:.4f}")
+            if parent_score is not None:
+                lines.append(f"- **Score of candidate being improved:** {parent_score:.4f}")
+
+            # Add interpretation guidance
+            if iteration is not None and current_best_score is not None and parent_score is not None:
+                if current_best_score == parent_score and iteration > 3:
+                    lines.extend([
+                        "",
+                        "**⚠️ Plateau detected:** No improvement for several iterations. Time to try more aggressive changes.",
+                        "Consider adding comprehensive few-shot examples or restructuring the approach.",
+                    ])
+                elif current_best_score > parent_score:
+                    lines.extend([
+                        "",
+                        "**✓ Improvement detected:** Recent changes helped. Build on this success.",
+                    ])
+
+            lines.extend([
+                "",
+                "---",
+                "",
+            ])
+
+        lines.extend([
             "## Context",
             "- A student agent has been running with the configuration shown below",
             "- We've collected traces from real production runs",
@@ -158,7 +334,7 @@ class InstructionProposalGenerator:
             "",
             "This is the complete configuration the student agent was running with:",
             "",
-        ]
+        ])
 
         # Show non-tool components in the candidate (tools are shown via JSON Schema below)
         for component_name, component_value in candidate.components.items():
@@ -423,4 +599,5 @@ __all__ = [
     "DEFAULT_AGENT_INSTRUCTIONS",
     "InstructionProposalOutput",
     "ComponentUpdate",
+    "TrajectoryAnalysis",
 ]

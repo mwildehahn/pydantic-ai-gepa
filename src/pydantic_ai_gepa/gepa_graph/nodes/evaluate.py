@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Sequence
 
-from ...logging_utils import get_structured_logger, log_structured
+import logfire
 from ...types import DataInst
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
@@ -15,8 +15,6 @@ from .base import GepaNode, GepaRunContext
 if TYPE_CHECKING:
     from .continue_node import ContinueNode
 
-
-_structured_logger = get_structured_logger()
 
 
 @dataclass(slots=True)
@@ -45,9 +43,7 @@ class EvaluateNode(GepaNode):
             outputs=results.outputs,
         )
         validation_total, validation_avg = self._summarize_scores(results.scores)
-        log_structured(
-            _structured_logger,
-            "debug",
+        logfire.debug(
             "EvaluateNode validation results",
             candidate_idx=candidate.idx,
             validation_total=validation_total,
@@ -64,9 +60,7 @@ class EvaluateNode(GepaNode):
             new_best_idx != previous_best_idx
             or new_best_score != previous_best_score
         ):
-            log_structured(
-                _structured_logger,
-                "info",
+            logfire.info(
                 "EvaluateNode promoted best candidate",
                 candidate_idx=new_best_idx,
                 previous_best_idx=previous_best_idx,
@@ -74,9 +68,7 @@ class EvaluateNode(GepaNode):
                 new_best_score=new_best_score,
             )
         else:
-            log_structured(
-                _structured_logger,
-                "debug",
+            logfire.debug(
                 "EvaluateNode best candidate unchanged",
                 candidate_idx=candidate.idx,
                 best_candidate_idx=new_best_idx,

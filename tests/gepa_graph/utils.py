@@ -99,7 +99,17 @@ class ProposalGeneratorStub:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def propose_texts(self, *, candidate, reflective_data, components, model):
+    async def propose_texts(
+        self,
+        *,
+        candidate,
+        reflective_data,
+        components,
+        model,
+        iteration: int | None = None,
+        current_best_score: float | None = None,
+        parent_score: float | None = None,
+    ):
         self.calls += 1
         updates: dict[str, str] = {}
         for component in components:

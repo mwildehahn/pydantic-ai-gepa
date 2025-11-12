@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Mapping, Sequence
+import logfire
 
 from pydantic_ai.models import KnownModelName, Model
 
@@ -13,7 +14,6 @@ from ...adapter import (
     SharedReflectiveDataset,
 )
 from ...evaluation_models import EvaluationBatch
-from ...logging_utils import get_structured_logger, log_structured
 from ...types import DataInst
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaConfig, GepaState
@@ -23,8 +23,6 @@ from .continue_node import ContinueNode
 from .evaluate import EvaluateNode
 
 _IMPROVEMENT_EPSILON = 1e-9
-_structured_logger = get_structured_logger()
-
 
 @dataclass(slots=True)
 class ReflectNode(GepaNode):
@@ -36,22 +34,20 @@ class ReflectNode(GepaNode):
 
         parent_idx, parent = self._select_parent(state, deps)
         minibatch = self._sample_minibatch(state, deps)
-        log_structured(
-            _structured_logger,
-            "debug",
-            "ReflectNode evaluating parent",
+        with logfire.span(
+            "evaluate first minibatch",
             parent_idx=parent_idx,
             component_versions=self._component_versions(parent),
             minibatch_size=len(minibatch),
-        )
+        ):
+            parent_results = await self._evaluate_minibatch(
+                deps=deps,
+                state=state,
+                candidate=parent,
+                batch=minibatch,
+                capture_traces=True,
+            )
 
-        parent_results = await self._evaluate_minibatch(
-            deps=deps,
-            state=state,
-            candidate=parent,
-            batch=minibatch,
-            capture_traces=True,
-        )
         state.record_evaluation_errors(
             candidate_idx=parent_idx,
             stage="reflection_parent",
@@ -61,9 +57,8 @@ class ReflectNode(GepaNode):
         self._record_minibatch(parent, parent_results)
         self._increment_budget(state, parent_results)
         parent_total, parent_avg = self._summarize_scores(parent_results.scores)
-        log_structured(
-            _structured_logger,
-            "debug",
+
+        logfire.debug(
             "ReflectNode parent minibatch results",
             parent_idx=parent_idx,
             minibatch_scores=list(parent_results.scores),
@@ -72,9 +67,7 @@ class ReflectNode(GepaNode):
         )
 
         if self._should_skip_perfect(parent_results.scores, state):
-            log_structured(
-                _structured_logger,
-                "info",
+            logfire.info(
                 "ReflectNode skipping reflection due to perfect minibatch",
                 parent_idx=parent_idx,
                 threshold=state.config.perfect_score,
@@ -84,9 +77,7 @@ class ReflectNode(GepaNode):
             return ContinueNode()
 
         components = self._select_components(state, deps, parent_idx)
-        log_structured(
-            _structured_logger,
-            "debug",
+        logfire.debug(
             "ReflectNode selected components",
             components=components,
             parent_idx=parent_idx,
@@ -99,22 +90,29 @@ class ReflectNode(GepaNode):
             components=components,
         )
         reflection_model = self._resolve_reflection_model(deps)
-        proposed_texts = await self._propose_new_texts(
-            deps=deps,
-            parent=parent,
-            reflective_dataset=reflective_dataset,
+
+        with logfire.span(
+            "propose new texts",
+            parent_idx=parent_idx,
             components=components,
             model=reflection_model,
-        )
+        ):
+            proposed_texts = await self._propose_new_texts(
+                deps=deps,
+                state=state,
+                parent=parent,
+                reflective_dataset=reflective_dataset,
+                components=components,
+                model=reflection_model,
+            )
+
         new_candidate = self._create_candidate(
             state=state,
             parent=parent,
             parent_idx=parent_idx,
             new_texts=proposed_texts,
         )
-        log_structured(
-            _structured_logger,
-            "debug",
+        logfire.debug(
             "ReflectNode proposed candidate",
             candidate_idx=new_candidate.idx,
             parent_idx=parent_idx,
@@ -126,13 +124,19 @@ class ReflectNode(GepaNode):
             or components,
         )
 
-        new_results = await self._evaluate_minibatch(
-            deps=deps,
-            state=state,
-            candidate=new_candidate,
-            batch=minibatch,
-            capture_traces=False,
-        )
+        with logfire.span(
+            "evaluate new candidate",
+            candidate_idx=new_candidate.idx,
+            parent_idx=parent_idx,
+        ):
+            new_results = await self._evaluate_minibatch(
+                deps=deps,
+                state=state,
+                candidate=new_candidate,
+                batch=minibatch,
+                capture_traces=False,
+            )
+
         state.record_evaluation_errors(
             candidate_idx=new_candidate.idx,
             stage="reflection_candidate",
@@ -142,9 +146,7 @@ class ReflectNode(GepaNode):
         self._record_minibatch(new_candidate, new_results)
         self._increment_budget(state, new_results)
         new_total, new_avg = self._summarize_scores(new_results.scores)
-        log_structured(
-            _structured_logger,
-            "debug",
+        logfire.debug(
             "ReflectNode candidate minibatch results",
             candidate_idx=new_candidate.idx,
             parent_idx=parent_idx,
@@ -168,18 +170,14 @@ class ReflectNode(GepaNode):
             state.add_candidate(new_candidate)
             state.last_accepted = True
             state.schedule_merge(state.config.merges_per_accept)
-            log_structured(
-                _structured_logger,
-                "info",
+            logfire.info(
                 "ReflectNode accepted candidate",
                 **decision_payload,
             )
             return EvaluateNode()
 
         state.last_accepted = False
-        log_structured(
-            _structured_logger,
-            "info",
+        logfire.info(
             "ReflectNode rejected candidate",
             failure_reason="not_strict_improvement",
             **decision_payload,
@@ -292,6 +290,7 @@ class ReflectNode(GepaNode):
         self,
         *,
         deps: GepaDeps,
+        state: GepaState,
         parent: CandidateProgram,
         reflective_dataset: ReflectiveDataset,
         components: Sequence[str],
@@ -302,6 +301,11 @@ class ReflectNode(GepaNode):
             reflective_data=reflective_dataset,
             components=components,
             model=model,
+            iteration=state.iteration,
+            current_best_score=state.best_score,
+            parent_score=parent.avg_validation_score
+            if parent.validation_scores
+            else None,
         )
 
     def _create_candidate(
@@ -394,7 +398,9 @@ class ReflectNode(GepaNode):
 
     @staticmethod
     def _component_versions(candidate: CandidateProgram) -> dict[str, int]:
-        return {name: component.version for name, component in candidate.components.items()}
+        return {
+            name: component.version for name, component in candidate.components.items()
+        }
 
 
 __all__ = ["ReflectNode"]

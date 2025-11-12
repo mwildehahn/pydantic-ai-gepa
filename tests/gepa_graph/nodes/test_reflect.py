@@ -143,7 +143,17 @@ class _StubProposalGenerator(InstructionProposalGenerator):
         self.calls = 0
         self.last_reflective_data: ReflectiveDataset | None = None
 
-    async def propose_texts(self, *, candidate, reflective_data, components, model):
+    async def propose_texts(
+        self,
+        *,
+        candidate,
+        reflective_data,
+        components,
+        model,
+        iteration=None,
+        current_best_score=None,
+        parent_score=None,
+    ):
         self.calls += 1
         self.last_reflective_data = reflective_data
         return {
