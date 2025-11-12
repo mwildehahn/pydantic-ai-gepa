@@ -1,9 +1,10 @@
+import argparse
 import asyncio
 import json
+import pprint
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-import pprint
 from typing import Any
 
 import logfire
@@ -238,7 +239,7 @@ signature_dataset = [
 ]
 
 # agent_model = InspectingModel(infer_model("openai:gpt-5-nano"))
-agent_model = infer_model("openai:gpt-5-mini")
+agent_model = infer_model("openai:gpt-5-nano")
 
 # Create agent that invokes the local sandbox tool for execution
 agent = Agent(
@@ -280,7 +281,9 @@ def metric(
     if not expression:
         hint = "Include the Python code you executed."
         if ideal_expression:
-            hint = f"{hint} For reference, one valid approach uses: `{ideal_expression}`."
+            hint = (
+                f"{hint} For reference, one valid approach uses: `{ideal_expression}`."
+            )
         prefix = f"{base_feedback} " if base_feedback else ""
         return MetricResult(
             score=0.0,
@@ -345,8 +348,70 @@ async def run_math_tools_optimization(
     )
 
 
-async def main() -> None:
-    output_dir = Path("optimization_results")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Run or inspect the math tools GEPA optimization example."
+    )
+    parser.add_argument(
+        "--load-latest",
+        action="store_true",
+        help="Load the most recent math_tools optimization result and print a summary.",
+    )
+    parser.add_argument(
+        "--results-dir",
+        type=Path,
+        default=Path("optimization_results"),
+        help="Directory containing saved optimization result JSON files.",
+    )
+    return parser.parse_args()
+
+
+def latest_result_file(results_dir: Path) -> Path | None:
+    result_files = sorted(
+        results_dir.glob("math_tools_optimization_*.json"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    return result_files[0] if result_files else None
+
+
+def print_result_summary(result: GepaResult, location_message: str) -> None:
+    print(f"\n{location_message}")
+    if result.original_score is not None:
+        print(f"   Original score: {result.original_score:.4f}")
+    else:
+        print("   Original score: N/A")
+    if result.best_score is not None:
+        print(f"   Best score: {result.best_score:.4f}")
+    else:
+        print("   Best score: N/A")
+    print(f"   Iterations: {result.iterations}")
+    print(f"   Metric calls: {result.total_evaluations}")
+    improvement = result.relative_improvement()
+    if improvement is not None:
+        print(f"   Improvement: {improvement * 100:.2f}%")
+    else:
+        print("   Improvement: N/A")
+
+
+async def main(load_latest: bool, results_dir: Path) -> None:
+    if load_latest:
+        if not results_dir.exists():
+            print(f"No optimization results directory found at: {results_dir}")
+            return
+
+        latest_file = latest_result_file(results_dir)
+        if latest_file is None:
+            print(f"No optimization result files found in: {results_dir}")
+            return
+
+        with latest_file.open("r") as file:
+            result = GepaResult.model_validate_json(file.read())
+
+        print_result_summary(result, f"Loaded optimization result from: {latest_file}")
+        return
+
+    output_dir = results_dir
     output_dir.mkdir(exist_ok=True)
 
     reflection_model = OpenAIResponsesModel(
@@ -378,23 +443,9 @@ async def main() -> None:
     with output_file.open("w") as file:
         json.dump(result.model_dump(), file, indent=2)
 
-    print(f"\n✅ Optimization result saved to: {output_file}")
-    if result.original_score is not None:
-        print(f"   Original score: {result.original_score:.4f}")
-    else:
-        print("   Original score: N/A")
-    if result.best_score is not None:
-        print(f"   Best score: {result.best_score:.4f}")
-    else:
-        print("   Best score: N/A")
-    print(f"   Iterations: {result.iterations}")
-    print(f"   Metric calls: {result.total_evaluations}")
-    improvement = result.relative_improvement()
-    if improvement is not None:
-        print(f"   Improvement: {improvement * 100:.2f}%")
-    else:
-        print("   Improvement: N/A")
+    print_result_summary(result, f"✅ Optimization result saved to: {output_file}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    args = parse_args()
+    asyncio.run(main(load_latest=args.load_latest, results_dir=args.results_dir))

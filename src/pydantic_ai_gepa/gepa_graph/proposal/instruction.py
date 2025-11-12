@@ -34,6 +34,8 @@ Your task is to:
 Focus on making prompts clearer, more specific, and better aligned with successful outcomes.
 When updating multiple components, ensure they work together cohesively.
 
+When evidence reveals domain invariants, evaluator heuristics, or recurring failure motifs, surface them explicitly in the rewritten components. Encode the domain logic that drives scoring so future runs internalize those guardrails rather than relying on ad-hoc fixes.
+
 **Efficiency guidance:**
 - Guide the student towards accurate, efficient tool usage
 - Tool calls aren't necessarily wrong, but unnecessary calls waste resources
