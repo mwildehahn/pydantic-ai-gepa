@@ -35,7 +35,6 @@ class ContinueNode(GepaNode):
             and state.merge_scheduled > 0
             and state.last_accepted
         ):
-            state.merge_scheduled -= 1
             return MergeNode()
 
         return ReflectNode()

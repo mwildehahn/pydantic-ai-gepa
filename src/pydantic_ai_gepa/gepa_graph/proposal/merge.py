@@ -132,7 +132,7 @@ class MergeProposalBuilder:
         if len(shared_ids) < min_shared:
             return []
 
-        target = min(len(shared_ids), min_shared)
+        target = min(len(shared_ids), max(1, state.config.merge_subsample_size))
         buckets = self._build_score_buckets(parent1, parent2, shared_ids)
 
         selected_ids: list[str] = []

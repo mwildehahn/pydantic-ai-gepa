@@ -119,16 +119,20 @@ class ParallelEvaluator:
 
             if trajectories is not None:
                 batch_traces = batch.trajectories
-                if batch_traces is None:
-                    trajectories = None
-                else:
+                if batch_traces:
                     trajectories.extend(batch_traces)
+
+        trajectory_payload: list[Trajectory] | None
+        if trajectories is None or not trajectories:
+            trajectory_payload = None
+        else:
+            trajectory_payload = trajectories
 
         return EvaluationResults(
             data_ids=data_ids,
             scores=scores,
             outputs=outputs,
-            trajectories=trajectories,
+            trajectories=trajectory_payload,
         )
 
     @staticmethod

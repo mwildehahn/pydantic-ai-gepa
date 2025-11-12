@@ -18,12 +18,17 @@ def _make_data_inst(case_id: str) -> DataInstWithPrompt:
     )
 
 
-def _make_state(min_shared_validation: int = 4) -> GepaState:
+def _make_state(
+    *,
+    min_shared_validation: int = 4,
+    merge_subsample_size: int = 5,
+) -> GepaState:
     training = [_make_data_inst(f"case-{idx}") for idx in range(6)]
     config = GepaConfig(
         max_evaluations=100,
         use_merge=True,
         min_shared_validation=min_shared_validation,
+        merge_subsample_size=merge_subsample_size,
     )
     return GepaState(config=config, training_set=training, validation_set=training)
 
@@ -157,12 +162,12 @@ def test_build_merged_candidate_combines_components() -> None:
 
 
 def test_select_merge_subsample_stratifies_scores() -> None:
-    state = _make_state(min_shared_validation=4)
+    state = _make_state(min_shared_validation=4, merge_subsample_size=5)
     _, parent1, parent2 = _build_lineage(state)
     builder = MergeProposalBuilder(seed=5)
 
     subsample = builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
-    assert len(subsample) == state.config.min_shared_validation
+    assert len(subsample) == state.config.merge_subsample_size
     case_ids = {inst.case_id for inst in subsample}
     assert case_ids.issubset({f"case-{idx}" for idx in range(6)})
 

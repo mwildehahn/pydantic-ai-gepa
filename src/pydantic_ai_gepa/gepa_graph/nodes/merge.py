@@ -102,6 +102,8 @@ class MergeNode(GepaNode):
         if merged_total >= baseline_total:
             state.add_candidate(merged_candidate)
             state.last_accepted = True
+            if state.merge_scheduled > 0:
+                state.merge_scheduled -= 1
             return EvaluateNode()
 
         return reject()

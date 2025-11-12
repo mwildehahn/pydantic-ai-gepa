@@ -354,7 +354,7 @@ async def run_math_tools_optimization(
     )
 
     config = GepaConfig(
-        max_evaluations=200,
+        max_evaluations=300,
         component_selector="all",
         candidate_selector=CandidateSelectorStrategy.CURRENT_BEST,
         max_concurrent_evaluations=20,

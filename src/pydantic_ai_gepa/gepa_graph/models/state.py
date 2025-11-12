@@ -140,6 +140,10 @@ class GepaConfig(BaseModel):
         default=3,
         description="Minimum overlapping validation examples required before merging candidates.",
     )
+    merge_subsample_size: int = Field(
+        default=5,
+        description="Number of validation examples evaluated when testing a merged candidate.",
+    )
 
     # Parallelism
     max_concurrent_evaluations: int = Field(
@@ -172,6 +176,7 @@ class GepaConfig(BaseModel):
         "minibatch_size",
         "max_concurrent_evaluations",
         "reflection_sampler_max_records",
+        "merge_subsample_size",
     )
     @classmethod
     def _validate_positive_int(cls, value: int, info: ValidationInfo) -> int:

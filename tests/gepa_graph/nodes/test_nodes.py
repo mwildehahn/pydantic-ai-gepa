@@ -265,7 +265,7 @@ async def test_continue_node_triggers_merge_when_scheduled() -> None:
     next_node = await node.run(ctx)
 
     assert isinstance(next_node, MergeNode)
-    assert state.merge_scheduled == 1
+    assert state.merge_scheduled == 2
     assert state.iteration == 1
 
 
