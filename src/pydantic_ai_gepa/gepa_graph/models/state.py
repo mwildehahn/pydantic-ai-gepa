@@ -238,6 +238,10 @@ class GepaState(BaseModel):
         default=0,
         description="Number of pending merge operations left to schedule after acceptance.",
     )
+    merge_attempts: int = Field(
+        default=0,
+        description="Count of merge attempts performed so far (includes failures).",
+    )
     stopped: bool = Field(
         default=False,
         description="Set to True when ContinueNode determines the run should stop.",
@@ -365,6 +369,10 @@ class GepaState(BaseModel):
         if count < 0:
             raise ValueError("count must be >= 0.")
         self.merge_scheduled += count
+
+    def record_merge_attempt(self) -> None:
+        """Increment counters for each merge attempt."""
+        self.merge_attempts += 1
 
     def budget_remaining(self) -> int:
         """Return the number of evaluations remaining in the budget."""

@@ -308,10 +308,14 @@ async def optimize_agent(
                         state.total_evaluations,
                         current_node=current_node_name,
                         previous_node=previous_node_name,
+                        best_score=state.best_score,
                     )
                     previous_node_name = current_node_name
                 run_result = run.result
-            progress_bar.update(state.total_evaluations)
+            progress_bar.update(
+                state.total_evaluations,
+                best_score=state.best_score,
+            )
         if run_result is None:
             raise RuntimeError("GEPA graph run did not produce a result.")
         gepa_result = run_result.output

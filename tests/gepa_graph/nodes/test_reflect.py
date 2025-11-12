@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Sequence, cast
+from dataclasses import dataclass
+from typing import Any, Sequence, cast
 
 import pytest
 from pydantic_graph import GraphRunContext
@@ -80,6 +81,16 @@ def _make_state(
     return state
 
 
+@dataclass
+class _StubTrajectory:
+    instructions: str | None = "seed"
+    metric_feedback: str | None = "feedback"
+    final_output: Any | None = "result"
+
+    def to_reflective_record(self) -> dict[str, Any]:
+        return {"messages": [], "user_prompt": "stub"}
+
+
 def _eval_results(scores: list[float]) -> EvaluationResults[str]:
     outputs = [
         RolloutOutput.from_success(f"result-{idx}") for idx, _ in enumerate(scores)
@@ -89,7 +100,7 @@ def _eval_results(scores: list[float]) -> EvaluationResults[str]:
         data_ids=case_ids,
         scores=list(scores),
         outputs=outputs,
-        trajectories=None,
+        trajectories=[_StubTrajectory() for _ in scores],
     )
 
 

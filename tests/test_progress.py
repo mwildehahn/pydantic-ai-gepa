@@ -94,3 +94,34 @@ def test_optimization_progress_includes_node_context(
     assert descriptions
     assert "prev: ReflectNode" in descriptions[-1]
     assert "curr: EvaluateNode" in descriptions[-1]
+
+
+def test_optimization_progress_appends_best_score(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ensure best-score tracking is reflected in the description."""
+    descriptions: list[str] = []
+
+    class _StubProgress:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> "_StubProgress":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> bool:
+            return False
+
+        def add_task(self, description: str, total: int) -> int:
+            return 42
+
+        def update(self, task_id: int, **kwargs: Any) -> None:
+            descriptions.append(kwargs.get("description", ""))
+
+    monkeypatch.setattr("pydantic_ai_gepa.progress.Progress", _StubProgress)
+
+    with OptimizationProgress(total=3, description="Score", enabled=True) as progress:
+        progress.update(1, best_score=0.87654)
+
+    assert descriptions
+    assert descriptions[-1].endswith("best: 0.877")

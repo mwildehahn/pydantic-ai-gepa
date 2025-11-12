@@ -65,6 +65,7 @@ class OptimizationProgress:
         *,
         current_node: str | None = None,
         previous_node: str | None = None,
+        best_score: float | None = None,
     ) -> None:
         """Update the progress bar with the latest evaluation count and context."""
         if self._progress is None or self._task_id is None:
@@ -73,6 +74,7 @@ class OptimizationProgress:
         description = self._format_description(
             current_node=current_node,
             previous_node=previous_node,
+            best_score=best_score,
         )
         self._progress.update(
             self._task_id,
@@ -85,9 +87,10 @@ class OptimizationProgress:
         *,
         current_node: str | None,
         previous_node: str | None,
+        best_score: float | None,
     ) -> str:
         if not current_node and not previous_node:
-            return self.description
+            return self._append_best_score(self.description, best_score)
 
         fragments: list[str] = []
         if previous_node:
@@ -96,7 +99,14 @@ class OptimizationProgress:
             fragments.append(f"curr: {current_node}")
 
         suffix = " | ".join(fragments)
-        return f"{self.description} ({suffix})"
+        description = f"{self.description} ({suffix})"
+        return self._append_best_score(description, best_score)
+
+    def _append_best_score(self, description: str, best_score: float | None) -> str:
+        if best_score is None:
+            return description
+        formatted = f"{best_score:.3f}" if best_score == best_score else "n/a"
+        return f"{description} | best: {formatted}"
 
     def __exit__(self, exc_type, exc, tb) -> bool:
         if self._context is None:

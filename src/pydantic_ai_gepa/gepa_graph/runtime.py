@@ -83,10 +83,14 @@ async def optimize(
                         state.total_evaluations,
                         current_node=current_node_name,
                         previous_node=previous_node_name,
+                        best_score=state.best_score,
                     )
                     previous_node_name = current_node_name
                 run_result = run.result
-            progress_bar.update(state.total_evaluations)
+            progress_bar.update(
+                state.total_evaluations,
+                best_score=state.best_score,
+            )
     except UsageBudgetExceeded:
         state.mark_stopped(reason="Usage budget exceeded")
         logger.info("GEPA run stopped early due to usage budget limit.")

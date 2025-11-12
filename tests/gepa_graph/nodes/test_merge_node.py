@@ -277,6 +277,7 @@ async def test_merge_node_accepts_when_scores_non_strictly_better() -> None:
     assert evaluator.calls == 1
     assert state.last_accepted is True
     assert len(state.candidates) == 4
+    assert state.merge_attempts == 1
     new_candidate = state.candidates[-1]
     assert new_candidate.creation_type == "merge"
     assert new_candidate.parent_indices == [parent1_idx, parent2_idx]
@@ -323,6 +324,7 @@ async def test_merge_node_rejects_when_merged_scores_lower() -> None:
     assert evaluator.calls == 1
     assert state.last_accepted is False
     assert len(state.candidates) == 3
+    assert state.merge_attempts == 1
 
 
 @pytest.mark.asyncio
@@ -365,3 +367,4 @@ async def test_merge_node_skips_when_duplicate_detected() -> None:
     assert evaluator.calls == 0
     assert state.last_accepted is False
     assert len(state.candidates) == 3
+    assert state.merge_attempts == 1

@@ -34,6 +34,8 @@ class MergeNode(GepaNode):
         if not self._can_attempt_merge(state):
             return reject()
 
+        state.record_merge_attempt()
+
         dominators = deps.pareto_manager.find_dominators(state)
         pair = deps.merge_builder.find_merge_pair(state, dominators)
         if pair is None:
@@ -114,15 +116,9 @@ class MergeNode(GepaNode):
         if len(state.candidates) < 2:
             return False
         max_merges = state.config.max_total_merges
-        if max_merges > 0 and self._count_accepted_merges(state) >= max_merges:
+        if max_merges > 0 and state.merge_attempts >= max_merges:
             return False
         return True
-
-    @staticmethod
-    def _count_accepted_merges(state: GepaState) -> int:
-        return sum(
-            1 for candidate in state.candidates if candidate.creation_type == "merge"
-        )
 
     def _matches_existing_candidate(
         self,

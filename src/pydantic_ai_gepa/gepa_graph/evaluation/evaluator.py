@@ -105,6 +105,7 @@ class ParallelEvaluator:
         scores: list[float] = []
         outputs: list[RolloutOutput[Any]] = []
         trajectories: list[Trajectory] | None = [] if capture_traces else None
+        missing_traces = False
 
         for data_id, batch in results:
             batch_scores = list(batch.scores)
@@ -119,11 +120,13 @@ class ParallelEvaluator:
 
             if trajectories is not None:
                 batch_traces = batch.trajectories
-                if batch_traces:
+                if not batch_traces or len(batch_traces) != len(batch_scores):
+                    missing_traces = True
+                else:
                     trajectories.extend(batch_traces)
 
         trajectory_payload: list[Trajectory] | None
-        if trajectories is None or not trajectories:
+        if trajectories is None or not trajectories or missing_traces:
             trajectory_payload = None
         else:
             trajectory_payload = trajectories
