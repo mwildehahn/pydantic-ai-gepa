@@ -16,7 +16,6 @@ import logfire
 
 from pydantic import BaseModel
 from pydantic_ai import capture_run_messages, usage as _usage
-from pydantic_ai._tool_types import ToolDefinition
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import (
     AudioUrl,
@@ -39,6 +38,7 @@ from pydantic_ai.messages import (
     UserPromptPart,
     VideoUrl,
 )
+from pydantic_ai.tools import ToolDefinition
 
 from ..cache import CacheManager
 from ..exceptions import UsageBudgetExceeded
@@ -900,11 +900,15 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             if instructions_text is None and isinstance(message.instructions, str):
                 instructions_text = message.instructions
 
-            if function_tools is None and message.function_tools:
-                function_tools = list(message.function_tools)
+            params = message.model_request_parameters
+            if params is None:
+                continue
 
-            if output_tools is None and message.output_tools:
-                output_tools = list(message.output_tools)
+            if function_tools is None and params.function_tools:
+                function_tools = list(params.function_tools)
+
+            if output_tools is None and params.output_tools:
+                output_tools = list(params.output_tools)
 
             if (
                 instructions_text is not None

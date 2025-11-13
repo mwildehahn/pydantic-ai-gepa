@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from pydantic_ai._model_request_parameters import ModelRequestParameters
 from pydantic_ai.messages import (
     ModelMessage,
     ModelRequest,
@@ -9,7 +10,7 @@ from pydantic_ai.messages import (
     TextPart,
     UserPromptPart,
 )
-from pydantic_ai.models import Model, ModelRequestParameters
+from pydantic_ai.models import Model
 from pydantic_ai.settings import ModelSettings
 
 from pydantic_ai_gepa.inspection import (
