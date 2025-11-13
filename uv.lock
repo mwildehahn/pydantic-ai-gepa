@@ -2126,8 +2126,8 @@ email = [
 
 [[package]]
 name = "pydantic-ai"
-version = "0.0.1.dev1380+13130160"
-source = { git = "https://github.com/mwildehahn/pydantic-ai?rev=13130160c26503a533f5cfbdb5c87fe92751b0a7#13130160c26503a533f5cfbdb5c87fe92751b0a7" }
+version = "0.0.1.dev1381+acced359"
+source = { git = "https://github.com/mwildehahn/pydantic-ai?rev=acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d#acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d" }
 dependencies = [
     { name = "pydantic-ai-slim", extra = ["ag-ui", "anthropic", "bedrock", "cli", "cohere", "evals", "fastmcp", "google", "groq", "huggingface", "logfire", "mcp", "mistral", "openai", "retries", "temporal", "ui", "vertexai"] },
 ]
@@ -2162,8 +2162,8 @@ requires-dist = [
     { name = "cloudpickle", specifier = ">=3.0.0" },
     { name = "logfire", specifier = ">=4.14.2" },
     { name = "mcp-run-python", specifier = ">=0.0.21" },
-    { name = "pydantic-ai", git = "https://github.com/mwildehahn/pydantic-ai?rev=13130160c26503a533f5cfbdb5c87fe92751b0a7" },
-    { name = "pydantic-graph", git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_graph&rev=13130160c26503a533f5cfbdb5c87fe92751b0a7" },
+    { name = "pydantic-ai", git = "https://github.com/mwildehahn/pydantic-ai?rev=acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d" },
+    { name = "pydantic-graph", git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_graph&rev=acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d" },
     { name = "rich", specifier = ">=13.7.1" },
 ]
 
@@ -2181,8 +2181,8 @@ dev = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "0.0.1.dev1380+13130160"
-source = { git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_ai_slim&rev=13130160c26503a533f5cfbdb5c87fe92751b0a7#13130160c26503a533f5cfbdb5c87fe92751b0a7" }
+version = "0.0.1.dev1381+acced359"
+source = { git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_ai_slim&rev=acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d#acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d" }
 dependencies = [
     { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
     { name = "genai-prices" },
@@ -2344,8 +2344,8 @@ wheels = [
 
 [[package]]
 name = "pydantic-evals"
-version = "0.0.1.dev1380+13130160"
-source = { git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_evals&rev=13130160c26503a533f5cfbdb5c87fe92751b0a7#13130160c26503a533f5cfbdb5c87fe92751b0a7" }
+version = "0.0.1.dev1381+acced359"
+source = { git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_evals&rev=acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d#acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d" }
 dependencies = [
     { name = "anyio" },
     { name = "logfire-api" },
@@ -2357,8 +2357,8 @@ dependencies = [
 
 [[package]]
 name = "pydantic-graph"
-version = "0.0.1.dev1380+13130160"
-source = { git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_graph&rev=13130160c26503a533f5cfbdb5c87fe92751b0a7#13130160c26503a533f5cfbdb5c87fe92751b0a7" }
+version = "0.0.1.dev1381+acced359"
+source = { git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_graph&rev=acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d#acced35939d8b1b6e9ed5b9c94ecbbd64ec7a73d" }
 dependencies = [
     { name = "httpx" },
     { name = "logfire-api" },
