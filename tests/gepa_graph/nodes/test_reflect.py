@@ -16,6 +16,7 @@ from pydantic_ai_gepa.adapter import (
     SharedReflectiveDataset,
 )
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import (
     EvaluationResults,
@@ -64,7 +65,12 @@ def _make_state(
             skip_perfect_score=True,
         )
     training = [_make_data("a"), _make_data("b")]
-    state = GepaState(config=config, training_set=training, validation_set=training)
+    loader = ListDataLoader(training)
+    state = GepaState(
+        config=config,
+        training_set=loader,
+        validation_set=ListDataLoader(training),
+    )
     seed = CandidateProgram(
         idx=0,
         components={

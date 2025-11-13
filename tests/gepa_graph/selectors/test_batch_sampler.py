@@ -28,7 +28,7 @@ def _make_training(count: int) -> list[DataInstWithPrompt]:
 
 def _make_state(training_size: int) -> GepaState:
     training = _make_training(training_size)
-    return GepaState(config=GepaConfig(), training_set=training)
+    return GepaState(config=GepaConfig(), training_set=ListDataLoader(training))
 
 
 @pytest.mark.asyncio

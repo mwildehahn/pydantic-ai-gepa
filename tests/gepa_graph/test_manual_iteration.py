@@ -7,6 +7,7 @@ from typing import Any, cast
 import pytest
 
 from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import StartNode
@@ -36,7 +37,12 @@ async def test_manual_iteration_flow() -> None:
 
     graph = create_gepa_graph(adapter=adapter, config=config)
     dataset = make_dataset()
-    state = GepaState(config=config, training_set=dataset, validation_set=dataset)
+    loader = ListDataLoader(dataset)
+    state = GepaState(
+        config=config,
+        training_set=loader,
+        validation_set=ListDataLoader(dataset),
+    )
 
     executed_nodes: list[str] = []
     async with graph.iter(StartNode(), state=state, deps=deps) as run:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic_ai.messages import UserPromptPart
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import (
     CandidateProgram,
     ComponentValue,
@@ -27,7 +28,7 @@ def _make_state() -> GepaState:
         )
         for idx in range(2)
     ]
-    state = GepaState(config=GepaConfig(), training_set=training)
+    state = GepaState(config=GepaConfig(), training_set=ListDataLoader(training))
     candidate = CandidateProgram(
         idx=0,
         components={

@@ -15,6 +15,7 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.selectors import (
     AllComponentSelector,
     BatchSampler,
@@ -66,7 +67,11 @@ def _make_state(config: GepaConfig) -> GepaState:
         )
         for idx in range(3)
     ]
-    return GepaState(config=config, training_set=dataset, validation_set=dataset)
+    return GepaState(
+        config=config,
+        training_set=ListDataLoader(dataset),
+        validation_set=ListDataLoader(dataset),
+    )
 
 
 def test_create_deps_defaults() -> None:

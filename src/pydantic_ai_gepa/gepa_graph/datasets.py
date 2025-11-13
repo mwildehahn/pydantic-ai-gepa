@@ -63,19 +63,19 @@ class MutableDataLoader(DataLoader[DataIdT, DataInstT], Protocol):
     async def add_items(self, items: Sequence[DataInstT]) -> None: ...
 
 
-class ListDataLoader(MutableDataLoader[str, DataInst]):
+class ListDataLoader(MutableDataLoader[ComparableHashable, DataInst]):
     """In-memory loader backed by a concrete list of instances."""
 
     def __init__(self, items: Sequence[DataInst]) -> None:
         self._items = list(items)
-        self._ids: list[str] = []
-        self._index_by_id: dict[str, int] = {}
+        self._ids: list[ComparableHashable] = []
+        self._index_by_id: dict[ComparableHashable, int] = {}
         self._rebuild_index()
 
-    async def all_ids(self) -> Sequence[str]:
+    async def all_ids(self) -> Sequence[ComparableHashable]:
         return list(self._ids)
 
-    async def fetch(self, ids: Sequence[str]) -> list[DataInst]:
+    async def fetch(self, ids: Sequence[ComparableHashable]) -> list[DataInst]:
         batch: list[DataInst] = []
         for data_id in ids:
             idx = self._index_by_id.get(data_id)
@@ -149,7 +149,7 @@ async def _materialize_dataset(
     dataset: DatasetInput,
     *,
     name: str,
-) -> DatasetPayload[DataInst]:
+) -> DatasetPayload:
     if dataset is None:
         raise ValueError(f"{name} is required.")
 

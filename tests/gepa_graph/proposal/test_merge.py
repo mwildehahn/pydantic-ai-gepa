@@ -6,6 +6,7 @@ import pytest
 
 from pydantic_ai.messages import UserPromptPart
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue, GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.proposal import MergeProposalBuilder
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
@@ -32,7 +33,11 @@ def _make_state(
         min_shared_validation=min_shared_validation,
         merge_subsample_size=merge_subsample_size,
     )
-    return GepaState(config=config, training_set=training, validation_set=training)
+    return GepaState(
+        config=config,
+        training_set=ListDataLoader(training),
+        validation_set=ListDataLoader(training),
+    )
 
 
 def _add_candidate(

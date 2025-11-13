@@ -8,6 +8,7 @@ import pytest
 from pydantic_graph import FullStatePersistence
 
 from pydantic_ai_gepa.adapter import Adapter
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.nodes import EvaluateNode, StartNode
@@ -33,7 +34,11 @@ async def test_checkpoint_resume_restores_progress() -> None:
 
     graph = create_gepa_graph(adapter=adapter, config=config)
     dataset = make_dataset()
-    state = GepaState(config=config, training_set=dataset, validation_set=dataset)
+    state = GepaState(
+        config=config,
+        training_set=ListDataLoader(dataset),
+        validation_set=ListDataLoader(dataset),
+    )
 
     persistence = FullStatePersistence()
 

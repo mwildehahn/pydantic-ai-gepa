@@ -8,6 +8,7 @@ from pydantic_graph import GraphRunContext
 
 from typing import Literal, Sequence, cast
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import (
     EvaluationResults,
@@ -50,7 +51,11 @@ def _make_state() -> GepaState:
         use_merge=True,
         min_shared_validation=5,
     )
-    return GepaState(config=config, training_set=validation, validation_set=validation)
+    return GepaState(
+        config=config,
+        training_set=ListDataLoader(validation),
+        validation_set=ListDataLoader(validation),
+    )
 
 
 def _add_candidate(
