@@ -250,11 +250,19 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             run_user_prompt = self._prepare_user_content(signature)
 
         system_instructions = self._prepare_system_instructions(signature, candidate)
-        base_instructions = (
-            candidate["instructions"]
-            if candidate and "instructions" in candidate
-            else getattr(self.wrapped, "_instructions", None)
-        )
+
+
+        if candidate and "instructions" in candidate:
+            base_instructions = candidate["instructions"]
+        elif getattr(self.wrapped, '_override_instructions'):
+            inst = self.wrapped._override_instructions.get()
+            if inst is not None and inst.value is not None:
+                base_instructions = inst.value
+            else:
+                base_instructions = getattr(self.wrapped, "_instructions", None)
+        else:
+            base_instructions = getattr(self.wrapped, "_instructions", None)
+
         instructions_override = self._compose_instructions_override(
             base_instructions, system_instructions
         )
