@@ -17,6 +17,7 @@ from pydantic import (
 from pydantic_ai.models import KnownModelName, Model
 
 from ...types import DataInst, RolloutOutput
+from ..datasets import DataLoader, ensure_loader
 from ...reflection import ReflectionSampler
 from .candidate import CandidateProgram
 from .pareto import ParetoFrontEntry
@@ -271,10 +272,10 @@ class GepaState(BaseModel):
         ..., description="Immutable configuration that governs the optimization run."
     )
 
-    training_set: Sequence[DataInst] = Field(
+    training_set: DataLoader[Any, DataInst] = Field(
         ..., exclude=True, description="Training dataset used to evaluate candidates."
     )
-    validation_set: Sequence[DataInst] | None = Field(
+    validation_set: DataLoader[Any, DataInst] | None = Field(
         default=None,
         exclude=True,
         description="Optional validation dataset; defaults to the training data when omitted.",
@@ -284,30 +285,32 @@ class GepaState(BaseModel):
 
     @field_validator("training_set", mode="before")
     @classmethod
-    def _coerce_training_set(cls, value: Sequence[DataInst] | None) -> list[DataInst]:
+    def _coerce_training_set(
+        cls, value: DataLoader[Any, DataInst] | Sequence[DataInst] | None
+    ) -> DataLoader[Any, DataInst]:
         if value is None:
             raise ValueError("training_set is required.")
-        converted = list(value)
-        if not converted:
+        loader = ensure_loader(value)
+        if len(loader) == 0:
             raise ValueError("training_set must contain at least one instance.")
-        return converted
+        return loader
 
     @field_validator("validation_set", mode="before")
     @classmethod
     def _coerce_validation_set(
-        cls, value: Sequence[DataInst] | None
-    ) -> list[DataInst] | None:
+        cls, value: DataLoader[Any, DataInst] | Sequence[DataInst] | None
+    ) -> DataLoader[Any, DataInst] | None:
         if value is None:
             return None
-        converted = list(value)
-        if not converted:
+        loader = ensure_loader(value)
+        if len(loader) == 0:
             return None
-        return converted
+        return loader
 
     @model_validator(mode="after")
     def _default_validation_set(self) -> GepaState:
         if self.validation_set is None:
-            self.validation_set = list(self.training_set)
+            self.validation_set = self.training_set
         return self
 
     def add_candidate(

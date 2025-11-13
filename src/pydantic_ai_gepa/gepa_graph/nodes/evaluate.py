@@ -29,7 +29,7 @@ class EvaluateNode(GepaNode):
         previous_best_idx = state.best_candidate_idx
         previous_best_score = state.best_score
         candidate = self._current_candidate(state)
-        validation_batch = self._get_validation_batch(state)
+        validation_batch = await self._get_validation_batch(state)
 
         with logfire.span(
             "evaluate candidate",
@@ -91,12 +91,14 @@ class EvaluateNode(GepaNode):
         return state.candidates[-1]
 
     @staticmethod
-    def _get_validation_batch(state: GepaState) -> list[DataInst]:
-        if not state.validation_set:
+    async def _get_validation_batch(state: GepaState) -> list[DataInst]:
+        loader = state.validation_set
+        if loader is None or len(loader) == 0:
             raise ValueError(
                 "GepaState.validation_set must be populated before evaluation."
             )
-        return list(state.validation_set)
+        ids = list(await loader.all_ids())
+        return await loader.fetch(ids)
 
     @staticmethod
     def _apply_results(

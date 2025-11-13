@@ -182,6 +182,21 @@ class _InputShared:
     def __init__(self, model_cls: type[BaseModel]) -> None:
         self.model_cls = model_cls
 
+    @staticmethod
+    def _unwrap_annotated(annotation: Any) -> Any:
+        """Strip Annotated metadata to expose the underlying type."""
+        current = annotation
+        while True:
+            origin = get_origin(current)
+            if origin is Annotated:
+                args = get_args(current)
+                if not args:
+                    break
+                current = args[0]
+                continue
+            break
+        return current
+
     def _get_effective_text(
         self,
         component_key: str,
@@ -204,6 +219,7 @@ class _InputShared:
 
     @staticmethod
     def _get_type_name(annotation: Any) -> str:
+        annotation = _InputShared._unwrap_annotated(annotation)
         if annotation is None:
             return "Any"
 
@@ -230,6 +246,7 @@ class _InputShared:
     @staticmethod
     def _collect_attachment_labels(annotation: Any) -> set[str]:
         labels: set[str] = set()
+        annotation = _InputShared._unwrap_annotated(annotation)
 
         origin = get_origin(annotation)
         if origin is None:
@@ -282,6 +299,7 @@ class _InputShared:
 
     @staticmethod
     def _get_model_type_from_annotation(field_type: Any) -> type[BaseModel] | None:
+        field_type = _InputShared._unwrap_annotated(field_type)
         if field_type is None:
             return None
         origin = get_origin(field_type)

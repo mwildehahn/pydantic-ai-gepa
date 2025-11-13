@@ -8,6 +8,7 @@ from pydantic_graph import GraphRunContext
 
 from typing import Literal, Sequence, cast
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import (
     EvaluationResults,
@@ -50,7 +51,11 @@ def _make_state() -> GepaState:
         use_merge=True,
         min_shared_validation=5,
     )
-    return GepaState(config=config, training_set=validation, validation_set=validation)
+    return GepaState(
+        config=config,
+        training_set=ListDataLoader(validation),
+        validation_set=ListDataLoader(validation),
+    )
 
 
 def _add_candidate(
@@ -123,6 +128,13 @@ def _build_lineage(state: GepaState) -> tuple[int, int, int]:
     return ancestor.idx, parent1.idx, parent2.idx
 
 
+async def _validation_instances(state: GepaState) -> list[DataInstWithPrompt]:
+    loader = state.validation_set
+    assert loader is not None
+    ids = await loader.all_ids()
+    return cast(list[DataInstWithPrompt], await loader.fetch(ids))
+
+
 class _StubAdapter:
     reflection_model = "test-model"
     reflection_sampler = None
@@ -174,15 +186,15 @@ class _StubMergeBuilder(MergeProposalBuilder):
 
     def find_merge_pair(
         self, state: GepaState, dominators: Sequence[int]
-    ) -> tuple[int, int] | None:  # noqa: D401
+    ) -> tuple[int, int] | None:
         return self._pair
 
     def find_common_ancestor(
         self, state: GepaState, idx1: int, idx2: int
-    ) -> int | None:  # noqa: D401
+    ) -> int | None:
         return self._ancestor_idx
 
-    def build_merged_candidate(  # noqa: D401
+    def build_merged_candidate(
         self,
         state: GepaState,
         parent1_idx: int,
@@ -191,15 +203,20 @@ class _StubMergeBuilder(MergeProposalBuilder):
     ) -> CandidateProgram:
         return self._merged_candidate
 
-    def select_merge_subsample(
+    async def select_merge_subsample(
         self,
         state: GepaState,
         parent1_idx: int,
         parent2_idx: int,
-    ) -> list[DataInst]:
-        return list(self._subsample)
+    ) -> list[tuple[str, DataInst]]:
+        subsample: list[tuple[str, DataInst]] = []
+        for idx, inst in enumerate(self._subsample):
+            case_id = getattr(inst, "case_id", None)
+            data_id = str(case_id) if case_id is not None else str(idx)
+            subsample.append((data_id, inst))
+        return subsample
 
-    def register_candidate(  # noqa: D401
+    def register_candidate(
         self,
         *,
         candidate: CandidateProgram,
@@ -242,8 +259,8 @@ def _evaluation_results(
 async def test_merge_node_accepts_when_scores_non_strictly_better() -> None:
     state = _make_state()
     ancestor_idx, parent1_idx, parent2_idx = _build_lineage(state)
-    validation_set = cast(Sequence[DataInstWithPrompt], state.validation_set)
-    subsample: list[DataInstWithPrompt] = list(validation_set)[:3]
+    validation_items = await _validation_instances(state)
+    subsample: list[DataInstWithPrompt] = validation_items[:3]
 
     merged_candidate = CandidateProgram(
         idx=len(state.candidates),
@@ -289,8 +306,8 @@ async def test_merge_node_accepts_when_scores_non_strictly_better() -> None:
 async def test_merge_node_rejects_when_merged_scores_lower() -> None:
     state = _make_state()
     ancestor_idx, parent1_idx, parent2_idx = _build_lineage(state)
-    validation_set = cast(Sequence[DataInstWithPrompt], state.validation_set)
-    subsample: list[DataInstWithPrompt] = list(validation_set)[:3]
+    validation_items = await _validation_instances(state)
+    subsample = validation_items[:3]
 
     merged_candidate = CandidateProgram(
         idx=len(state.candidates),
@@ -331,8 +348,8 @@ async def test_merge_node_rejects_when_merged_scores_lower() -> None:
 async def test_merge_node_skips_when_duplicate_detected() -> None:
     state = _make_state()
     ancestor_idx, parent1_idx, parent2_idx = _build_lineage(state)
-    validation_set = cast(Sequence[DataInstWithPrompt], state.validation_set)
-    subsample: list[DataInstWithPrompt] = list(validation_set)[:3]
+    validation_items = await _validation_instances(state)
+    subsample = validation_items[:3]
 
     merged_candidate = CandidateProgram(
         idx=len(state.candidates),

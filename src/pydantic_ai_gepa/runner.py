@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -24,6 +24,7 @@ from .components import (
 )
 from .exceptions import UsageBudgetExceeded
 from .gepa_graph import create_deps, create_gepa_graph
+from .gepa_graph.datasets import DatasetInput, resolve_dataset
 from .gepa_graph.models import (
     CandidateSelectorStrategy,
     EvaluationErrorEvent,
@@ -129,10 +130,10 @@ class GepaOptimizationResult(BaseModel):
 
 async def optimize_agent(
     agent: AbstractAgent[Any, Any],
-    trainset: Sequence[DataInstT],
+    trainset: DatasetInput,
     *,
     metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
-    valset: Sequence[DataInstT] | None = None,
+    valset: DatasetInput | None = None,
     input_type: InputSpec[BaseModel] | None = None,
     seed_candidate: dict[str, str] | None = None,
     reflection_model: Model | KnownModelName | str | None = None,
@@ -171,11 +172,11 @@ async def optimize_agent(
 
     Args:
         agent: The pydantic-ai agent to optimize.
-        trainset: Training dataset (pydantic-evals Dataset or list of DataInst).
+        trainset: Training dataset specification (sequence, DataLoader, or async factory).
         metric: Function that computes (score, feedback) for each instance.
                 The feedback (second element of tuple) is optional but recommended.
                 If provided, it will be used to guide the optimization process.
-        valset: Optional validation dataset. If not provided, trainset is used.
+        valset: Optional validation dataset specification. Defaults to ``trainset`` when omitted.
         input_type: Optional structured input specification whose instructions and
             field descriptions should be optimized alongside the agent's prompts.
 
@@ -227,8 +228,8 @@ async def optimize_agent(
     Returns:
         GepaOptimizationResult with the best candidate and metadata.
     """
-    train_instances = list(trainset)
-    val_instances = list(valset) if valset is not None else train_instances
+    train_loader = await resolve_dataset(trainset, name="trainset")
+    val_loader = await resolve_dataset(valset, name="valset") if valset is not None else None
 
     extracted_seed_candidate = _normalize_candidate(
         extract_seed_candidate_with_input_type(agent=agent, input_type=input_type)
@@ -288,8 +289,8 @@ async def optimize_agent(
     graph = create_gepa_graph(adapter=adapter, config=config)
     state = GepaState(
         config=config,
-        training_set=train_instances,
-        validation_set=val_instances,
+        training_set=train_loader,
+        validation_set=val_loader,
     )
 
     gepa_result: GepaResult | None = None

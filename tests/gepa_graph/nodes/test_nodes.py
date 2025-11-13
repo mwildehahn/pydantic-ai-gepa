@@ -11,6 +11,7 @@ from pydantic_ai.messages import UserPromptPart
 
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -54,7 +55,12 @@ def _make_state(
 ) -> GepaState:
     training = [_make_data_inst(str(i)) for i in range(num_instances)]
     config = config or GepaConfig(max_evaluations=10)
-    return GepaState(config=config, training_set=training, validation_set=training)
+    loader = ListDataLoader(training)
+    return GepaState(
+        config=config,
+        training_set=loader,
+        validation_set=ListDataLoader(training),
+    )
 
 
 @dataclass

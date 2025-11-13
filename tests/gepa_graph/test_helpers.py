@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import Sequence, cast
 import random
 
+import pytest
+
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.gepa_graph import create_deps
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
@@ -13,6 +15,7 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.selectors import (
     AllComponentSelector,
     BatchSampler,
@@ -64,7 +67,11 @@ def _make_state(config: GepaConfig) -> GepaState:
         )
         for idx in range(3)
     ]
-    return GepaState(config=config, training_set=dataset, validation_set=dataset)
+    return GepaState(
+        config=config,
+        training_set=ListDataLoader(dataset),
+        validation_set=ListDataLoader(dataset),
+    )
 
 
 def test_create_deps_defaults() -> None:
@@ -87,7 +94,8 @@ def test_create_deps_defaults() -> None:
     assert abs(sampler_rng.random() - random.Random(config.seed).random()) < 1e-9
 
 
-def test_create_deps_supports_alternate_selectors() -> None:
+@pytest.mark.asyncio
+async def test_create_deps_supports_alternate_selectors() -> None:
     adapter = _make_adapter()
     config = GepaConfig(
         candidate_selector=CandidateSelectorStrategy.CURRENT_BEST,
@@ -101,5 +109,5 @@ def test_create_deps_supports_alternate_selectors() -> None:
 
     # Ensure helper returns usable dependencies for sampling.
     state = _make_state(config)
-    batch = deps.batch_sampler.sample(state.training_set, state, size=2)
+    batch = await deps.batch_sampler.sample(state.training_set, state, size=2)
     assert len(batch) == 2

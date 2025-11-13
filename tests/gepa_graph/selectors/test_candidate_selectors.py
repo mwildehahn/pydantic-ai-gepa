@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic_ai.messages import UserPromptPart
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import (
     CandidateProgram,
     ComponentValue,
@@ -30,7 +31,7 @@ def _make_data_inst(case_id: str) -> DataInstWithPrompt:
 def _build_state(num_candidates: int = 3) -> GepaState:
     config = GepaConfig()
     training = [_make_data_inst(str(i)) for i in range(5)]
-    state = GepaState(config=config, training_set=training)
+    state = GepaState(config=config, training_set=ListDataLoader(training))
     for idx in range(num_candidates):
         candidate = CandidateProgram(
             idx=idx,

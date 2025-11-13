@@ -6,6 +6,7 @@ import pytest
 from pydantic import ValidationError
 from pydantic_ai.messages import UserPromptPart
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import (
     CandidateProgram,
     ComponentValue,
@@ -27,28 +28,33 @@ def _make_data_inst(case_id: str) -> DataInstWithPrompt:
 def test_state_requires_training_set() -> None:
     config = GepaConfig()
     with pytest.raises(ValidationError):
-        GepaState(config=config, training_set=[])  # type: ignore[arg-type]
+        GepaState(config=config, training_set=ListDataLoader([]))
 
 
-def test_state_defaults_validation_set_to_training_set() -> None:
+@pytest.mark.asyncio
+async def test_state_defaults_validation_set_to_training_set() -> None:
     config = GepaConfig()
     training_set = [_make_data_inst("1"), _make_data_inst("2")]
 
+    loader = ListDataLoader(training_set)
     state = GepaState(
         config=config,
-        training_set=training_set,
+        training_set=loader,
     )
 
     assert len(state.training_set) == 2
-    assert state.validation_set is not None
-    assert state.validation_set == training_set
-    assert state.validation_set is not training_set
+    validation_loader = state.validation_set
+    assert validation_loader is not None
+    assert validation_loader is state.training_set
+    ids = await validation_loader.all_ids()
+    fetched = await validation_loader.fetch(ids)
+    assert fetched == training_set
 
 
 def test_state_add_candidate_and_genealogy() -> None:
     config = GepaConfig()
     training_set = [_make_data_inst("1")]
-    state = GepaState(config=config, training_set=training_set)
+    state = GepaState(config=config, training_set=ListDataLoader(training_set))
 
     candidate = CandidateProgram(
         idx=99,  # intentionally wrong, should be reassigned
@@ -68,7 +74,7 @@ def test_state_add_candidate_and_genealogy() -> None:
 def test_state_recompute_best_candidate() -> None:
     config = GepaConfig()
     training_set = [_make_data_inst("1"), _make_data_inst("2"), _make_data_inst("3")]
-    state = GepaState(config=config, training_set=training_set)
+    state = GepaState(config=config, training_set=ListDataLoader(training_set))
 
     cand_a = CandidateProgram(
         idx=0,

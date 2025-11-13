@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from typing import Literal
 
+import pytest
+
 from pydantic_ai.messages import UserPromptPart
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue, GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.proposal import MergeProposalBuilder
 from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
@@ -30,7 +33,11 @@ def _make_state(
         min_shared_validation=min_shared_validation,
         merge_subsample_size=merge_subsample_size,
     )
-    return GepaState(config=config, training_set=training, validation_set=training)
+    return GepaState(
+        config=config,
+        training_set=ListDataLoader(training),
+        validation_set=ListDataLoader(training),
+    )
 
 
 def _add_candidate(
@@ -161,18 +168,20 @@ def test_build_merged_candidate_combines_components() -> None:
     assert merged.components["tools"].text == parent2.components["tools"].text
 
 
-def test_select_merge_subsample_stratifies_scores() -> None:
+@pytest.mark.asyncio
+async def test_select_merge_subsample_stratifies_scores() -> None:
     state = _make_state(min_shared_validation=4, merge_subsample_size=5)
     _, parent1, parent2 = _build_lineage(state)
     builder = MergeProposalBuilder(seed=5)
 
-    subsample = builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
+    subsample = await builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
     assert len(subsample) == state.config.merge_subsample_size
-    case_ids = {inst.case_id for inst in subsample}
+    case_ids = {inst.case_id for _, inst in subsample}
     assert case_ids.issubset({f"case-{idx}" for idx in range(6)})
 
 
-def test_select_merge_subsample_returns_empty_when_insufficient_overlap() -> None:
+@pytest.mark.asyncio
+async def test_select_merge_subsample_returns_empty_when_insufficient_overlap() -> None:
     state = _make_state(min_shared_validation=5)
     ancestor = _add_candidate(
         state,
@@ -203,7 +212,7 @@ def test_select_merge_subsample_returns_empty_when_insufficient_overlap() -> Non
     _populate_scores(parent2, [0.7] * 2)  # Less overlap than required
 
     builder = MergeProposalBuilder(seed=7)
-    subsample = builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
+    subsample = await builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
     assert subsample == []
 
 

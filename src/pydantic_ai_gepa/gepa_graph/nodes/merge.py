@@ -63,13 +63,14 @@ class MergeNode(GepaNode):
         if already_seen or self._matches_existing_candidate(state, merged_candidate):
             return reject()
 
-        subsample = deps.merge_builder.select_merge_subsample(
+        subsample = await deps.merge_builder.select_merge_subsample(
             state=state,
             parent1_idx=parent1_idx,
             parent2_idx=parent2_idx,
         )
         if not subsample:
             return reject()
+        subsample_batch = [instance for _, instance in subsample]
 
         state.record_merge_attempt()
 
@@ -80,7 +81,7 @@ class MergeNode(GepaNode):
         ):
             merged_results = await deps.evaluator.evaluate_batch(
                 candidate=merged_candidate,
-                batch=subsample,
+                batch=subsample_batch,
                 adapter=deps.adapter,
                 max_concurrent=state.config.max_concurrent_evaluations,
             )
@@ -158,14 +159,13 @@ class MergeNode(GepaNode):
         self,
         state: GepaState,
         parent_idx: int,
-        subsample: Iterable[DataInst],
+        subsample: Iterable[tuple[str, DataInst]],
     ) -> list[float]:
         if parent_idx < 0 or parent_idx >= len(state.candidates):
             raise IndexError(f"Parent index {parent_idx} is out of range.")
         candidate = state.candidates[parent_idx]
         scores: list[float] = []
-        for instance in subsample:
-            data_id = self._data_id_for_instance(state, instance)
+        for data_id, _ in subsample:
             score = candidate.validation_scores.get(data_id)
             if score is None:
                 raise ValueError(
@@ -173,17 +173,6 @@ class MergeNode(GepaNode):
                 )
             scores.append(score)
         return scores
-
-    @staticmethod
-    def _data_id_for_instance(state: GepaState, instance: DataInst) -> str:
-        case_id = getattr(instance, "case_id", None)
-        if case_id is not None:
-            return str(case_id)
-        validation_set = state.validation_set or ()
-        for idx, candidate in enumerate(validation_set):
-            if candidate is instance:
-                return str(idx)
-        raise ValueError("Unable to resolve data_id for merge subsample instance.")
 
 
 __all__ = ["MergeNode"]

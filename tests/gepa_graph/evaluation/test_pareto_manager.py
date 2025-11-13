@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic_ai.messages import UserPromptPart
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationResults, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
     CandidateProgram,
@@ -26,7 +27,7 @@ def _make_state() -> GepaState:
         )
         for idx in range(3)
     ]
-    return GepaState(config=config, training_set=training)
+    return GepaState(config=config, training_set=ListDataLoader(training))
 
 
 def _candidate(idx: int, text: str, iteration: int) -> CandidateProgram:

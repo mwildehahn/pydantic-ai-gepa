@@ -16,6 +16,7 @@ from pydantic_ai_gepa.adapter import (
     SharedReflectiveDataset,
 )
 
+from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import (
     EvaluationResults,
@@ -64,7 +65,12 @@ def _make_state(
             skip_perfect_score=True,
         )
     training = [_make_data("a"), _make_data("b")]
-    state = GepaState(config=config, training_set=training, validation_set=training)
+    loader = ListDataLoader(training)
+    state = GepaState(
+        config=config,
+        training_set=loader,
+        validation_set=ListDataLoader(training),
+    )
     seed = CandidateProgram(
         idx=0,
         components={
@@ -79,6 +85,12 @@ def _make_state(
     state.add_candidate(seed, auto_assign_idx=False)
     state.iteration = 1
     return state
+
+
+async def _training_examples(state: GepaState) -> list[DataInstWithPrompt]:
+    loader = state.training_set
+    ids = await loader.all_ids()
+    return cast(list[DataInstWithPrompt], await loader.fetch(ids))
 
 
 @dataclass
@@ -142,7 +154,7 @@ class _StubBatchSampler(BatchSampler):
         self._batch = list(batch)
         self.calls = 0
 
-    def sample(self, training_set, state, size):
+    async def sample(self, training_set, state, size):
         self.calls += 1
         return list(self._batch)
 
@@ -211,7 +223,7 @@ def _make_deps(
 @pytest.mark.asyncio
 async def test_reflect_node_accepts_strict_improvement() -> None:
     state = _make_state()
-    minibatch = list(state.training_set)
+    minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
@@ -262,7 +274,7 @@ async def test_reflect_node_applies_config_sampler() -> None:
         reflection_sampler_max_records=1,
     )
     state = _make_state(config=config)
-    minibatch = list(state.training_set)
+    minibatch = await _training_examples(state)
     evaluator = _StubEvaluator(
         [_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])]
     )
@@ -290,7 +302,7 @@ async def test_reflect_node_applies_config_sampler() -> None:
 @pytest.mark.asyncio
 async def test_reflect_node_rejects_when_not_improved() -> None:
     state = _make_state()
-    minibatch = list(state.training_set)
+    minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.6, 0.6]), _eval_results([0.6, 0.6])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
@@ -317,7 +329,7 @@ async def test_reflect_node_rejects_when_not_improved() -> None:
 @pytest.mark.asyncio
 async def test_reflect_node_skips_when_batch_is_perfect() -> None:
     state = _make_state()
-    minibatch = list(state.training_set)
+    minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([1.0, 1.0])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
@@ -346,7 +358,7 @@ async def test_reflect_node_skips_when_batch_is_perfect() -> None:
 @pytest.mark.asyncio
 async def test_reflect_node_requires_reflection_model() -> None:
     state = _make_state()
-    minibatch = list(state.training_set)
+    minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.3, 0.4])])
     batch_sampler = _StubBatchSampler(minibatch)
     adapter = cast(Adapter[DataInst], _StubAdapter())

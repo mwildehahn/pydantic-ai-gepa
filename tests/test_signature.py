@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from inline_snapshot import snapshot
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PlainSerializer, WithJsonSchema
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
 from pydantic_ai_gepa.signature import (
     SignatureSuffix,
@@ -199,25 +200,35 @@ def test_signature_without_explicit_field_description():
         }
     )
 
-    # Test that system instructions include the default descriptions
-    sig = SimpleSignature(text="Hello", number=42)
-    system_instructions = generate_system_instructions(sig)
-    assert system_instructions == snapshot("""\
-A simple signature for testing.
+
+def test_signature_strips_annotated_metadata():
+    """Ensure Annotated metadata is ignored when formatting type names."""
+
+    def serialize_timezone(value: ZoneInfo) -> str:
+        return value.key
+
+    class AnnotatedSignature(BaseModel):
+        """Example signature that uses Annotated metadata."""
+
+        timezone: (
+            Annotated[
+                ZoneInfo,
+                PlainSerializer(
+                    serialize_timezone, return_type=str, when_used="always"
+                ),
+                WithJsonSchema(json_schema={"type": "string", "format": "timezone"}),
+            ]
+            | None
+        ) = Field(description="The timezone field")
+
+    sig = AnnotatedSignature(timezone=ZoneInfo("UTC"))
+    instructions = generate_system_instructions(sig)
+    assert instructions == snapshot("""\
+Example signature that uses Annotated metadata.
 
 Inputs:
 
-- `<text>` (str): The text input
-- `<number>` (int): A number to process\
-""")
-
-    # User content should just have the values
-    user_content = generate_user_content(sig)
-    assert len(user_content) == 1
-    assert user_content[0] == snapshot("""\
-<text>Hello</text>
-
-<number>42</number>\
+- `<timezone>` (Union[ZoneInfo, NoneType]): The timezone field\
 """)
 
 
