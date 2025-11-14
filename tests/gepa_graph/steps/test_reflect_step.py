@@ -1,4 +1,4 @@
-"""Tests for the ReflectNode implementation."""
+"""Tests for the ReflectStep implementation."""
 
 from __future__ import annotations
 
@@ -29,7 +29,7 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
-from pydantic_ai_gepa.gepa_graph.nodes import reflect_node
+from pydantic_ai_gepa.gepa_graph.steps import reflect_step
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
@@ -128,7 +128,7 @@ class _StubAdapter:
         self.dataset_calls = 0
 
     async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover
-        raise RuntimeError("evaluate should not be called in ReflectNode tests")
+        raise RuntimeError("evaluate should not be called in ReflectStep tests")
 
     def make_reflective_dataset(
         self,
@@ -225,7 +225,7 @@ def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, G
 
 
 @pytest.mark.asyncio
-async def test_reflect_node_accepts_strict_improvement() -> None:
+async def test_reflect_step_accepts_strict_improvement() -> None:
     state = _make_state()
     minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])])
@@ -241,7 +241,7 @@ async def test_reflect_node_accepts_strict_improvement() -> None:
     )
     ctx = _ctx(state, deps)
 
-    result = await reflect_node(ctx)
+    result = await reflect_step(ctx)
 
     assert result == "evaluate"
     assert state.last_accepted is True
@@ -260,7 +260,7 @@ async def test_reflect_node_accepts_strict_improvement() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reflect_node_applies_config_sampler() -> None:
+async def test_reflect_step_applies_config_sampler() -> None:
     sampler_calls: list[tuple[int, int]] = []
 
     def sampler(records: list[dict[str, object]], max_records: int) -> list[dict[str, object]]:
@@ -294,7 +294,7 @@ async def test_reflect_node_applies_config_sampler() -> None:
     )
     ctx = _ctx(state, deps)
 
-    await reflect_node(ctx)
+    await reflect_step(ctx)
 
     assert sampler_calls == [(2, 1)]
     assert isinstance(generator.last_reflective_data, ComponentReflectiveDataset)
@@ -302,7 +302,7 @@ async def test_reflect_node_applies_config_sampler() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reflect_node_rejects_when_not_improved() -> None:
+async def test_reflect_step_rejects_when_not_improved() -> None:
     state = _make_state()
     minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.6, 0.6]), _eval_results([0.6, 0.6])])
@@ -318,7 +318,7 @@ async def test_reflect_node_rejects_when_not_improved() -> None:
     )
     ctx = _ctx(state, deps)
 
-    result = await reflect_node(ctx)
+    result = await reflect_step(ctx)
 
     assert result == "continue"
     assert state.last_accepted is False
@@ -328,7 +328,7 @@ async def test_reflect_node_rejects_when_not_improved() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reflect_node_skips_when_batch_is_perfect() -> None:
+async def test_reflect_step_skips_when_batch_is_perfect() -> None:
     state = _make_state()
     minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([1.0, 1.0])])
@@ -344,7 +344,7 @@ async def test_reflect_node_skips_when_batch_is_perfect() -> None:
     )
     ctx = _ctx(state, deps)
 
-    result = await reflect_node(ctx)
+    result = await reflect_step(ctx)
 
     assert result == "continue"
     assert state.last_accepted is False
@@ -356,7 +356,7 @@ async def test_reflect_node_skips_when_batch_is_perfect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reflect_node_requires_reflection_model() -> None:
+async def test_reflect_step_requires_reflection_model() -> None:
     state = _make_state()
     minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.3, 0.4])])
@@ -373,4 +373,4 @@ async def test_reflect_node_requires_reflection_model() -> None:
     ctx = _ctx(state, deps)
 
     with pytest.raises(ValueError, match="reflection_model"):
-        await reflect_node(ctx)
+        await reflect_step(ctx)

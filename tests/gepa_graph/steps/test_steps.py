@@ -1,4 +1,4 @@
-"""Tests for the start, evaluate, and continue nodes."""
+"""Tests for the start, evaluate, and continue steps."""
 
 from __future__ import annotations
 
@@ -20,7 +20,14 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
-from pydantic_ai_gepa.gepa_graph.nodes import StopSignal, continue_node, evaluate_node, merge_node, reflect_node, start_node
+from pydantic_ai_gepa.gepa_graph.steps import (
+    StopSignal,
+    continue_step,
+    evaluate_step,
+    merge_step,
+    reflect_step,
+    start_step,
+)
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
@@ -134,12 +141,12 @@ def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, G
 
 
 @pytest.mark.asyncio
-async def test_start_node_adds_seed_candidate_from_deps() -> None:
+async def test_start_step_adds_seed_candidate_from_deps() -> None:
     state = _make_state()
     deps = _make_deps(seed_candidate={"instructions": "hello world"})
     ctx = _ctx(state, deps)
 
-    await start_node(ctx)
+    await start_step(ctx)
 
     assert len(state.candidates) == 1
     candidate = state.candidates[0]
@@ -148,7 +155,7 @@ async def test_start_node_adds_seed_candidate_from_deps() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_node_is_idempotent_when_candidates_exist() -> None:
+async def test_start_step_is_idempotent_when_candidates_exist() -> None:
     state = _make_state()
     deps = _make_deps(seed_candidate={"instructions": "hello"})
     state.add_candidate(
@@ -165,18 +172,18 @@ async def test_start_node_is_idempotent_when_candidates_exist() -> None:
     state.iteration = 0
     ctx = _ctx(state, deps)
 
-    await start_node(ctx)
+    await start_step(ctx)
 
     assert len(state.candidates) == 1
 
 
 @pytest.mark.asyncio
-async def test_start_node_uses_adapter_snapshot_when_seed_missing() -> None:
+async def test_start_step_uses_adapter_snapshot_when_seed_missing() -> None:
     state = _make_state()
     deps = _make_deps(seed_candidate=None)
     ctx = _ctx(state, deps)
 
-    await start_node(ctx)
+    await start_step(ctx)
 
     assert len(state.candidates) == 1
     candidate = state.candidates[0]
@@ -185,7 +192,7 @@ async def test_start_node_uses_adapter_snapshot_when_seed_missing() -> None:
 
 
 @pytest.mark.asyncio
-async def test_evaluate_node_updates_candidate_scores_and_state() -> None:
+async def test_evaluate_step_updates_candidate_scores_and_state() -> None:
     state = _make_state(num_instances=3)
     candidate = CandidateProgram(
         idx=0,
@@ -197,7 +204,7 @@ async def test_evaluate_node_updates_candidate_scores_and_state() -> None:
     state.add_candidate(candidate)
     ctx = _ctx(state, _make_deps())
 
-    await evaluate_node(ctx)
+    await evaluate_step(ctx)
     validation_set = state.validation_set
     assert validation_set is not None
     assert len(candidate.validation_scores) == len(validation_set)
@@ -208,7 +215,7 @@ async def test_evaluate_node_updates_candidate_scores_and_state() -> None:
 
 
 @pytest.mark.asyncio
-async def test_evaluate_node_hydrates_new_components() -> None:
+async def test_evaluate_step_hydrates_new_components() -> None:
     state = _make_state(num_instances=1)
     candidate = CandidateProgram(
         idx=0,
@@ -223,7 +230,7 @@ async def test_evaluate_node_hydrates_new_components() -> None:
     deps.adapter = adapter
     ctx = _ctx(state, deps)
 
-    await evaluate_node(ctx)
+    await evaluate_step(ctx)
 
     assert "tool:new" in candidate.components
     assert candidate.components["tool:new"].text == "desc"
@@ -232,20 +239,20 @@ async def test_evaluate_node_hydrates_new_components() -> None:
 
 
 @pytest.mark.asyncio
-async def test_continue_node_returns_end_when_budget_spent() -> None:
+async def test_continue_step_returns_end_when_budget_spent() -> None:
     state = _make_state()
     state.total_evaluations = state.config.max_evaluations
     deps = _make_deps()
     ctx = _ctx(state, deps)
 
-    result = await continue_node(ctx)
+    result = await continue_step(ctx)
 
     assert isinstance(result, StopSignal)
     assert state.stop_reason == "Max evaluations reached"
 
 
 @pytest.mark.asyncio
-async def test_continue_node_triggers_merge_when_scheduled() -> None:
+async def test_continue_step_triggers_merge_when_scheduled() -> None:
     config = GepaConfig(max_evaluations=10, use_merge=True)
     state = _make_state(config=config)
     state.iteration = 0
@@ -254,7 +261,7 @@ async def test_continue_node_triggers_merge_when_scheduled() -> None:
     deps = _make_deps()
     ctx = _ctx(state, deps)
 
-    next_node = await continue_node(ctx)
+    next_node = await continue_step(ctx)
 
     assert next_node == "merge"
     assert state.merge_attempts == 0
@@ -263,13 +270,13 @@ async def test_continue_node_triggers_merge_when_scheduled() -> None:
 
 
 @pytest.mark.asyncio
-async def test_continue_node_defaults_to_reflect() -> None:
+async def test_continue_step_defaults_to_reflect() -> None:
     state = _make_state()
     state.iteration = 0
     deps = _make_deps()
     ctx = _ctx(state, deps)
 
-    next_node = await continue_node(ctx)
+    next_node = await continue_step(ctx)
 
     assert next_node == "reflect"
     assert state.iteration == 1

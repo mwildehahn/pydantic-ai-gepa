@@ -51,8 +51,8 @@ def test_create_gepa_graph_without_merge() -> None:
 
     assert isinstance(graph, Graph)
     assert graph.name == "gepa_graph"
-    node_ids = {str(node_id) for node_id in graph.nodes.keys()}
-    assert {"StartNode", "EvaluateNode", "ContinueNode", "ReflectNode", "MergeNode"}.issubset(node_ids)
+    step_ids = {str(node_id) for node_id in graph.nodes.keys()}
+    assert {"StartStep", "EvaluateStep", "ContinueStep", "ReflectStep", "MergeStep"}.issubset(step_ids)
 
 
 def test_create_gepa_graph_with_merge_enabled() -> None:
@@ -62,4 +62,4 @@ def test_create_gepa_graph_with_merge_enabled() -> None:
     graph = create_gepa_graph(config=config)
 
     assert isinstance(graph, Graph)
-    assert "MergeNode" in {str(node_id) for node_id in graph.nodes.keys()}
+    assert "MergeStep" in {str(node_id) for node_id in graph.nodes.keys()}

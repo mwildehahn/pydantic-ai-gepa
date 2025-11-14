@@ -18,12 +18,12 @@ from ...types import DataInst
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaState
-from .continue_node import IterationAction
+from .continue_step import IterationAction
 
 _IMPROVEMENT_EPSILON = 1e-9
 
 
-async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> IterationAction:
+async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> IterationAction:
     """Generate and evaluate reflective mutations for the current candidate."""
 
     state = ctx.state
@@ -56,7 +56,7 @@ async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
     parent_total, parent_avg = _summarize_scores(parent_results.scores)
 
     logfire.debug(
-        "ReflectNode parent minibatch results",
+        "ReflectStep parent minibatch results",
         parent_idx=parent_idx,
         minibatch_scores=list(parent_results.scores),
         minibatch_total=parent_total,
@@ -65,7 +65,7 @@ async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
 
     if not parent_results.has_trajectories():
         logfire.info(
-            "ReflectNode skipping reflection due to missing trajectories",
+            "ReflectStep skipping reflection due to missing trajectories",
             parent_idx=parent_idx,
         )
         state.last_accepted = False
@@ -73,7 +73,7 @@ async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
 
     if _should_skip_perfect(parent_results.scores, state):
         logfire.info(
-            "ReflectNode skipping reflection due to perfect minibatch",
+            "ReflectStep skipping reflection due to perfect minibatch",
             parent_idx=parent_idx,
             threshold=state.config.perfect_score,
             minibatch_total=parent_total,
@@ -83,7 +83,7 @@ async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
 
     components = _select_components(state, deps, parent_idx)
     logfire.debug(
-        "ReflectNode selected components",
+        "ReflectStep selected components",
         components=components,
         parent_idx=parent_idx,
     )
@@ -118,7 +118,7 @@ async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         new_texts=proposed_texts,
     )
     logfire.debug(
-        "ReflectNode proposed candidate",
+        "ReflectStep proposed candidate",
         candidate_idx=new_candidate.idx,
         parent_idx=parent_idx,
         updated_components=sorted(
@@ -152,7 +152,7 @@ async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
     _increment_budget(state, new_results)
     new_total, new_avg = _summarize_scores(new_results.scores)
     logfire.debug(
-        "ReflectNode candidate minibatch results",
+        "ReflectStep candidate minibatch results",
         candidate_idx=new_candidate.idx,
         parent_idx=parent_idx,
         minibatch_scores=list(new_results.scores),
@@ -176,14 +176,14 @@ async def reflect_node(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         state.last_accepted = True
         state.schedule_merge(state.config.merges_per_accept)
         logfire.info(
-            "ReflectNode accepted candidate",
+            "ReflectStep accepted candidate",
             **cast(dict[str, Any], decision_payload),
         )
         return "evaluate"
 
     state.last_accepted = False
     logfire.info(
-        "ReflectNode rejected candidate",
+        "ReflectStep rejected candidate",
         failure_reason="not_strict_improvement",
         **cast(dict[str, Any], decision_payload),
     )
@@ -195,7 +195,7 @@ def _select_parent(
     deps: GepaDeps,
 ) -> tuple[int, CandidateProgram]:
     if not state.candidates:
-        raise ValueError("ReflectNode requires at least one candidate in state.")
+        raise ValueError("ReflectStep requires at least one candidate in state.")
     selector = deps.candidate_selector
     select_fn = getattr(selector, "select", None)
     if select_fn is None:
@@ -396,4 +396,4 @@ def _component_versions(candidate: CandidateProgram) -> Mapping[str, str]:
     }
 
 
-__all__ = ["reflect_node"]
+__all__ = ["reflect_step"]

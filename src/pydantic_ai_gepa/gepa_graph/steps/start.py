@@ -10,7 +10,7 @@ from ..deps import GepaDeps
 from ..models import CandidateProgram, ComponentValue, GepaState
 
 
-async def start_node(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
+async def start_step(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
     """Initialize the GEPA optimization by adding the seed candidate."""
 
     state = ctx.state
@@ -54,4 +54,4 @@ def _build_candidate(
     )
 
 
-__all__ = ["start_node"]
+__all__ = ["start_step"]

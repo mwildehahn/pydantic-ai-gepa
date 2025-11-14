@@ -22,7 +22,7 @@ class StopSignal:
     result: GepaResult
 
 
-async def continue_node(
+async def continue_step(
     ctx: StepContext[GepaState, GepaDeps, None]
 ) -> StopSignal | ContinueAction:
     """Decision point for the GEPA optimization loop."""
@@ -56,4 +56,4 @@ def _should_stop(state: GepaState) -> bool:
     return False
 
 
-__all__ = ["ContinueAction", "IterationAction", "StopSignal", "continue_node"]
+__all__ = ["ContinueAction", "IterationAction", "StopSignal", "continue_step"]

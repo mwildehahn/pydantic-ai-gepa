@@ -10,10 +10,10 @@ from pydantic_graph.beta import StepContext
 from ...types import DataInst
 from ..deps import GepaDeps
 from ..models import CandidateProgram, GepaState
-from .continue_node import IterationAction
+from .continue_step import IterationAction
 
 
-async def merge_node(ctx: StepContext[GepaState, GepaDeps, None]) -> IterationAction:
+async def merge_step(ctx: StepContext[GepaState, GepaDeps, None]) -> IterationAction:
     """Attempt to merge two Pareto-front candidates."""
 
     state = ctx.state
@@ -165,4 +165,4 @@ def _get_subsample_scores(
     return scores
 
 
-__all__ = ["merge_node"]
+__all__ = ["merge_step"]

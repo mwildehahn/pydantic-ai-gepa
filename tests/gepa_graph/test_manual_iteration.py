@@ -45,10 +45,10 @@ async def test_manual_iteration_flow() -> None:
         validation_set=ListDataLoader(dataset),
     )
 
-    executed_nodes: list[str] = []
+    executed_steps: list[str] = []
     async with graph.iter(state=state, deps=deps) as run:
         async for event in run:
-            executed_nodes.extend(_event_node_labels(graph, event))
+            executed_steps.extend(_event_step_labels(graph, event))
             if state.best_score is not None and state.best_score >= 0.8:
                 state.stopped = True
                 state.stop_reason = "target score met"
@@ -57,8 +57,8 @@ async def test_manual_iteration_flow() -> None:
     assert run_output is not None
     result = run_output
 
-    assert "StartNode" in executed_nodes
-    assert "ReflectNode" in executed_nodes
+    assert "StartStep" in executed_steps
+    assert "ReflectStep" in executed_steps
     assert state.stop_reason == "target score met"
     assert result.stopped is True
     assert result.best_score is not None
@@ -67,7 +67,7 @@ async def test_manual_iteration_flow() -> None:
     assert len(result.candidates) >= 2
 
 
-def _event_node_labels(graph, event: EndMarker | Sequence[GraphTask]) -> list[str]:
+def _event_step_labels(graph, event: EndMarker | Sequence[GraphTask]) -> list[str]:
     if isinstance(event, EndMarker):
         return ["End"]
 
@@ -75,10 +75,10 @@ def _event_node_labels(graph, event: EndMarker | Sequence[GraphTask]) -> list[st
     if not node_ids:
         return []
 
-    return [_node_label(graph, node_id) for node_id in node_ids]
+    return [_step_label(graph, node_id) for node_id in node_ids]
 
 
-def _node_label(graph, node_id) -> str:
+def _step_label(graph, node_id) -> str:
     node = graph.nodes.get(node_id)
     if node is None:
         return str(node_id)

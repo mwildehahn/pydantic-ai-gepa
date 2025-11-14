@@ -208,11 +208,11 @@ class GepaConfig(BaseModel):
 
 
 class GepaState(BaseModel):
-    """Shared mutable state that flows through the GEPA graph nodes."""
+    """Shared mutable state that flows through the GEPA graph steps."""
 
     iteration: int = Field(
         default=-1,
-        description="Zero-indexed iteration counter; -1 means StartNode has not seeded the run yet.",
+        description="Zero-indexed iteration counter; -1 means StartStep has not seeded the run yet.",
     )
     candidates: list[CandidateProgram] = Field(
         default_factory=list,
@@ -245,7 +245,7 @@ class GepaState(BaseModel):
     )
     stopped: bool = Field(
         default=False,
-        description="Set to True when ContinueNode determines the run should stop.",
+        description="Set to True when ContinueStep determines the run should stop.",
     )
     stop_reason: str | None = Field(
         default=None,

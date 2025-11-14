@@ -13,7 +13,7 @@ from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaState
 
 
-async def evaluate_node(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
+async def evaluate_step(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
     """Evaluate the most recent candidate on the validation set."""
 
     state = ctx.state
@@ -42,7 +42,7 @@ async def evaluate_node(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
     )
     validation_total, validation_avg = _summarize_scores(results.scores)
     logfire.debug(
-        "EvaluateNode validation results",
+        "EvaluateStep validation results",
         candidate_idx=candidate.idx,
         validation_total=validation_total,
         validation_average=validation_avg,
@@ -56,7 +56,7 @@ async def evaluate_node(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
     new_best_score = state.best_score
     if new_best_idx != previous_best_idx or new_best_score != previous_best_score:
         logfire.info(
-            "EvaluateNode promoted best candidate",
+            "EvaluateStep promoted best candidate",
             candidate_idx=new_best_idx,
             previous_best_idx=previous_best_idx,
             previous_best_score=previous_best_score,
@@ -64,7 +64,7 @@ async def evaluate_node(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
         )
     else:
         logfire.debug(
-            "EvaluateNode best candidate unchanged",
+            "EvaluateStep best candidate unchanged",
             candidate_idx=candidate.idx,
             best_candidate_idx=new_best_idx,
             best_score=new_best_score,
@@ -78,7 +78,7 @@ async def evaluate_node(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
 
 def _current_candidate(state: GepaState) -> CandidateProgram:
     if not state.candidates:
-        raise ValueError("EvaluateNode requires at least one candidate in state.")
+        raise ValueError("EvaluateStep requires at least one candidate in state.")
     return state.candidates[-1]
 
 
@@ -130,4 +130,4 @@ def _hydrate_missing_components(
     deps.seed_candidate = updated_seed
 
 
-__all__ = ["evaluate_node"]
+__all__ = ["evaluate_step"]

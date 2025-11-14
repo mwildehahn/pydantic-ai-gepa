@@ -10,7 +10,14 @@ from pydantic_graph.beta.util import TypeExpression
 
 from .deps import GepaDeps
 from .models import GepaConfig, GepaResult, GepaState
-from .nodes import StopSignal, continue_node, evaluate_node, merge_node, reflect_node, start_node
+from .steps import (
+    StopSignal,
+    continue_step as continue_step_fn,
+    evaluate_step as evaluate_step_fn,
+    merge_step as merge_step_fn,
+    reflect_step as reflect_step_fn,
+    start_step as start_step_fn,
+)
 
 
 def create_gepa_graph(
@@ -27,11 +34,11 @@ def create_gepa_graph(
         output_type=GepaResult,
     )
 
-    start_step = builder.step(start_node, node_id="StartNode")
-    evaluate_step = builder.step(evaluate_node, node_id="EvaluateNode")
-    continue_step = builder.step(continue_node, node_id="ContinueNode")
-    reflect_step = builder.step(reflect_node, node_id="ReflectNode")
-    merge_step = builder.step(merge_node, node_id="MergeNode")
+    start_step = builder.step(start_step_fn, node_id="StartStep")
+    evaluate_step = builder.step(evaluate_step_fn, node_id="EvaluateStep")
+    continue_step = builder.step(continue_step_fn, node_id="ContinueStep")
+    reflect_step = builder.step(reflect_step_fn, node_id="ReflectStep")
+    merge_step = builder.step(merge_step_fn, node_id="MergeStep")
 
     continue_decision = (
         builder.decision(node_id="ContinueDecision")
@@ -48,8 +55,18 @@ def create_gepa_graph(
         )
     )
 
-    reflect_decision = _iteration_decision(builder, evaluate_step, continue_step, node_id="ReflectIterationDecision")
-    merge_decision = _iteration_decision(builder, evaluate_step, continue_step, node_id="MergeIterationDecision")
+    reflect_decision = _iteration_decision(
+        builder,
+        evaluate_step,
+        continue_step,
+        node_id="ReflectIterationDecision",
+    )
+    merge_decision = _iteration_decision(
+        builder,
+        evaluate_step,
+        continue_step,
+        node_id="MergeIterationDecision",
+    )
 
     builder.add(
         builder.edge_from(builder.start_node).to(start_step),

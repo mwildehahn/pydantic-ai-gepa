@@ -1,4 +1,4 @@
-"""Tests for the MergeNode implementation."""
+"""Tests for the MergeStep implementation."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
-from pydantic_ai_gepa.gepa_graph.nodes import merge_node
+from pydantic_ai_gepa.gepa_graph.steps import merge_step
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
@@ -146,7 +146,7 @@ class _StubAdapter:
     input_spec = None
 
     async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover
-        raise RuntimeError("evaluate should not be called in MergeNode tests")
+        raise RuntimeError("evaluate should not be called in MergeStep tests")
 
     def make_reflective_dataset(
         self,
@@ -260,7 +260,7 @@ def _evaluation_results(
 
 
 @pytest.mark.asyncio
-async def test_merge_node_accepts_when_scores_non_strictly_better() -> None:
+async def test_merge_step_accepts_when_scores_non_strictly_better() -> None:
     state = _make_state()
     ancestor_idx, parent1_idx, parent2_idx = _build_lineage(state)
     validation_items = await _validation_instances(state)
@@ -291,7 +291,7 @@ async def test_merge_node_accepts_when_scores_non_strictly_better() -> None:
     deps = _make_deps(merge_builder=builder, evaluator=evaluator)
     ctx = _ctx(state, deps)
 
-    next_node = await merge_node(ctx)
+    next_node = await merge_step(ctx)
 
     assert next_node == "evaluate"
     assert evaluator.calls == 1
@@ -306,7 +306,7 @@ async def test_merge_node_accepts_when_scores_non_strictly_better() -> None:
 
 
 @pytest.mark.asyncio
-async def test_merge_node_rejects_when_merged_scores_lower() -> None:
+async def test_merge_step_rejects_when_merged_scores_lower() -> None:
     state = _make_state()
     ancestor_idx, parent1_idx, parent2_idx = _build_lineage(state)
     validation_items = await _validation_instances(state)
@@ -337,7 +337,7 @@ async def test_merge_node_rejects_when_merged_scores_lower() -> None:
     deps = _make_deps(merge_builder=builder, evaluator=evaluator)
     ctx = _ctx(state, deps)
 
-    next_node = await merge_node(ctx)
+    next_node = await merge_step(ctx)
 
     assert next_node == "continue"
     assert evaluator.calls == 1
@@ -347,7 +347,7 @@ async def test_merge_node_rejects_when_merged_scores_lower() -> None:
 
 
 @pytest.mark.asyncio
-async def test_merge_node_skips_when_duplicate_detected() -> None:
+async def test_merge_step_skips_when_duplicate_detected() -> None:
     state = _make_state()
     ancestor_idx, parent1_idx, parent2_idx = _build_lineage(state)
     validation_items = await _validation_instances(state)
@@ -379,7 +379,7 @@ async def test_merge_node_skips_when_duplicate_detected() -> None:
     deps = _make_deps(merge_builder=builder, evaluator=evaluator)
     ctx = _ctx(state, deps)
 
-    next_node = await merge_node(ctx)
+    next_node = await merge_step(ctx)
 
     assert next_node == "continue"
     assert evaluator.calls == 0
