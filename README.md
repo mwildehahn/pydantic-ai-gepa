@@ -248,6 +248,7 @@ config = GepaConfig(
 
     # Reflection settings
     reflection_model="openai:gpt-4o",
+    reflection_model_settings={"temperature": 0.8},
     minibatch_size=5,
 
     # Parallelism

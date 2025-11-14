@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 
 from ...types import DataInst, RolloutOutput
 from ..datasets import DataLoader, ensure_loader
@@ -116,6 +117,10 @@ class GepaConfig(BaseModel):
     track_component_hypotheses: bool = Field(
         default=False,
         description="Persist reasoning metadata for component updates and surface it in future reflections.",
+    )
+    reflection_model_settings: ModelSettings | None = Field(
+        default=None,
+        description="Default model settings applied to every reflection model call (e.g., temperature, top_p).",
     )
 
     # Component selection

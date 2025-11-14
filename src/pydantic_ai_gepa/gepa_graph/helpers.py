@@ -46,7 +46,8 @@ def create_deps(
         component_selector=component_selector,
         batch_sampler=batch_sampler,
         proposal_generator=InstructionProposalGenerator(
-            include_hypothesis_metadata=config.track_component_hypotheses
+            include_hypothesis_metadata=config.track_component_hypotheses,
+            model_settings=config.reflection_model_settings,
         ),
         merge_builder=MergeProposalBuilder(seed=config.seed),
         reflection_model=config.reflection_model,

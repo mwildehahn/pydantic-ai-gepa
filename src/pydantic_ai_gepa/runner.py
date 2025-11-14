@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from pydantic_ai import usage as _usage
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_graph.beta.graph import EndMarker, GraphTask
 
 from .adapters.agent_adapter import AgentAdapter
@@ -137,6 +138,7 @@ async def optimize_agent(
     input_type: InputSpec[BaseModel] | None = None,
     seed_candidate: dict[str, str] | None = None,
     reflection_model: Model | KnownModelName | str | None = None,
+    reflection_model_settings: ModelSettings | None = None,
     candidate_selection_strategy: str = "pareto",
     skip_perfect_score: bool = True,
     reflection_minibatch_size: int = 3,
@@ -183,6 +185,8 @@ async def optimize_agent(
 
         reflection_model: Model to use for reflection (proposing new prompts).
                          Can be a Model instance or a string like 'openai:gpt-4o'.
+        reflection_model_settings: Optional model settings merged into every reflection call
+            (e.g., temperature, top_p). Ignored when ``reflection_model`` is ``None``.
         candidate_selection_strategy: Strategy for selecting candidates ('pareto' or 'current_best').
         skip_perfect_score: Whether to skip updating if perfect score achieved on minibatch.
         reflection_minibatch_size: Number of examples to use for reflection in each proposal.
@@ -278,6 +282,7 @@ async def optimize_agent(
         max_merge_invocations=max_merge_invocations,
         seed=seed,
         reflection_model=reflection_model,
+        reflection_model_settings=reflection_model_settings,
         reflection_sampler=reflection_sampler,
         track_component_hypotheses=track_component_hypotheses,
     )
@@ -402,6 +407,7 @@ def _build_gepa_config(
     max_merge_invocations: int,
     seed: int,
     reflection_model: Model | KnownModelName | str | None,
+    reflection_model_settings: ModelSettings | None,
     reflection_sampler: ReflectionSampler | None,
     track_component_hypotheses: bool,
 ) -> GepaConfig:
@@ -423,6 +429,7 @@ def _build_gepa_config(
         max_total_merges=max_merge_invocations,
         seed=seed,
         reflection_model=reflection_model,
+        reflection_model_settings=reflection_model_settings,
         reflection_sampler=reflection_sampler,
         track_component_hypotheses=track_component_hypotheses,
     )

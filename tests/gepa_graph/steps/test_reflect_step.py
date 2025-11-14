@@ -183,6 +183,7 @@ class _StubProposalGenerator(InstructionProposalGenerator):
         iteration=None,
         current_best_score=None,
         parent_score=None,
+        model_settings=None,
     ):
         self.calls += 1
         self.last_reflective_data = reflective_data

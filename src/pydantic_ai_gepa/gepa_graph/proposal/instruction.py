@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 
 from pydantic_ai_gepa.inspection import InspectionAborted
 
@@ -93,7 +94,17 @@ Your updated components should:
 
 ## Instruction Design Goal
 
-Produce instructions that are clear, memorable, and grounded in observed behavior. Help the student see patterns, avoid pitfalls, and execute reliable solutions. Let the evidence steer you toward new hypotheses instead of repeating boilerplate."""
+Produce instructions that are clear, memorable, and grounded in observed behavior. Help the student see patterns, avoid pitfalls, and execute reliable solutions. Let the evidence steer you toward new hypotheses instead of repeating boilerplate.
+
+## Hypothesis Scratchpad Discipline
+
+The "Pattern Discovery", "Creative Hypothesis", and "Experimental Approach" fields you emit act as a scratchpad. We store them with every updated component and show them at the top of the next reflection prompt as "Stored hypotheses from previous reflections". Treat this scratchpad like working notes the next teacher (or future-you) can build on:
+- Tie each hypothesis directly to the traces and components it informed—cite successes, failures, or surprises.
+- Call out which parts of the hypothesis stay valid, which parts need tweaks, and which parts you are discarding.
+- Keep it concise and component-aware so the next reflection can quickly inherit the right mental model.
+- Before proposing new instructions, reread the stored hypotheses above the configuration and explicitly state how you are extending or revising them.
+
+Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
 
 
 class TrajectoryAnalysis(BaseModel):
@@ -150,12 +161,14 @@ class InstructionProposalGenerator:
         instructions: str | None = None,
         *,
         include_hypothesis_metadata: bool = False,
+        model_settings: ModelSettings | None = None,
     ) -> None:
         self._agent = Agent(
             instructions=instructions or DEFAULT_AGENT_INSTRUCTIONS,
             output_type=InstructionProposalOutput,
         )
         self._include_hypothesis_metadata = include_hypothesis_metadata
+        self._default_model_settings = model_settings
 
     async def propose_texts(
         self,
@@ -167,6 +180,7 @@ class InstructionProposalGenerator:
         iteration: int | None = None,  # Kept for backwards compatibility but not used
         current_best_score: float | None = None,  # Kept for backwards compatibility but not used
         parent_score: float | None = None,  # Kept for backwards compatibility but not used
+        model_settings: ModelSettings | None = None,
     ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
 
@@ -208,7 +222,12 @@ class InstructionProposalGenerator:
         )
 
         try:
-            result = await self._agent.run(prompt, model=model)
+            resolved_settings = model_settings or self._default_model_settings
+            result = await self._agent.run(
+                prompt,
+                model=model,
+                model_settings=resolved_settings,
+            )
         except InspectionAborted:
             raise
         except Exception:
@@ -268,12 +287,6 @@ class InstructionProposalGenerator:
             "- We've collected traces from real production runs",
             "- Your job is to improve specific components so the student agent performs better",
             "",
-            "---",
-            "",
-            "## Full student agent configuration",
-            "",
-            "This is the complete configuration the student agent was running with:",
-            "",
         ])
 
         catalog_tool_defs = self._build_tool_definitions_from_candidate(candidate)
@@ -281,18 +294,21 @@ class InstructionProposalGenerator:
         metadata_groups: list[dict[str, Any]] = []
         metadata_components: list[list[str]] = []
         metadata_index: dict[tuple[tuple[str, str], ...], int] = {}
+        target_components = {component for component in components}
+
+        component_sections: list[str] = []
 
         # Show non-tool components in the candidate (tools are shown via JSON Schema below)
         for component_name, component_value in candidate.components.items():
             if component_name.startswith("tool:"):
                 continue  # Skip tool components, they're shown in JSON Schema
-            lines.append(f"**`{component_name}` given to student:**")
-            lines.append("```")
-            lines.append(component_value.text.strip())
-            lines.append("```")
-            lines.append("")
+            component_sections.append(f"**`{component_name}` given to student:**")
+            component_sections.append("```")
+            component_sections.append(component_value.text.strip())
+            component_sections.append("```")
+            component_sections.append("")
 
-            if self._include_hypothesis_metadata:
+            if self._include_hypothesis_metadata and component_name in target_components:
                 metadata_entry = self._extract_component_metadata(component_value)
                 if metadata_entry:
                     signature = self._metadata_signature(metadata_entry)
@@ -304,6 +320,36 @@ class InstructionProposalGenerator:
                         metadata_components.append([component_name])
                     else:
                         metadata_components[idx].append(component_name)
+
+        if metadata_groups:
+            lines.extend([
+                "## Stored hypotheses from previous reflections",
+                "",
+            ])
+            for metadata_entry, component_list in zip(metadata_groups, metadata_components):
+                component_names = ", ".join(f"`{name}`" for name in component_list)
+                lines.append(f"- Components: {component_names}")
+                iteration = metadata_entry.get("iteration")
+                if iteration is not None:
+                    lines.append(f"  - Iteration: {iteration}")
+                if "pattern" in metadata_entry:
+                    lines.append(f"  - Pattern: {metadata_entry['pattern']}")
+                if "hypothesis" in metadata_entry:
+                    lines.append(f"  - Hypothesis: {metadata_entry['hypothesis']}")
+                if "approach" in metadata_entry:
+                    lines.append(f"  - Plan: {metadata_entry['approach']}")
+                lines.append("")
+
+        lines.extend([
+            "---",
+            "",
+            "## Full student agent configuration",
+            "",
+            "This is the complete configuration the student agent was running with:",
+            "",
+        ])
+
+        lines.extend(component_sections)
 
         # Collect and show tools if present in evidence
         tools = self._collect_tools(reflective_data)
@@ -435,23 +481,6 @@ class InstructionProposalGenerator:
                         )
                     )
                     lines.append("")
-
-        if metadata_groups:
-            lines.append("### Stored hypotheses from previous reflections")
-            lines.append("")
-            for metadata_entry, component_list in zip(metadata_groups, metadata_components):
-                component_names = ", ".join(f"`{name}`" for name in component_list)
-                lines.append(f"- Components: {component_names}")
-                iteration = metadata_entry.get("iteration")
-                if iteration is not None:
-                    lines.append(f"  - Iteration: {iteration}")
-                if "pattern" in metadata_entry:
-                    lines.append(f"  - Pattern: {metadata_entry['pattern']}")
-                if "hypothesis" in metadata_entry:
-                    lines.append(f"  - Hypothesis: {metadata_entry['hypothesis']}")
-                if "approach" in metadata_entry:
-                    lines.append(f"  - Plan: {metadata_entry['approach']}")
-                lines.append("")
 
         return "\n".join(lines)
 

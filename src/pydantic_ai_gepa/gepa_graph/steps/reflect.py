@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence, cast
 import logfire
 from pydantic_graph.beta import StepContext
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 
 from ...adapter import (
     ComponentReflectiveDataset,
@@ -110,6 +111,7 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
             reflective_dataset=reflective_dataset,
             components=components,
             model=reflection_model,
+            model_settings=state.config.reflection_model_settings,
         )
         component_metadata = (
             proposal_result.component_metadata
@@ -346,6 +348,7 @@ async def _propose_new_texts(
     reflective_dataset: ReflectiveDataset,
     components: Sequence[str],
     model: Model | KnownModelName | str,
+    model_settings: ModelSettings | None = None,
 ) -> ProposalResult:
     proposal = deps.proposal_generator
     return await proposal.propose_texts(
@@ -356,6 +359,7 @@ async def _propose_new_texts(
         iteration=state.iteration,
         current_best_score=state.best_score,
         parent_score=parent.avg_validation_score,
+        model_settings=model_settings,
     )
 
 

@@ -512,6 +512,7 @@ async def main(load_latest: bool, resume_from_latest: bool, results_dir: Path) -
             openai_reasoning_effort="high",
             openai_reasoning_summary="detailed",
             openai_text_verbosity="high",
+            temperature=0.8,
         ),
     )
     # reflection_model = InspectingModel(reflection_model)

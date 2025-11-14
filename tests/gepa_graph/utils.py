@@ -110,6 +110,7 @@ class ProposalGeneratorStub:
         iteration: int | None = None,
         current_best_score: float | None = None,
         parent_score: float | None = None,
+        model_settings=None,
     ):
         self.calls += 1
         updates: dict[str, str] = {}

@@ -348,6 +348,7 @@ async def main() -> None:
             openai_reasoning_effort="medium",
             openai_reasoning_summary="detailed",
             openai_text_verbosity="medium",
+            temperature=0.8,
         ),
     )
 

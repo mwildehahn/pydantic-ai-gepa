@@ -366,7 +366,7 @@ async def test_prompt_includes_stored_hypothesis_metadata() -> None:
     )
 
     assert captured_prompt is not None
-    assert "### Stored hypotheses from previous reflections" in captured_prompt
+    assert "## Stored hypotheses from previous reflections" in captured_prompt
     assert "Components: `instructions`" in captured_prompt
     assert "  - Hypothesis: Spell out range rules" in captured_prompt
     assert "  - Iteration: 4" in captured_prompt

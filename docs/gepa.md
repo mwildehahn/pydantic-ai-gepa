@@ -807,6 +807,7 @@ log_metrics(metrics: dict[str, Any], step: int | None = None)
 - `module_selector` - Defaults to "round_robin"
 - `batch_sampler` - Defaults to "epoch_shuffled"
 - `reflection_minibatch_size` - Defaults to reasonable value (3-10)
+- `reflection_model_settings` - Defaults to None; when provided, merged into every reflection model call (e.g., bump temperature)
 - `perfect_score` - Defaults to 1.0
 - `seed` - Defaults to 0
 - `use_merge` - Defaults to False
