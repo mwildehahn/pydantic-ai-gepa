@@ -41,3 +41,6 @@
 ## 2025-11-14T17:35-08:00 edge-move enforcement
 - Strengthened `DEFAULT_AGENT_INSTRUCTIONS` again: Evolution Mandate now requires at least one "Edge Reasoning" move per reflection plus an "Edge Insight" scratchpad entry describing the unsolved math/logic failure. Added escalation rule if an edge persists across multiple iterations.
 - Tests: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.
+
+## 2025-11-14T17:45-08:00 edge wording tweak
+- Generalized the Edge-Case Forcing Function text so it applies to any domain (not just math) while keeping the "Edge Insight" requirement. Tests: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.

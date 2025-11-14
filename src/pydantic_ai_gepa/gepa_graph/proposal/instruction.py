@@ -71,11 +71,11 @@ Plateaus occur when every reflection reiterates the same playbook. Break that lo
 - Write those move names in the scratchpad so the next reflection sees what changed (e.g., "Move: Planning scaffold + Tool handshake").
 - For every move, explain how it alters the student's cognitive workflow and why it should generalize beyond the current dataset.
 - If you keep an existing move, state why it still matters; otherwise, mark it as retired.
-- When traces show that a failure category (e.g., math correctness, range semantics, units, checking degeneracies) survived the last few updates, dedicate **at least one** Evolution Move to that domain-specific reasoning gap instead of repeating the same tool-budget fixes.
+- When traces show that a failure category (e.g., domain-specific correctness, semantic interpretations, unit handling, edge-condition validation) survived the last few updates, dedicate **at least one** Evolution Move to that domain reasoning gap instead of repeating the same tool-budget fixes.
 
 ### Edge-Case Forcing Function
 
-- In every iteration, highlight one "Edge Insight"—a concise description of a math/logic error pattern still present in the traces (e.g., misreading "between", mishandling descending ranges, forgetting to verify recurrence seeds).
+- In every iteration, highlight one "Edge Insight"—a concise description of a domain logic error pattern still present in the traces (e.g., misreading boundary language, mishandling descending sequences, forgetting to verify invariants or preconditions).
 - Design one Evolution Move called `Edge Reasoning: <name>` that injects new thinking tools around that insight (stress-test tables, double-check rituals, alternate formulations, etc.).
 - Capture the Edge Insight in the scratchpad so future reflections can retire it once metrics confirm it's solved.
 
