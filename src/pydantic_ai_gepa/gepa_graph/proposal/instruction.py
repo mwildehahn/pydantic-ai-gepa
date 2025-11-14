@@ -154,6 +154,18 @@ class TrajectoryAnalysis(BaseModel):
     experimental_approach: str = Field(
         description="What specific instructional format or style will you try? How does it differ from conventional approaches?",
     )
+    edge_insight: str = Field(
+        default="",
+        description="Name the most stubborn domain-specific error pattern still present (the 'Edge Insight') and why it persists.",
+    )
+    evolution_moves: list[str] = Field(
+        default_factory=list,
+        description="List the concrete Evolution Moves you're introducing, e.g., planning scaffold, edge reasoning ritual, persona shift.",
+    )
+    success_checkpoint: str = Field(
+        default="",
+        description="Define how we'll know this experiment worked (metrics, qualitative behavior, or trace-level signal).",
+    )
 
 
 class ComponentUpdate(BaseModel):
@@ -373,6 +385,14 @@ class InstructionProposalGenerator:
                     lines.append(f"  - Hypothesis: {metadata_entry['hypothesis']}")
                 if "approach" in metadata_entry:
                     lines.append(f"  - Plan: {metadata_entry['approach']}")
+                moves = metadata_entry.get("moves")
+                if moves:
+                    joined_moves = ", ".join(str(move) for move in moves)
+                    lines.append(f"  - Moves: {joined_moves}")
+                if "edge_insight" in metadata_entry:
+                    lines.append(f"  - Edge insight: {metadata_entry['edge_insight']}")
+                if "checkpoint" in metadata_entry:
+                    lines.append(f"  - Checkpoint: {metadata_entry['checkpoint']}")
                 lines.append("")
 
         lines.extend([
@@ -533,6 +553,15 @@ class InstructionProposalGenerator:
             "hypothesis": reasoning.creative_hypothesis.strip(),
             "approach": reasoning.experimental_approach.strip(),
         }
+        edge_insight = reasoning.edge_insight.strip()
+        if edge_insight:
+            base["edge_insight"] = edge_insight
+        checkpoint = reasoning.success_checkpoint.strip()
+        if checkpoint:
+            base["checkpoint"] = checkpoint
+        moves = [move.strip() for move in reasoning.evolution_moves if move.strip()]
+        if moves:
+            base["moves"] = moves
         filtered = {key: value for key, value in base.items() if value}
         if not filtered:
             return {}
@@ -547,9 +576,15 @@ class InstructionProposalGenerator:
         hypothesis = str(metadata.get("hypothesis", "")).strip()
         pattern = str(metadata.get("pattern", "")).strip()
         approach = str(metadata.get("approach", "")).strip()
+        edge_insight = str(metadata.get("edge_insight", "")).strip()
+        checkpoint = str(metadata.get("checkpoint", "")).strip()
+        raw_moves = metadata.get("moves")
+        moves: list[str] = []
+        if isinstance(raw_moves, list):
+            moves = [str(move).strip() for move in raw_moves if str(move).strip()]
         iteration = metadata.get("iteration")
 
-        if not any([hypothesis, pattern, approach, iteration]):
+        if not any([hypothesis, pattern, approach, edge_insight, checkpoint, moves, iteration]):
             return {}
 
         entry: dict[str, Any] = {}
@@ -561,6 +596,12 @@ class InstructionProposalGenerator:
             entry["hypothesis"] = hypothesis
         if approach:
             entry["approach"] = approach
+        if edge_insight:
+            entry["edge_insight"] = edge_insight
+        if checkpoint:
+            entry["checkpoint"] = checkpoint
+        if moves:
+            entry["moves"] = moves
         return entry
 
     def _metadata_signature(self, metadata: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:

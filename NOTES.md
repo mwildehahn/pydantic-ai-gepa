@@ -44,3 +44,7 @@
 
 ## 2025-11-14T17:45-08:00 edge wording tweak
 - Generalized the Edge-Case Forcing Function text so it applies to any domain (not just math) while keeping the "Edge Insight" requirement. Tests: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.
+
+## 2025-11-14T18:00-08:00 proposal schema bumps
+- Extended `TrajectoryAnalysis` to include `edge_insight`, `evolution_moves`, and `success_checkpoint` so reflection outputs can explicitly capture the new Evolution/Edge requirements. Component metadata now stores these fields (and prints them in the "Stored hypotheses" block) for downstream iterations to inherit.
+- Updated tests to expect the richer reasoning payload. Command: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.

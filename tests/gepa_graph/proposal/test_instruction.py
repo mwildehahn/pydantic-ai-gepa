@@ -143,7 +143,10 @@ async def test_llm_generator_returns_metadata_when_enabled() -> None:
             "reasoning": {
                 "pattern_discovery": "Repeated boundary errors",
                 "creative_hypothesis": "Teach explicit range mapping",
-                "experimental_approach": "Add a checklist with translations"
+                "experimental_approach": "Add a checklist with translations",
+                "edge_insight": "Still mislabeling exclusive ranges",
+                "success_checkpoint": "Zero range mistakes on validation minibatch",
+                "evolution_moves": ["Checklist", "Edge Reasoning: ranges"]
             },
             "updated_components": [
                 {"component_name": "instructions", "optimized_value": "Improved instructions"}
@@ -165,6 +168,9 @@ async def test_llm_generator_returns_metadata_when_enabled() -> None:
     assert metadata["hypothesis"] == "Teach explicit range mapping"
     assert metadata["pattern"] == "Repeated boundary errors"
     assert metadata["approach"].startswith("Add a checklist")
+    assert metadata["edge_insight"] == "Still mislabeling exclusive ranges"
+    assert metadata["checkpoint"] == "Zero range mistakes on validation minibatch"
+    assert metadata["moves"] == ["Checklist", "Edge Reasoning: ranges"]
 
 
 @pytest.mark.asyncio
