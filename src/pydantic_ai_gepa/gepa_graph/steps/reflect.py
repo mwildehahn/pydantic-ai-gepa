@@ -118,6 +118,19 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
             if state.config.track_component_hypotheses
             else None
         )
+        reasoning = proposal_result.reasoning
+        if reasoning is not None:
+            logfire.info(
+                "ReflectStep proposal reasoning",
+                parent_idx=parent_idx,
+                components=components,
+                pattern=reasoning.pattern_discovery,
+                hypothesis=reasoning.creative_hypothesis,
+                approach=reasoning.experimental_approach,
+                edge_insight=reasoning.edge_insight,
+                success_checkpoint=reasoning.success_checkpoint,
+                evolution_moves=reasoning.evolution_moves,
+            )
 
     new_candidate = _create_candidate(
         state=state,

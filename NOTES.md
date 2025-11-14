@@ -54,3 +54,7 @@
 - Parsed best candidate metadata → new fields (`edge_insight`, `moves`, `checkpoint`) are populated, confirming the proposal schema change is flowing through.
 - Logfire trace `019a84c2b848eb9445b0f5e50a9cbf46` shows recent reflection + student runs. Student (`gpt-5-nano`) instructions emphasize the single-run workflow and `final_result` completion, matching the latest instruction text. However, stored hypotheses shown to the reflection model still display the pre-update seed configuration (no edge insight bullet), so we’ll need another iteration to confirm the new scratchpad prompts propagate through the “Stored hypotheses” section.
 - Next: Instrument logfire queries to surface reasoning payloads (edge insight/moves) directly, then enforce a new Edge Reasoning move targeting range direction vs. empty-range handling, the current failure mode.
+
+## 2025-11-14T18:30-08:00 log instrumentation
+- Added a `logfire.info("ReflectStep proposal reasoning", ...)` hook capturing pattern/hypothesis/edge insight/moves/checkpoint every time a reflection proposal returns. This should make it easy to query Logfire for the exact Evolution Moves being tried per iteration.
+- Tests: `uv run pytest tests/gepa_graph/steps/test_reflect_step.py`.
