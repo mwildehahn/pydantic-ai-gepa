@@ -24,3 +24,10 @@
 - Highlighted concrete move menu (planning scaffolds, self-check loops, tool handshake rewrites, persona shifts, etc.) and emphasized generalization beyond the math dataset.
 - Added guidance to mark where the new moves show up in the emitted instructions so future iterations can trace experiments.
 - Tests: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.
+
+## 2025-11-14T17:05-08:00 100-eval run
+- Added CLI arg `--max-evaluations` (default 100) so we can throttle GEPA runs without editing code; `GepaConfig.max_evaluations` now respects the flag.
+- Ran `uv run --env-file .env python examples/math_tools.py --results-dir optimization_results --max-evaluations 100`.
+  - Output file: `optimization_results/math_tools_optimization_20251114_153604.json`.
+  - Result: best score plateaued at 0.75 after 8 iterations / 104 metric calls (same as prior best), indicating instruction meta-prompt changes alone haven't moved math_tools past the plateau yet.
+- Next: inspect fresh traces from this run via Logfire to confirm whether reflection agent is now logging Evolution Moves, and consider tightening student instruction scratchpad (e.g., enforce self-check loop in final_result description).

@@ -338,6 +338,8 @@ async def run_math_tools_optimization(
     valset: Sequence[DataInstWithInput[MathProblemInput]],
     reflection_model: Model | KnownModelName | str,
     seed_candidate: dict[str, str] | None = None,
+    *,
+    max_evaluations: int = 300,
 ) -> GepaResult:
     cache_manager = CacheManager(
         cache_dir=".gepa_cache",
@@ -354,7 +356,7 @@ async def run_math_tools_optimization(
     )
 
     config = GepaConfig(
-        max_evaluations=300,
+        max_evaluations=max_evaluations,
         component_selector="all",
         candidate_selector=CandidateSelectorStrategy.PARETO,
         minibatch_size=10,
@@ -397,6 +399,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("optimization_results"),
         help="Directory containing saved optimization result JSON files.",
+    )
+    parser.add_argument(
+        "--max-evaluations",
+        type=int,
+        default=100,
+        help="Maximum number of GEPA metric evaluations to run before stopping.",
     )
     return parser.parse_args()
 
@@ -459,7 +467,12 @@ def extract_seed_candidate(
     return None
 
 
-async def main(load_latest: bool, resume_from_latest: bool, results_dir: Path) -> None:
+async def main(
+    load_latest: bool,
+    resume_from_latest: bool,
+    results_dir: Path,
+    max_evaluations: int,
+) -> None:
     latest_result: GepaResult | None = None
     latest_file: Path | None = None
 
@@ -528,6 +541,7 @@ async def main(load_latest: bool, resume_from_latest: bool, results_dir: Path) -
             valset,
             reflection_model,
             seed_candidate=seed_candidate,
+            max_evaluations=max_evaluations,
         )
     except InspectionAborted as exc:
         snapshot = exc.snapshot
@@ -551,5 +565,6 @@ if __name__ == "__main__":
             load_latest=args.load_latest,
             resume_from_latest=args.resume_from_latest,
             results_dir=args.results_dir,
+            max_evaluations=args.max_evaluations,
         )
     )
