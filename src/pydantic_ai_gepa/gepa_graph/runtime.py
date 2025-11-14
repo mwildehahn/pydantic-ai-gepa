@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-from pydantic_graph import Graph
+from pydantic_graph.beta import Graph
+from pydantic_graph.beta.graph import EndMarker, GraphTask
 
 from ..adapter import Adapter
 from ..exceptions import UsageBudgetExceeded
@@ -15,8 +17,6 @@ from .datasets import DatasetInput, resolve_dataset
 from .graph import create_gepa_graph
 from .helpers import create_deps
 from .models import GepaConfig, GepaResult, GepaState
-from .nodes import StartNode
-from .nodes.base import GepaNode
 from ..progress import OptimizationProgress
 
 
@@ -31,8 +31,7 @@ async def optimize(
     valset: DatasetInput | None = None,
     seed_candidate: Mapping[str, str] | None = None,
     deps: GepaDeps[DataInstT] | None = None,
-    graph: Graph[GepaState, GepaDeps[DataInstT], GepaResult] | None = None,
-    start_node: GepaNode | None = None,
+        graph: Graph[GepaState, GepaDeps[Any], None, GepaResult] | None = None,
     show_progress: bool = False,
 ) -> GepaResult:
     """Execute the GEPA graph end-to-end and return the resulting ``GepaResult``.
@@ -46,7 +45,6 @@ async def optimize(
             already attached to ``deps``.
         deps: Preconstructed dependency bundle; ``create_deps`` used when omitted.
         graph: Custom graph definition; ``create_gepa_graph`` used when omitted.
-        start_node: Alternative start node for advanced scenarios.
         show_progress: When True, display a Rich progress bar that tracks the evaluation budget.
     """
 
@@ -64,7 +62,7 @@ async def optimize(
     resolved_graph = (
         graph
         if graph is not None
-        else create_gepa_graph(adapter=adapter, config=config)
+        else create_gepa_graph(config=config)
     )
     training_loader = await resolve_dataset(trainset, name="trainset")
     validation_loader = await resolve_dataset(valset, name="valset") if valset is not None else None
@@ -74,9 +72,7 @@ async def optimize(
         training_set=training_loader,
         validation_set=validation_loader,
     )
-    start = start_node if start_node is not None else StartNode()
-
-    run_result = None
+    run_output = None
     try:
         with OptimizationProgress(
             total=config.max_evaluations,
@@ -84,17 +80,18 @@ async def optimize(
             enabled=show_progress,
         ) as progress_bar:
             previous_node_name: str | None = None
-            async with resolved_graph.iter(start, state=state, deps=resolved_deps) as run:
-                async for node in run:
-                    current_node_name = node.__class__.__name__
+            async with resolved_graph.iter(state=state, deps=resolved_deps) as run:
+                async for event in run:
+                    current_node_name = _describe_event(resolved_graph, event)
                     progress_bar.update(
                         state.total_evaluations,
                         current_node=current_node_name,
                         previous_node=previous_node_name,
                         best_score=state.best_score,
                     )
-                    previous_node_name = current_node_name
-                run_result = run.result
+                    if current_node_name:
+                        previous_node_name = current_node_name
+                run_output = run.output
             progress_bar.update(
                 state.total_evaluations,
                 best_score=state.best_score,
@@ -104,10 +101,43 @@ async def optimize(
         logger.info("GEPA run stopped early due to usage budget limit.")
         return GepaResult.from_state(state)
 
-    if run_result is None:
+    if run_output is None:
         raise RuntimeError("GEPA graph run did not complete.")
 
-    return run_result.output
+    return run_output
+
+
+def _describe_event(
+    graph: Graph[GepaState, GepaDeps[Any], None, GepaResult],
+    event: EndMarker[GepaResult] | Sequence[GraphTask],
+) -> str | None:
+    if isinstance(event, EndMarker):
+        return "End"
+
+    node_ids = {task.node_id for task in event}
+    if not node_ids:
+        return None
+
+    names = sorted(_node_label(graph, node_id) for node_id in node_ids)
+    return ", ".join(names)
+
+
+def _node_label(
+    graph: Graph[GepaState, GepaDeps[Any], None, GepaResult],
+    node_id,
+) -> str:
+    node = graph.nodes.get(node_id)
+    if node is None:
+        return str(node_id)
+    label = getattr(node, "label", None)
+    if label:
+        return label
+    node_identifier = getattr(node, "id", None)
+    if node_identifier is not None:
+        return str(node_identifier)
+    if hasattr(node, "__class__"):
+        return node.__class__.__name__
+    return str(node_id)
 
 
 __all__ = ["optimize"]

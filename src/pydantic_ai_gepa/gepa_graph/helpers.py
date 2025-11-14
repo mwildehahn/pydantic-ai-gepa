@@ -32,7 +32,7 @@ def create_deps(
         adapter: Implementation of the Adapter protocol powering evaluations.
         config: Immutable optimization configuration.
         seed_candidate: Optional initial candidate mapping injected into ``GepaDeps``
-            for consumption by :class:`StartNode`.
+            for consumption by :class:`StartStep`.
     """
     candidate_selector = _build_candidate_selector(config)
     component_selector = _build_component_selector(config)

@@ -1,4 +1,4 @@
-"""Dependency container for GEPA graph nodes."""
+"""Dependency container for GEPA graph steps."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from .selectors import BatchSampler, CandidateSelector, ComponentSelector
 
 @dataclass(slots=True)
 class GepaDeps(Generic[DataInstT]):
-    """Runtime dependencies shared across GEPA graph nodes."""
+    """Runtime dependencies shared across GEPA graph steps."""
 
     adapter: Adapter[DataInstT]
     evaluator: ParallelEvaluator

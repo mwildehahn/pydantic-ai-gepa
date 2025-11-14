@@ -504,7 +504,7 @@ async def main(load_latest: bool, resume_from_latest: bool, results_dir: Path) -
     output_dir.mkdir(exist_ok=True)
 
     reflection_model = OpenAIResponsesModel(
-        model_name="gpt-5",
+        model_name="gpt-5.1",
         settings=OpenAIResponsesModelSettings(
             openai_reasoning_effort="high",
             openai_reasoning_summary="detailed",
