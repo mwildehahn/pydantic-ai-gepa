@@ -5,18 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Sequence, cast
 
-from pydantic_graph import Graph
+from pydantic_graph.beta import Graph
 
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.gepa_graph.graph import create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig
-from pydantic_ai_gepa.gepa_graph.nodes import (
-    ContinueNode,
-    EvaluateNode,
-    MergeNode,
-    ReflectNode,
-    StartNode,
-)
 from pydantic_ai_gepa.types import DataInst
 
 
@@ -54,26 +47,19 @@ def test_create_gepa_graph_without_merge() -> None:
     adapter = _make_adapter()
     config = GepaConfig()
 
-    graph = create_gepa_graph(adapter=adapter, config=config)
+    graph = create_gepa_graph(config=config)
 
     assert isinstance(graph, Graph)
     assert graph.name == "gepa_graph"
-    assert set(graph.node_defs) == {
-        "StartNode",
-        "EvaluateNode",
-        "ContinueNode",
-        "ReflectNode",
-        "MergeNode",
-    }
-    assert graph.node_defs["StartNode"].node is StartNode
-    assert graph.node_defs["ContinueNode"].node is ContinueNode
+    node_ids = {str(node_id) for node_id in graph.nodes.keys()}
+    assert {"StartNode", "EvaluateNode", "ContinueNode", "ReflectNode", "MergeNode"}.issubset(node_ids)
 
 
 def test_create_gepa_graph_with_merge_enabled() -> None:
     adapter = _make_adapter()
     config = GepaConfig(use_merge=True)
 
-    graph = create_gepa_graph(adapter=adapter, config=config)
+    graph = create_gepa_graph(config=config)
 
     assert isinstance(graph, Graph)
-    assert graph.node_defs["MergeNode"].node is MergeNode
+    assert "MergeNode" in {str(node_id) for node_id in graph.nodes.keys()}

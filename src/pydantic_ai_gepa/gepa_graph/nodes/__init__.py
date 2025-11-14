@@ -1,18 +1,18 @@
-"""Graph nodes for the native GEPA implementation."""
+"""Functional graph steps for the native GEPA implementation."""
 
-from .base import GepaNode, GepaRunContext
-from .continue_node import ContinueNode  # noqa: F401  (added later)
-from .evaluate import EvaluateNode  # noqa: F401
-from .merge import MergeNode
-from .reflect import ReflectNode
-from .start import StartNode  # noqa: F401
+from .continue_node import ContinueAction, IterationAction, StopSignal, continue_node
+from .evaluate import evaluate_node
+from .merge import merge_node
+from .reflect import reflect_node
+from .start import start_node
 
 __all__ = [
-    "ContinueNode",
-    "EvaluateNode",
-    "GepaNode",
-    "GepaRunContext",
-    "MergeNode",
-    "ReflectNode",
-    "StartNode",
+    "ContinueAction",
+    "IterationAction",
+    "StopSignal",
+    "continue_node",
+    "evaluate_node",
+    "merge_node",
+    "reflect_node",
+    "start_node",
 ]

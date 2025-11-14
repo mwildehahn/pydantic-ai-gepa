@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from pydantic_ai import usage as _usage
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_graph.beta.graph import EndMarker, GraphTask
 
 from .adapters.agent_adapter import AgentAdapter
 from .cache import CacheManager
@@ -32,7 +33,6 @@ from .gepa_graph.models import (
     GepaResult,
     GepaState,
 )
-from .gepa_graph.nodes import StartNode
 from .signature import InputSpec
 from .reflection import ReflectionSampler
 from .types import DataInstT, MetricResult, RolloutOutput
@@ -286,7 +286,7 @@ async def optimize_agent(
     if deterministic_proposer is not None:
         deps.proposal_generator = deterministic_proposer
 
-    graph = create_gepa_graph(adapter=adapter, config=config)
+    graph = create_gepa_graph(config=config)
     state = GepaState(
         config=config,
         training_set=train_loader,
@@ -295,31 +295,32 @@ async def optimize_agent(
 
     gepa_result: GepaResult | None = None
     try:
-        run_result = None
+        run_output = None
         with OptimizationProgress(
             total=config.max_evaluations,
             description="Optimizing agent",
             enabled=show_progress,
         ) as progress_bar:
             previous_node_name: str | None = None
-            async with graph.iter(StartNode(), state=state, deps=deps) as run:
-                async for node in run:
-                    current_node_name = node.__class__.__name__
+            async with graph.iter(state=state, deps=deps) as run:
+                async for event in run:
+                    current_node_name = _describe_graph_event(graph, event)
                     progress_bar.update(
                         state.total_evaluations,
                         current_node=current_node_name,
                         previous_node=previous_node_name,
                         best_score=state.best_score,
                     )
-                    previous_node_name = current_node_name
-                run_result = run.result
+                    if current_node_name:
+                        previous_node_name = current_node_name
+                run_output = run.output
             progress_bar.update(
                 state.total_evaluations,
                 best_score=state.best_score,
             )
-        if run_result is None:
+        if run_output is None:
             raise RuntimeError("GEPA graph run did not produce a result.")
-        gepa_result = run_result.output
+        gepa_result = run_output
     except UsageBudgetExceeded as exc:
         state.mark_stopped(reason="Usage budget exceeded")
         logfire.info(
@@ -440,6 +441,36 @@ def _resolve_candidate_selector(strategy: str) -> CandidateSelectorStrategy:
         raise ValueError(
             "candidate_selection_strategy must be 'pareto' or 'current_best'."
         ) from error
+
+
+def _describe_graph_event(
+    graph: Any,
+    event: EndMarker[GepaResult] | Sequence[GraphTask],
+) -> str | None:
+    if isinstance(event, EndMarker):
+        return "End"
+
+    node_ids = {task.node_id for task in event}
+    if not node_ids:
+        return None
+
+    names = sorted(_node_label(graph, node_id) for node_id in node_ids)
+    return ", ".join(names)
+
+
+def _node_label(graph: Any, node_id) -> str:
+    node = getattr(graph, "nodes", {}).get(node_id)
+    if node is None:
+        return str(node_id)
+    label = getattr(node, "label", None)
+    if label:
+        return label
+    node_identifier = getattr(node, "id", None)
+    if node_identifier is not None:
+        return str(node_identifier)
+    if hasattr(node, "__class__"):
+        return node.__class__.__name__
+    return str(node_id)
 
 
 def _fallback_result(seed_candidate: dict[str, str]) -> GepaOptimizationResult:

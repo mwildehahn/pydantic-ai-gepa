@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence, cast
 
 import pytest
-from pydantic_graph import GraphRunContext
+from pydantic_graph.beta import StepContext
 from pydantic_ai.messages import UserPromptPart
 
 from pydantic_ai_gepa.adapter import (
@@ -29,7 +29,7 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
-from pydantic_ai_gepa.gepa_graph.nodes import ContinueNode, EvaluateNode, ReflectNode
+from pydantic_ai_gepa.gepa_graph.nodes import reflect_node
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
@@ -220,6 +220,10 @@ def _make_deps(
     )
 
 
+def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, GepaDeps[DataInst], None]:
+    return StepContext(state=state, deps=deps, inputs=None)
+
+
 @pytest.mark.asyncio
 async def test_reflect_node_accepts_strict_improvement() -> None:
     state = _make_state()
@@ -235,12 +239,11 @@ async def test_reflect_node_accepts_strict_improvement() -> None:
         batch_sampler=batch_sampler,
         proposal_generator=generator,
     )
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ReflectNode()
-    result = await node.run(ctx)
+    result = await reflect_node(ctx)
 
-    assert isinstance(result, EvaluateNode)
+    assert result == "evaluate"
     assert state.last_accepted is True
     assert len(state.candidates) == 2
     new_candidate = state.candidates[-1]
@@ -289,10 +292,9 @@ async def test_reflect_node_applies_config_sampler() -> None:
         batch_sampler=batch_sampler,
         proposal_generator=generator,
     )
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ReflectNode()
-    await node.run(ctx)
+    await reflect_node(ctx)
 
     assert sampler_calls == [(2, 1)]
     assert isinstance(generator.last_reflective_data, ComponentReflectiveDataset)
@@ -314,12 +316,11 @@ async def test_reflect_node_rejects_when_not_improved() -> None:
         batch_sampler=batch_sampler,
         proposal_generator=generator,
     )
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ReflectNode()
-    result = await node.run(ctx)
+    result = await reflect_node(ctx)
 
-    assert isinstance(result, ContinueNode)
+    assert result == "continue"
     assert state.last_accepted is False
     assert len(state.candidates) == 1
     assert state.merge_scheduled == 0
@@ -341,12 +342,11 @@ async def test_reflect_node_skips_when_batch_is_perfect() -> None:
         batch_sampler=batch_sampler,
         proposal_generator=generator,
     )
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ReflectNode()
-    result = await node.run(ctx)
+    result = await reflect_node(ctx)
 
-    assert isinstance(result, ContinueNode)
+    assert result == "continue"
     assert state.last_accepted is False
     assert len(state.candidates) == 1
     assert stub_adapter.dataset_calls == 0
@@ -370,8 +370,7 @@ async def test_reflect_node_requires_reflection_model() -> None:
         proposal_generator=generator,
         reflection_model=None,
     )
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ReflectNode()
     with pytest.raises(ValueError, match="reflection_model"):
-        await node.run(ctx)
+        await reflect_node(ctx)

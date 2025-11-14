@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, Sequence, cast
 
 import pytest
+
+from pydantic_graph.beta.graph import EndMarker, GraphTask
 
 from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
-from pydantic_ai_gepa.gepa_graph.nodes import StartNode
 from pydantic_ai_gepa.types import DataInst
 from tests.gepa_graph.utils import (
     AdapterStub,
@@ -35,7 +36,7 @@ async def test_manual_iteration_flow() -> None:
     )
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 
-    graph = create_gepa_graph(adapter=adapter, config=config)
+    graph = create_gepa_graph(config=config)
     dataset = make_dataset()
     loader = ListDataLoader(dataset)
     state = GepaState(
@@ -45,16 +46,16 @@ async def test_manual_iteration_flow() -> None:
     )
 
     executed_nodes: list[str] = []
-    async with graph.iter(StartNode(), state=state, deps=deps) as run:
-        async for node in run:
-            executed_nodes.append(node.__class__.__name__)
+    async with graph.iter(state=state, deps=deps) as run:
+        async for event in run:
+            executed_nodes.extend(_event_node_labels(graph, event))
             if state.best_score is not None and state.best_score >= 0.8:
                 state.stopped = True
                 state.stop_reason = "target score met"
 
-    run_result = run.result
-    assert run_result is not None
-    result = run_result.output
+    run_output = run.output
+    assert run_output is not None
+    result = run_output
 
     assert "StartNode" in executed_nodes
     assert "ReflectNode" in executed_nodes
@@ -64,3 +65,29 @@ async def test_manual_iteration_flow() -> None:
     assert result.original_score is not None
     assert result.best_score > result.original_score
     assert len(result.candidates) >= 2
+
+
+def _event_node_labels(graph, event: EndMarker | Sequence[GraphTask]) -> list[str]:
+    if isinstance(event, EndMarker):
+        return ["End"]
+
+    node_ids = {task.node_id for task in event}
+    if not node_ids:
+        return []
+
+    return [_node_label(graph, node_id) for node_id in node_ids]
+
+
+def _node_label(graph, node_id) -> str:
+    node = graph.nodes.get(node_id)
+    if node is None:
+        return str(node_id)
+    label = getattr(node, "label", None)
+    if label:
+        return label
+    node_identifier = getattr(node, "id", None)
+    if node_identifier is not None:
+        return str(node_identifier)
+    if hasattr(node, "__class__"):
+        return node.__class__.__name__
+    return str(node_id)

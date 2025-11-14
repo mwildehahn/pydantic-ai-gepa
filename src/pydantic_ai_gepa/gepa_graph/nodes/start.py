@@ -1,62 +1,57 @@
-"""Start node - initializes the GEPA optimization run."""
+"""Start step - initializes the GEPA optimization run."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Mapping, TYPE_CHECKING
-from ...gepa_graph.models import CandidateProgram, ComponentValue, GepaState
+from typing import Mapping
+
+from pydantic_graph.beta import StepContext
+
 from ..deps import GepaDeps
-from .base import GepaNode, GepaRunContext
-
-if TYPE_CHECKING:
-    from .evaluate import EvaluateNode
+from ..models import CandidateProgram, ComponentValue, GepaState
 
 
-@dataclass(slots=True)
-class StartNode(GepaNode):
+async def start_node(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
     """Initialize the GEPA optimization by adding the seed candidate."""
 
-    async def run(self, ctx: GepaRunContext) -> "EvaluateNode":
-        from .evaluate import EvaluateNode  # Local import to avoid circular dependency
+    state = ctx.state
 
-        state = ctx.state
+    if state.candidates:
+        if state.iteration < 0:
+            # Checkpoints can restore candidates before the first run; normalize the counter.
+            state.iteration = 0
+        return None
 
-        if state.candidates:
-            if state.iteration < 0:
-                # Checkpoints can restore candidates before StartNode runs; normalize the counter.
-                state.iteration = 0
-            return EvaluateNode()
+    seed_components = _determine_seed_components(ctx.deps)
+    candidate = _build_candidate(state, seed_components)
+    state.add_candidate(candidate)
+    state.iteration = 0
+    return None
 
-        seed_components = self._determine_seed_components(ctx.deps)
-        candidate = self._build_candidate(state, seed_components)
-        state.add_candidate(candidate)
-        state.iteration = 0
-        return EvaluateNode()
 
-    def _determine_seed_components(self, deps: GepaDeps) -> Mapping[str, str]:
-        if deps.seed_candidate:
-            return deps.seed_candidate
-
-        components = deps.adapter.get_components()
-        deps.seed_candidate = dict(components)
+def _determine_seed_components(deps: GepaDeps) -> Mapping[str, str]:
+    if deps.seed_candidate:
         return deps.seed_candidate
 
-    @staticmethod
-    def _build_candidate(
-        state: GepaState,
-        components: Mapping[str, str],
-    ) -> CandidateProgram:
-        component_models = {
-            name: ComponentValue(name=name, text=str(text))
-            for name, text in components.items()
-        }
-        return CandidateProgram(
-            idx=len(state.candidates),
-            components=component_models,
-            creation_type="seed",
-            discovered_at_iteration=0,
-            discovered_at_evaluation=state.total_evaluations,
-        )
+    components = deps.adapter.get_components()
+    deps.seed_candidate = dict(components)
+    return deps.seed_candidate
 
 
-__all__ = ["StartNode"]
+def _build_candidate(
+    state: GepaState,
+    components: Mapping[str, str],
+) -> CandidateProgram:
+    component_models = {
+        name: ComponentValue(name=name, text=str(text))
+        for name, text in components.items()
+    }
+    return CandidateProgram(
+        idx=len(state.candidates),
+        components=component_models,
+        creation_type="seed",
+        discovered_at_iteration=0,
+        discovered_at_evaluation=state.total_evaluations,
+    )
+
+
+__all__ = ["start_node"]

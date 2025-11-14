@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Sequence, cast
 
 import pytest
-from pydantic_graph import End, GraphRunContext
+from pydantic_graph.beta import StepContext
 from pydantic_ai.messages import UserPromptPart
 
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
@@ -20,13 +20,7 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
-from pydantic_ai_gepa.gepa_graph.nodes import (
-    ContinueNode,
-    EvaluateNode,
-    MergeNode,
-    ReflectNode,
-    StartNode,
-)
+from pydantic_ai_gepa.gepa_graph.nodes import StopSignal, continue_node, evaluate_node, merge_node, reflect_node, start_node
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
@@ -135,16 +129,18 @@ def _make_deps(
     )
 
 
+def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, GepaDeps[DataInst], None]:
+    return StepContext(state=state, deps=deps, inputs=None)
+
+
 @pytest.mark.asyncio
 async def test_start_node_adds_seed_candidate_from_deps() -> None:
     state = _make_state()
     deps = _make_deps(seed_candidate={"instructions": "hello world"})
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = StartNode()
-    result = await node.run(ctx)
+    await start_node(ctx)
 
-    assert isinstance(result, EvaluateNode)
     assert len(state.candidates) == 1
     candidate = state.candidates[0]
     assert candidate.components["instructions"].text == "hello world"
@@ -167,12 +163,10 @@ async def test_start_node_is_idempotent_when_candidates_exist() -> None:
         )
     )
     state.iteration = 0
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = StartNode()
-    result = await node.run(ctx)
+    await start_node(ctx)
 
-    assert isinstance(result, EvaluateNode)
     assert len(state.candidates) == 1
 
 
@@ -180,12 +174,10 @@ async def test_start_node_is_idempotent_when_candidates_exist() -> None:
 async def test_start_node_uses_adapter_snapshot_when_seed_missing() -> None:
     state = _make_state()
     deps = _make_deps(seed_candidate=None)
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = StartNode()
-    result = await node.run(ctx)
+    await start_node(ctx)
 
-    assert isinstance(result, EvaluateNode)
     assert len(state.candidates) == 1
     candidate = state.candidates[0]
     assert candidate.components["instructions"].text == "seed"
@@ -203,12 +195,9 @@ async def test_evaluate_node_updates_candidate_scores_and_state() -> None:
         discovered_at_evaluation=0,
     )
     state.add_candidate(candidate)
-    ctx = GraphRunContext(state=state, deps=_make_deps())
+    ctx = _ctx(state, _make_deps())
 
-    node = EvaluateNode()
-    result = await node.run(ctx)
-
-    assert isinstance(result, ContinueNode)
+    await evaluate_node(ctx)
     validation_set = state.validation_set
     assert validation_set is not None
     assert len(candidate.validation_scores) == len(validation_set)
@@ -232,10 +221,9 @@ async def test_evaluate_node_hydrates_new_components() -> None:
     adapter = cast(Adapter[DataInst], _HydratingAdapter())
     deps = _make_deps()
     deps.adapter = adapter
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = EvaluateNode()
-    await node.run(ctx)
+    await evaluate_node(ctx)
 
     assert "tool:new" in candidate.components
     assert candidate.components["tool:new"].text == "desc"
@@ -248,12 +236,11 @@ async def test_continue_node_returns_end_when_budget_spent() -> None:
     state = _make_state()
     state.total_evaluations = state.config.max_evaluations
     deps = _make_deps()
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ContinueNode()
-    result = await node.run(ctx)
+    result = await continue_node(ctx)
 
-    assert isinstance(result, End)
+    assert isinstance(result, StopSignal)
     assert state.stop_reason == "Max evaluations reached"
 
 
@@ -265,12 +252,11 @@ async def test_continue_node_triggers_merge_when_scheduled() -> None:
     state.merge_scheduled = 2
     state.last_accepted = True
     deps = _make_deps()
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ContinueNode()
-    next_node = await node.run(ctx)
+    next_node = await continue_node(ctx)
 
-    assert isinstance(next_node, MergeNode)
+    assert next_node == "merge"
     assert state.merge_attempts == 0
     assert state.merge_scheduled == 2
     assert state.iteration == 1
@@ -281,10 +267,9 @@ async def test_continue_node_defaults_to_reflect() -> None:
     state = _make_state()
     state.iteration = 0
     deps = _make_deps()
-    ctx = GraphRunContext(state=state, deps=deps)
+    ctx = _ctx(state, deps)
 
-    node = ContinueNode()
-    next_node = await node.run(ctx)
+    next_node = await continue_node(ctx)
 
-    assert isinstance(next_node, ReflectNode)
+    assert next_node == "reflect"
     assert state.iteration == 1

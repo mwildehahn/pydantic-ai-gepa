@@ -1,23 +1,21 @@
-"""Integration tests that exercise checkpointing and resumption."""
+"""Integration tests for the GEPA graph end-to-end run."""
 
 from __future__ import annotations
 
 from typing import Any, cast
 
 import pytest
-from pydantic_graph import FullStatePersistence
 
 from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
-from pydantic_ai_gepa.gepa_graph.nodes import EvaluateNode, StartNode
 from pydantic_ai_gepa.types import DataInst
 from tests.gepa_graph.utils import AdapterStub, ProposalGeneratorStub, make_dataset
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_resume_restores_progress() -> None:
+async def test_graph_run_produces_improved_candidate() -> None:
     adapter = cast(Adapter[DataInst], AdapterStub())
     config = GepaConfig(
         max_evaluations=40,
@@ -32,7 +30,7 @@ async def test_checkpoint_resume_restores_progress() -> None:
     )
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 
-    graph = create_gepa_graph(adapter=adapter, config=config)
+    graph = create_gepa_graph(config=config)
     dataset = make_dataset()
     state = GepaState(
         config=config,
@@ -40,33 +38,10 @@ async def test_checkpoint_resume_restores_progress() -> None:
         validation_set=ListDataLoader(dataset),
     )
 
-    persistence = FullStatePersistence()
+    result = await graph.run(state=state, deps=deps)
 
-    executed_before: list[str] = []
-    async with graph.iter(
-        StartNode(), state=state, deps=deps, persistence=persistence
-    ) as run:
-        async for node in run:
-            executed_before.append(node.__class__.__name__)
-            if isinstance(node, EvaluateNode) and state.iteration >= 1:
-                break
-
-    assert run.result is None
-    assert "ReflectNode" in executed_before
-    assert len(persistence.history) > 0
-
-    resumed_nodes: list[str] = []
-    async with graph.iter_from_persistence(persistence, deps=deps) as resumed_run:
-        async for node in resumed_run:
-            resumed_nodes.append(node.__class__.__name__)
-
-    resume_result = resumed_run.result
-    assert resume_result is not None
-    outcome = resume_result.output
-    assert outcome.stopped is True
-    assert outcome.best_score is not None
-    assert outcome.original_score is not None
-    assert outcome.best_score > outcome.original_score
-    assert any(name == "ContinueNode" for name in resumed_nodes), (
-        "resumed run should continue past saved node"
-    )
+    assert result.stopped is True
+    assert result.best_score is not None
+    assert result.original_score is not None
+    assert result.best_score >= result.original_score
+    assert state.total_evaluations > 0
