@@ -31,3 +31,13 @@
   - Output file: `optimization_results/math_tools_optimization_20251114_153604.json`.
   - Result: best score plateaued at 0.75 after 8 iterations / 104 metric calls (same as prior best), indicating instruction meta-prompt changes alone haven't moved math_tools past the plateau yet.
 - Next: inspect fresh traces from this run via Logfire to confirm whether reflection agent is now logging Evolution Moves, and consider tightening student instruction scratchpad (e.g., enforce self-check loop in final_result description).
+
+## 2025-11-14T17:25-08:00 failure analysis
+- Parsed `optimization_results/math_tools_20251114_153604.json`.
+  - Best candidate (idx=1) still caps at 0.75 mean score; minibatches perfect but validation shows `tribonacci-20` score 0 (answer 66012 instead of 35890) and `empty-range-edge` score 0 (interprets "Sum all integers from 20 to 10" as 10..20 inclusive instead of empty range).
+  - Evaluation errors dropped to 12 (all tool_call limit) but only on non-best candidates; best candidate had zero tool-call violations → previous Evolution Moves fixed the tool overuse issue.
+- Conclusion: plateau now caused by **math/semantic correctness**, not tool usage. Need to steer the reflection agent so at least one Evolution Move targets "math validation / edge-case reasoning" each iteration (e.g., range-direction heuristics, recurrence sanity checks), instead of repeatedly focusing on tool budgets.
+
+## 2025-11-14T17:35-08:00 edge-move enforcement
+- Strengthened `DEFAULT_AGENT_INSTRUCTIONS` again: Evolution Mandate now requires at least one "Edge Reasoning" move per reflection plus an "Edge Insight" scratchpad entry describing the unsolved math/logic failure. Added escalation rule if an edge persists across multiple iterations.
+- Tests: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.

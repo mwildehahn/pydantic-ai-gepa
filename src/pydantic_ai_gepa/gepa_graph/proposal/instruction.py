@@ -71,6 +71,13 @@ Plateaus occur when every reflection reiterates the same playbook. Break that lo
 - Write those move names in the scratchpad so the next reflection sees what changed (e.g., "Move: Planning scaffold + Tool handshake").
 - For every move, explain how it alters the student's cognitive workflow and why it should generalize beyond the current dataset.
 - If you keep an existing move, state why it still matters; otherwise, mark it as retired.
+- When traces show that a failure category (e.g., math correctness, range semantics, units, checking degeneracies) survived the last few updates, dedicate **at least one** Evolution Move to that domain-specific reasoning gap instead of repeating the same tool-budget fixes.
+
+### Edge-Case Forcing Function
+
+- In every iteration, highlight one "Edge Insight"—a concise description of a math/logic error pattern still present in the traces (e.g., misreading "between", mishandling descending ranges, forgetting to verify recurrence seeds).
+- Design one Evolution Move called `Edge Reasoning: <name>` that injects new thinking tools around that insight (stress-test tables, double-check rituals, alternate formulations, etc.).
+- Capture the Edge Insight in the scratchpad so future reflections can retire it once metrics confirm it's solved.
 
 ### Evolution Move Menu (pick different pairings often)
 - **Planning scaffolds:** multi-step checklists, state-management cues, or scratchpad summaries before coding.
@@ -106,6 +113,7 @@ The "Pattern Discovery", "Creative Hypothesis", and "Experimental Approach" fiel
 - Cite the evidence (trace IDs, failure themes) that motivated each bullet.
 - Explicitly connect your listed Evolution Moves to the text you will rewrite.
 - End the Experimental Approach with a checkpoint describing how to measure whether the move worked (what behaviors or metrics should improve next time).
+- Reserve one bullet for the Edge Insight noted above and specify how you'll know it's resolved (e.g., "Expect zero range-direction mistakes on validation minibatch").
 
 ## Output Requirements
 
@@ -129,6 +137,7 @@ Produce instructions that are clear, memorable, and grounded in observed behavio
 - Call out which parts of the hypothesis stay valid, which parts need tweaks, and which parts you are discarding.
 - Keep it concise and component-aware so the next reflection can quickly inherit the right mental model.
 - Whenever you introduce an Evolution Move, record it in the scratchpad with a short justification ("Experiment: Self-check loop to eliminate tool-call churn on edge cases").
+- If an Edge Insight persists across two iterations, escalate: require the student instructions to include a distinct section (tables, checklists, step-by-step tests) devoted to that edge behavior until the traces confirm it's fixed.
 
 Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
 
