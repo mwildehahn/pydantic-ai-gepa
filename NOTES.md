@@ -48,3 +48,9 @@
 ## 2025-11-14T18:00-08:00 proposal schema bumps
 - Extended `TrajectoryAnalysis` to include `edge_insight`, `evolution_moves`, and `success_checkpoint` so reflection outputs can explicitly capture the new Evolution/Edge requirements. Component metadata now stores these fields (and prints them in the "Stored hypotheses" block) for downstream iterations to inherit.
 - Updated tests to expect the richer reasoning payload. Command: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.
+
+## 2025-11-14T18:20-08:00 run + logfire check
+- Ran `uv run --env-file .env python examples/math_tools.py --results-dir optimization_results --max-evaluations 100` (2nd attempt succeeded, output `optimization_results/math_tools_optimization_20251114_155220.json`). Still plateaus at 0.75 after 8 iterations / 104 evals; 12 evaluation errors remain (all `tool_calls_limit`, but not on the best candidate).
+- Parsed best candidate metadata → new fields (`edge_insight`, `moves`, `checkpoint`) are populated, confirming the proposal schema change is flowing through.
+- Logfire trace `019a84c2b848eb9445b0f5e50a9cbf46` shows recent reflection + student runs. Student (`gpt-5-nano`) instructions emphasize the single-run workflow and `final_result` completion, matching the latest instruction text. However, stored hypotheses shown to the reflection model still display the pre-update seed configuration (no edge insight bullet), so we’ll need another iteration to confirm the new scratchpad prompts propagate through the “Stored hypotheses” section.
+- Next: Instrument logfire queries to surface reasoning payloads (edge insight/moves) directly, then enforce a new Edge Reasoning move targeting range direction vs. empty-range handling, the current failure mode.
