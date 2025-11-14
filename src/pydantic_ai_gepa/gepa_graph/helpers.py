@@ -45,7 +45,9 @@ def create_deps(
         candidate_selector=candidate_selector,
         component_selector=component_selector,
         batch_sampler=batch_sampler,
-        proposal_generator=InstructionProposalGenerator(),
+        proposal_generator=InstructionProposalGenerator(
+            include_hypothesis_metadata=config.track_component_hypotheses
+        ),
         merge_builder=MergeProposalBuilder(seed=config.seed),
         reflection_model=config.reflection_model,
         seed_candidate=dict(seed_candidate) if seed_candidate is not None else None,

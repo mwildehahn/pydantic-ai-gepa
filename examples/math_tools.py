@@ -356,7 +356,10 @@ async def run_math_tools_optimization(
     config = GepaConfig(
         max_evaluations=300,
         component_selector="all",
-        candidate_selector=CandidateSelectorStrategy.CURRENT_BEST,
+        candidate_selector=CandidateSelectorStrategy.PARETO,
+        minibatch_size=10,
+        use_merge=True,
+        track_component_hypotheses=True,
         max_concurrent_evaluations=20,
         enable_parallel_reflection=True,
         reflection_model=reflection_model,

@@ -9,6 +9,7 @@ from pydantic_ai.messages import UserPromptPart
 
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
+from pydantic_ai_gepa.gepa_graph.proposal import ProposalResult
 from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
 
 __all__ = [
@@ -117,7 +118,7 @@ class ProposalGeneratorStub:
                 updates[component] = f"improved {component}"
             else:
                 updates[component] = candidate.components[component].text
-        return updates
+        return ProposalResult(texts=updates, component_metadata={}, reasoning=None)
 
 
 def make_adapter_stub() -> Adapter[DataInst]:

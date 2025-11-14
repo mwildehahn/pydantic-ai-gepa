@@ -33,6 +33,7 @@ from pydantic_ai_gepa.gepa_graph.steps import reflect_step
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
+    ProposalResult,
 )
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
@@ -160,9 +161,15 @@ class _StubBatchSampler(BatchSampler):
 
 
 class _StubProposalGenerator(InstructionProposalGenerator):
-    def __init__(self, updates: dict[str, str]) -> None:
+    def __init__(
+        self,
+        updates: dict[str, str],
+        *,
+        metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__()
         self._updates = updates
+        self._metadata = metadata or {}
         self.calls = 0
         self.last_reflective_data: ReflectiveDataset | None = None
 
@@ -179,12 +186,22 @@ class _StubProposalGenerator(InstructionProposalGenerator):
     ):
         self.calls += 1
         self.last_reflective_data = reflective_data
-        return {
+        updates = {
             component: self._updates.get(
                 component, candidate.components[component].text
             )
             for component in components
         }
+        component_metadata = {
+            component: self._metadata[component]
+            for component in components
+            if component in self._metadata
+        }
+        return ProposalResult(
+            texts=updates,
+            component_metadata=component_metadata,
+            reasoning=None,
+        )
 
 
 class _StubEvaluator(ParallelEvaluator):
@@ -257,6 +274,43 @@ async def test_reflect_step_accepts_strict_improvement() -> None:
     assert generator.calls == 1
     assert evaluator.calls == 2
     assert batch_sampler.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_reflect_step_tracks_hypothesis_metadata_when_enabled() -> None:
+    config = GepaConfig(
+        max_evaluations=100,
+        minibatch_size=2,
+        merges_per_accept=1,
+        perfect_score=1.0,
+        skip_perfect_score=True,
+        track_component_hypotheses=True,
+    )
+    state = _make_state(config=config)
+    minibatch = await _training_examples(state)
+    evaluator = _StubEvaluator([_eval_results([0.4, 0.6]), _eval_results([0.7, 0.8])])
+    batch_sampler = _StubBatchSampler(minibatch)
+    stub_adapter = _StubAdapter()
+    adapter = cast(Adapter[DataInst], stub_adapter)
+    generator = _StubProposalGenerator(
+        {"instructions": "Improved text"},
+        metadata={"instructions": {"hypothesis": "Fix boundary errors"}},
+    )
+    deps = _make_deps(
+        adapter=adapter,
+        evaluator=evaluator,
+        batch_sampler=batch_sampler,
+        proposal_generator=generator,
+    )
+    ctx = _ctx(state, deps)
+
+    await reflect_step(ctx)
+
+    assert len(state.candidates) == 2
+    new_metadata = state.candidates[-1].components["instructions"].metadata
+    assert new_metadata is not None
+    assert new_metadata["hypothesis"] == "Fix boundary errors"
+    assert new_metadata["iteration"] == state.iteration
 
 
 @pytest.mark.asyncio

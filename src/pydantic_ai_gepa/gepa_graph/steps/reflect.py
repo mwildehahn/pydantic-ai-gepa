@@ -18,6 +18,7 @@ from ...types import DataInst
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaState
+from ..proposal.instruction import ProposalResult
 from .continue_step import IterationAction
 
 _IMPROVEMENT_EPSILON = 1e-9
@@ -102,7 +103,7 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         components=components,
         model=reflection_model,
     ):
-        proposed_texts = await _propose_new_texts(
+        proposal_result = await _propose_new_texts(
             deps=deps,
             state=state,
             parent=parent,
@@ -110,12 +111,18 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
             components=components,
             model=reflection_model,
         )
+        component_metadata = (
+            proposal_result.component_metadata
+            if state.config.track_component_hypotheses
+            else None
+        )
 
     new_candidate = _create_candidate(
         state=state,
         parent=parent,
         parent_idx=parent_idx,
-        new_texts=proposed_texts,
+        new_texts=proposal_result.texts,
+        metadata=component_metadata,
     )
     logfire.debug(
         "ReflectStep proposed candidate",
@@ -339,7 +346,7 @@ async def _propose_new_texts(
     reflective_dataset: ReflectiveDataset,
     components: Sequence[str],
     model: Model | KnownModelName | str,
-) -> Mapping[str, str]:
+) -> ProposalResult:
     proposal = deps.proposal_generator
     return await proposal.propose_texts(
         candidate=parent,
@@ -358,6 +365,7 @@ def _create_candidate(
     parent: CandidateProgram,
     parent_idx: int,
     new_texts: Mapping[str, str],
+    metadata: Mapping[str, dict[str, Any]] | None = None,
 ) -> CandidateProgram:
     new_components: dict[str, ComponentValue] = {}
     for name, value in parent.components.items():
@@ -365,11 +373,22 @@ def _create_candidate(
             name=name,
             text=value.text,
             version=value.version,
+            metadata=None if value.metadata is None else dict(value.metadata),
         )
     for name, text in new_texts.items():
         existing = parent.components.get(name)
         base_version = existing.version if existing is not None else 0
-        new_components[name] = ComponentValue(name=name, text=text, version=base_version + 1)
+        component_metadata = None
+        if metadata and name in metadata:
+            component_metadata = dict(metadata[name])
+            if state.iteration >= 0:
+                component_metadata.setdefault("iteration", state.iteration)
+        new_components[name] = ComponentValue(
+            name=name,
+            text=text,
+            version=base_version + 1,
+            metadata=component_metadata,
+        )
     return CandidateProgram(
         idx=len(state.candidates),
         components=new_components,

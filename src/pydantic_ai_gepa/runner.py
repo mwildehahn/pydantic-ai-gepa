@@ -141,6 +141,7 @@ async def optimize_agent(
     skip_perfect_score: bool = True,
     reflection_minibatch_size: int = 3,
     perfect_score: float = 1.0,
+    track_component_hypotheses: bool = False,
     # Component selection configuration
     module_selector: str = "round_robin",
     # Merge-based configuration
@@ -186,6 +187,8 @@ async def optimize_agent(
         skip_perfect_score: Whether to skip updating if perfect score achieved on minibatch.
         reflection_minibatch_size: Number of examples to use for reflection in each proposal.
         perfect_score: Score threshold treated as perfect when `skip_perfect_score` is enabled.
+        track_component_hypotheses: When True, store the reflection hypothesis metadata with
+            each component version and surface it to future reflection prompts.
 
         # Component selection configuration
         module_selector: Component selection strategy; must be 'round_robin' or 'all'.
@@ -276,6 +279,7 @@ async def optimize_agent(
         seed=seed,
         reflection_model=reflection_model,
         reflection_sampler=reflection_sampler,
+        track_component_hypotheses=track_component_hypotheses,
     )
 
     deps = create_deps(
@@ -399,6 +403,7 @@ def _build_gepa_config(
     seed: int,
     reflection_model: Model | KnownModelName | str | None,
     reflection_sampler: ReflectionSampler | None,
+    track_component_hypotheses: bool,
 ) -> GepaConfig:
     component_selector: ComponentSelectorLiteral = _resolve_component_selector(
         module_selector, len(seed_candidate)
@@ -419,6 +424,7 @@ def _build_gepa_config(
         seed=seed,
         reflection_model=reflection_model,
         reflection_sampler=reflection_sampler,
+        track_component_hypotheses=track_component_hypotheses,
     )
 
 

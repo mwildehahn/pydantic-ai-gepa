@@ -120,13 +120,51 @@ async def test_llm_generator_updates_components() -> None:
         model=model,
     )
 
-    assert result == {
+    assert result.texts == {
         "instructions": "Improved instructions",
         "tools": "Better tools",
     }
     assert "## Components to update" in prompts[-1]
     assert "### Component: `instructions`" in prompts[-1]
     assert "### Component: `tools`" in prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_llm_generator_returns_metadata_when_enabled() -> None:
+    candidate = _make_candidate()
+    reflective_data = ComponentReflectiveDataset(
+        records_by_component={
+            "instructions": [_make_reflective_record()],
+        }
+    )
+
+    async def fake_model(messages, agent_info):
+        content = """{
+            "reasoning": {
+                "pattern_discovery": "Repeated boundary errors",
+                "creative_hypothesis": "Teach explicit range mapping",
+                "experimental_approach": "Add a checklist with translations"
+            },
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator(include_hypothesis_metadata=True)
+    model = FunctionModel(function=fake_model)
+    result = await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions"],
+        model=model,
+    )
+
+    assert result.texts["instructions"] == "Improved instructions"
+    metadata = result.component_metadata["instructions"]
+    assert metadata["hypothesis"] == "Teach explicit range mapping"
+    assert metadata["pattern"] == "Repeated boundary errors"
+    assert metadata["approach"].startswith("Add a checklist")
 
 
 @pytest.mark.asyncio
@@ -164,8 +202,8 @@ async def test_llm_generator_skips_components_without_records() -> None:
         model=model,
     )
 
-    assert result["instructions"] == "Improved instructions"
-    assert result["tools"] == "Seed tools"
+    assert result.texts["instructions"] == "Improved instructions"
+    assert result.texts["tools"] == "Seed tools"
 
 
 @pytest.mark.asyncio
@@ -190,7 +228,7 @@ async def test_llm_generator_returns_existing_text_on_agent_failure() -> None:
         model=model,
     )
 
-    assert result == {
+    assert result.texts == {
         "instructions": "Seed instructions",
         "tools": "Seed tools",
     }
@@ -289,6 +327,52 @@ async def test_catalog_tools_fall_back_when_no_reflective_records() -> None:
 
 
 @pytest.mark.asyncio
+async def test_prompt_includes_stored_hypothesis_metadata() -> None:
+    candidate = _make_candidate()
+    candidate.components["instructions"].metadata = {
+        "pattern": "Boundary confusion",
+        "hypothesis": "Spell out range rules",
+        "approach": "Add checklist",
+        "iteration": 4,
+    }
+    reflective_data = ComponentReflectiveDataset(
+        records_by_component={"instructions": [_make_reflective_record()]}
+    )
+
+    captured_prompt: str | None = None
+
+    async def fake_model(messages, agent_info):
+        nonlocal captured_prompt
+        captured_prompt = messages[-1].parts[0].content
+        content = """{
+            "reasoning": {
+                "pattern_discovery": "Boundary confusion",
+                "creative_hypothesis": "Spell out range rules",
+                "experimental_approach": "Add checklist"
+            },
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator(include_hypothesis_metadata=True)
+    model = FunctionModel(function=fake_model)
+    await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions"],
+        model=model,
+    )
+
+    assert captured_prompt is not None
+    assert "### Stored hypotheses from previous reflections" in captured_prompt
+    assert "Components: `instructions`" in captured_prompt
+    assert "  - Hypothesis: Spell out range rules" in captured_prompt
+    assert "  - Iteration: 4" in captured_prompt
+
+
+@pytest.mark.asyncio
 async def test_llm_generator_skips_entire_call_when_no_records() -> None:
     candidate = _make_candidate()
     reflective_data = ComponentReflectiveDataset(
@@ -312,7 +396,7 @@ async def test_llm_generator_skips_entire_call_when_no_records() -> None:
         model=model,
     )
 
-    assert result["instructions"] == "Seed instructions"
+    assert result.texts["instructions"] == "Seed instructions"
     assert call_count == 0
 
 
@@ -347,7 +431,7 @@ async def test_llm_generator_handles_shared_dataset() -> None:
         model=model,
     )
 
-    assert result == snapshot(
+    assert result.texts == snapshot(
         {"instructions": 'Improved instructions', "tools": 'Improved tools'}
     )
     prompt = prompts[-1]
@@ -628,10 +712,10 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
     )
 
     # Verify the result includes updated instructions and tool components
-    assert result["instructions"] == "Improved instructions with tool guidance"
+    assert result.texts["instructions"] == "Improved instructions with tool guidance"
     for tool_comp in tool_components:
-        assert tool_comp in result
-        assert "Improved" in result[tool_comp]
+        assert tool_comp in result.texts
+        assert "Improved" in result.texts[tool_comp]
 
     # Verify the complete prompt with snapshot
     assert captured_prompt == snapshot("""\

@@ -113,6 +113,10 @@ class GepaConfig(BaseModel):
         default=10,
         description="Maximum records passed to the reflection sampler/model per component.",
     )
+    track_component_hypotheses: bool = Field(
+        default=False,
+        description="Persist reasoning metadata for component updates and surface it in future reflections.",
+    )
 
     # Component selection
     component_selector: Literal["round_robin", "all"] = Field(

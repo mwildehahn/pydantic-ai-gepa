@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -17,27 +18,26 @@ from ...adapter import (
     ReflectiveDataset,
     SharedReflectiveDataset,
 )
-from ..models import CandidateProgram
+from ..models import CandidateProgram, ComponentValue
 
-DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover innovative instruction formats that unlock better performance.
+DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover instruction formats that measurably improve the student agent's performance.
 
 ## The Creative Challenge
 
-You have execution traces showing how a student agent performed various tasks. Some succeeded, some failed, some revealed interesting patterns. Your challenge: invent instructions that would lead to better outcomes.
-
-Think like an explorer discovering new territory. Each trace is a clue, each pattern a potential breakthrough. There's no predetermined formula - just evidence waiting to inspire creative solutions.
+You have execution traces showing how a student agent performed various tasks. Some succeeded, some failed, some revealed interesting patterns. Treat every trace as actionable evidence when inventing new instructions.
 
 ## Experimental Mindset
 
 Approach this with curiosity and creativity:
-- What fascinating patterns emerge from the traces?
-- What unexpected approaches might address them?
-- How can instructions be crafted in novel ways?
-- What would happen if you tried something completely different?
+- Which patterns keep repeating across traces?
+- What hypotheses explain those patterns?
+- Which alternative instruction styles could address the gaps?
+- How can you test new ideas without discarding what already works?
 
 ## Rich Design Space
 
-You can experiment with any format or approach:
+You can experiment with any format or approach. In particular, we see high leverage from **example banks** that juxtapose "do this" and "avoid this" snippets tied to the observed traces. Use these contrastive examples to distill the domain knowledge you observe (e.g., how certain phrases, cues, or tool-usage patterns translate into concrete actions) so the student internalizes the underlying rules, not just the surface wording.
+When you add example banks, append them as a clearly labeled final section (e.g., "Example Bank" or "Few-Shot Reference") so the student sees the canonical examples right after the core instructions.
 
 **Teaching Styles**
 - Learning by example
@@ -52,6 +52,7 @@ You can experiment with any format or approach:
 - Recipes for success
 - Maps through problem space
 - Guardrails and guidelines
+- Contrastive example banks
 - Mental models
 - Thinking tools
 
@@ -62,13 +63,13 @@ You can experiment with any format or approach:
 - Memorable frameworks
 - Unexpected metaphors
 
-## Evidence as Inspiration
+## Evidence to Leverage
 
-Let the traces spark creative insights:
-- Failures reveal what's missing
-- Successes show what resonates
-- Patterns suggest new possibilities
-- Edge cases inspire robust solutions
+Use the traces as concrete backing for each idea:
+- Failures highlight missing guardrails
+- Successes show proven behaviors to preserve
+- Cross-run patterns suggest reusable structures
+- Edge cases reveal robustness requirements
 
 ## Analysis Framework
 
@@ -80,22 +81,19 @@ For each set of traces, discover:
 - **Efficiency opportunities:** How could tasks be done better?
 - **Structural insights:** What systemic issues appear?
 
-## Output Excellence
+## Output Requirements
 
 Your updated components should:
 - Address specific patterns from the traces
-- Feel fresh and inventive
+- Introduce concise, testable hypotheses
 - Match the complexity to the evidence
 - Balance clarity with creativity
 - Work together as a unified system
+- Whenever feasible, include a short bank of positive vs. negative examples (or success vs. failure traces) that encode the domain knowledge extracted from the traces—spell out the interpretation rule, then show the matching and mismatching code. Place this example bank at the end of the instructions so it reads like a few-shot appendix the student can reference quickly.
 
-## The Art of Instruction Design
+## Instruction Design Goal
 
-Great instructions aren't just correct - they're inspiring, clear, and memorable. They help the student see patterns, avoid pitfalls, and discover solutions.
-
-Your goal: Create instructions so effective they feel inevitable in hindsight, yet so creative they surprise in the moment.
-
-Let the evidence guide you toward unexpected discoveries."""
+Produce instructions that are clear, memorable, and grounded in observed behavior. Help the student see patterns, avoid pitfalls, and execute reliable solutions. Let the evidence steer you toward new hypotheses instead of repeating boilerplate."""
 
 
 class TrajectoryAnalysis(BaseModel):
@@ -135,14 +133,29 @@ class InstructionProposalOutput(BaseModel):
     )
 
 
+@dataclass(slots=True)
+class ProposalResult:
+    """Resolved results from the instruction proposal call."""
+
+    texts: dict[str, str]
+    component_metadata: dict[str, dict[str, Any]]
+    reasoning: TrajectoryAnalysis | None
+
+
 class InstructionProposalGenerator:
     """Generate improved component texts via a structured agent call."""
 
-    def __init__(self, instructions: str | None = None) -> None:
+    def __init__(
+        self,
+        instructions: str | None = None,
+        *,
+        include_hypothesis_metadata: bool = False,
+    ) -> None:
         self._agent = Agent(
             instructions=instructions or DEFAULT_AGENT_INSTRUCTIONS,
             output_type=InstructionProposalOutput,
         )
+        self._include_hypothesis_metadata = include_hypothesis_metadata
 
     async def propose_texts(
         self,
@@ -154,7 +167,7 @@ class InstructionProposalGenerator:
         iteration: int | None = None,  # Kept for backwards compatibility but not used
         current_best_score: float | None = None,  # Kept for backwards compatibility but not used
         parent_score: float | None = None,  # Kept for backwards compatibility but not used
-    ) -> dict[str, str]:
+    ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
 
         Args:
@@ -167,7 +180,7 @@ class InstructionProposalGenerator:
             parent_score: (Deprecated) No longer used - kept for backwards compatibility
         """
         if not components:
-            return {}
+            return ProposalResult(texts={}, component_metadata={}, reasoning=None)
 
         untouched: dict[str, str] = {}
         actionable: list[str] = []
@@ -182,7 +195,11 @@ class InstructionProposalGenerator:
                 untouched[component] = candidate.components[component].text
 
         if not actionable:
-            return untouched
+            return ProposalResult(
+                texts=untouched,
+                component_metadata={},
+                reasoning=None,
+            )
 
         prompt = self._build_user_prompt(
             candidate=candidate,
@@ -196,13 +213,18 @@ class InstructionProposalGenerator:
             raise
         except Exception:
             # Fall back to the existing component texts when the agent fails.
-            return {
+            fallback = {
                 **untouched,
                 **{
                     component: candidate.components[component].text
                     for component in actionable
                 },
             }
+            return ProposalResult(
+                texts=fallback,
+                component_metadata={},
+                reasoning=None,
+            )
 
         updates = {
             update.component_name: update.optimized_value
@@ -215,7 +237,16 @@ class InstructionProposalGenerator:
             updated[component] = updates.get(
                 component, candidate.components[component].text
             )
-        return updated
+        metadata = self._build_component_metadata(
+            reasoning=result.output.reasoning if self._include_hypothesis_metadata else None,
+            components=actionable,
+        )
+
+        return ProposalResult(
+            texts=updated,
+            component_metadata=metadata,
+            reasoning=result.output.reasoning,
+        )
 
     def _build_user_prompt(
         self,
@@ -247,6 +278,10 @@ class InstructionProposalGenerator:
 
         catalog_tool_defs = self._build_tool_definitions_from_candidate(candidate)
 
+        metadata_groups: list[dict[str, Any]] = []
+        metadata_components: list[list[str]] = []
+        metadata_index: dict[tuple[tuple[str, str], ...], int] = {}
+
         # Show non-tool components in the candidate (tools are shown via JSON Schema below)
         for component_name, component_value in candidate.components.items():
             if component_name.startswith("tool:"):
@@ -256,6 +291,19 @@ class InstructionProposalGenerator:
             lines.append(component_value.text.strip())
             lines.append("```")
             lines.append("")
+
+            if self._include_hypothesis_metadata:
+                metadata_entry = self._extract_component_metadata(component_value)
+                if metadata_entry:
+                    signature = self._metadata_signature(metadata_entry)
+                    idx = metadata_index.get(signature)
+                    if idx is None:
+                        idx = len(metadata_groups)
+                        metadata_index[signature] = idx
+                        metadata_groups.append(metadata_entry)
+                        metadata_components.append([component_name])
+                    else:
+                        metadata_components[idx].append(component_name)
 
         # Collect and show tools if present in evidence
         tools = self._collect_tools(reflective_data)
@@ -388,7 +436,74 @@ class InstructionProposalGenerator:
                     )
                     lines.append("")
 
+        if metadata_groups:
+            lines.append("### Stored hypotheses from previous reflections")
+            lines.append("")
+            for metadata_entry, component_list in zip(metadata_groups, metadata_components):
+                component_names = ", ".join(f"`{name}`" for name in component_list)
+                lines.append(f"- Components: {component_names}")
+                iteration = metadata_entry.get("iteration")
+                if iteration is not None:
+                    lines.append(f"  - Iteration: {iteration}")
+                if "pattern" in metadata_entry:
+                    lines.append(f"  - Pattern: {metadata_entry['pattern']}")
+                if "hypothesis" in metadata_entry:
+                    lines.append(f"  - Hypothesis: {metadata_entry['hypothesis']}")
+                if "approach" in metadata_entry:
+                    lines.append(f"  - Plan: {metadata_entry['approach']}")
+                lines.append("")
+
         return "\n".join(lines)
+
+    def _build_component_metadata(
+        self,
+        *,
+        reasoning: TrajectoryAnalysis | None,
+        components: Sequence[str],
+    ) -> dict[str, dict[str, Any]]:
+        if not self._include_hypothesis_metadata or reasoning is None:
+            return {}
+
+        base = {
+            "pattern": reasoning.pattern_discovery.strip(),
+            "hypothesis": reasoning.creative_hypothesis.strip(),
+            "approach": reasoning.experimental_approach.strip(),
+        }
+        filtered = {key: value for key, value in base.items() if value}
+        if not filtered:
+            return {}
+
+        return {component: dict(filtered) for component in components}
+
+    def _extract_component_metadata(self, component_value: ComponentValue) -> dict[str, Any]:
+        metadata = component_value.metadata or {}
+        if not isinstance(metadata, dict) or not metadata:
+            return {}
+
+        hypothesis = str(metadata.get("hypothesis", "")).strip()
+        pattern = str(metadata.get("pattern", "")).strip()
+        approach = str(metadata.get("approach", "")).strip()
+        iteration = metadata.get("iteration")
+
+        if not any([hypothesis, pattern, approach, iteration]):
+            return {}
+
+        entry: dict[str, Any] = {}
+        if iteration is not None:
+            entry["iteration"] = iteration
+        if pattern:
+            entry["pattern"] = pattern
+        if hypothesis:
+            entry["hypothesis"] = hypothesis
+        if approach:
+            entry["approach"] = approach
+        return entry
+
+    def _metadata_signature(self, metadata: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (key, str(value))
+            for key, value in sorted(metadata.items(), key=lambda item: item[0])
+        )
 
     def _collect_tools(
         self, reflective_data: ReflectiveDataset

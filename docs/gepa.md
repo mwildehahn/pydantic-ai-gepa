@@ -810,6 +810,7 @@ log_metrics(metrics: dict[str, Any], step: int | None = None)
 - `perfect_score` - Defaults to 1.0
 - `seed` - Defaults to 0
 - `use_merge` - Defaults to False
+- `track_component_hypotheses` - Defaults to False; when True, stores reflection hypotheses alongside each component version and feeds them back into future prompts
 - `val_evaluation_policy` - Defaults to "full_eval"
 
 **Initialization Logic**
