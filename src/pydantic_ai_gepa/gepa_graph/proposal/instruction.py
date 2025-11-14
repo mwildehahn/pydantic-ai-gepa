@@ -64,6 +64,23 @@ When you add example banks, append them as a clearly labeled final section (e.g.
 - Memorable frameworks
 - Unexpected metaphors
 
+## Evolution Mandate
+
+Plateaus occur when every reflection reiterates the same playbook. Break that loop explicitly:
+- Each proposal must name at least **two** "Evolution Moves"—concrete levers you are changing relative to the previous iteration (e.g., a new planning scaffold, a scratchpad ritual, a self-check loop, a tool-handshake rewrite, an evaluation rubric, a persona shift).
+- Write those move names in the scratchpad so the next reflection sees what changed (e.g., "Move: Planning scaffold + Tool handshake").
+- For every move, explain how it alters the student's cognitive workflow and why it should generalize beyond the current dataset.
+- If you keep an existing move, state why it still matters; otherwise, mark it as retired.
+
+### Evolution Move Menu (pick different pairings often)
+- **Planning scaffolds:** multi-step checklists, state-management cues, or scratchpad summaries before coding.
+- **Self-check loops:** instructions that require the student to verify ranges, recompute with alternate reasoning, or reconcile tool output before finalizing.
+- **Tool handshake rewrites:** new phrasing that changes how the student calls tools (e.g., explicit stop rules, timeout budgets, fallback paths).
+- **Meta-cognition prompts:** guiding the student to reflect on uncertainties, name assumptions, or note TODOs.
+- **Persona / tone shifts:** framing the student as a specific role (auditor, coach, researcher) to unlock different behavior.
+- **Example re-lensing:** reorganizing evidence into tables, failure galleries, or short stories that highlight different contrasts.
+- **Data abstractions:** turning repeated trace motifs into reusable formulas, heuristics, or quick diagnostics the student can quote.
+
 ## Evidence to Leverage
 
 Use the traces as concrete backing for each idea:
@@ -82,6 +99,14 @@ For each set of traces, discover:
 - **Efficiency opportunities:** How could tasks be done better?
 - **Structural insights:** What systemic issues appear?
 
+## Scratchpad Relay Protocol
+
+The "Pattern Discovery", "Creative Hypothesis", and "Experimental Approach" fields act as a multi-step scratchpad. Treat them like a baton pass to the next reflection:
+- Start each field with labels such as `Keep:`, `Change:`, `Experiment:` so lineage is obvious.
+- Cite the evidence (trace IDs, failure themes) that motivated each bullet.
+- Explicitly connect your listed Evolution Moves to the text you will rewrite.
+- End the Experimental Approach with a checkpoint describing how to measure whether the move worked (what behaviors or metrics should improve next time).
+
 ## Output Requirements
 
 Your updated components should:
@@ -91,18 +116,19 @@ Your updated components should:
 - Balance clarity with creativity
 - Work together as a unified system
 - Whenever feasible, include a short bank of positive vs. negative examples (or success vs. failure traces) that encode the domain knowledge extracted from the traces—spell out the interpretation rule, then show the matching and mismatching code. Place this example bank at the end of the instructions so it reads like a few-shot appendix the student can reference quickly.
+- Highlight where the new Evolution Moves appear (e.g., "Planning Scaffold" subsection, "Self-check loop" checklist) so evaluators can trace the experiment.
 
 ## Instruction Design Goal
 
-Produce instructions that are clear, memorable, and grounded in observed behavior. Help the student see patterns, avoid pitfalls, and execute reliable solutions. Let the evidence steer you toward new hypotheses instead of repeating boilerplate.
+Produce instructions that are clear, memorable, and grounded in observed behavior. Help the student see patterns, avoid pitfalls, and execute reliable solutions. Let the evidence steer you toward new hypotheses instead of repeating boilerplate. Favor ideas that raise the student's ability to reason about *any* domain, not just the current dataset.
 
 ## Hypothesis Scratchpad Discipline
 
-The "Pattern Discovery", "Creative Hypothesis", and "Experimental Approach" fields you emit act as a scratchpad. We store them with every updated component and show them at the top of the next reflection prompt as "Stored hypotheses from previous reflections". Treat this scratchpad like working notes the next teacher (or future-you) can build on:
+- Before proposing new instructions, reread the stored hypotheses above the configuration and explicitly state how you are extending or revising them.
 - Tie each hypothesis directly to the traces and components it informed—cite successes, failures, or surprises.
 - Call out which parts of the hypothesis stay valid, which parts need tweaks, and which parts you are discarding.
 - Keep it concise and component-aware so the next reflection can quickly inherit the right mental model.
-- Before proposing new instructions, reread the stored hypotheses above the configuration and explicitly state how you are extending or revising them.
+- Whenever you introduce an Evolution Move, record it in the scratchpad with a short justification ("Experiment: Self-check loop to eliminate tool-call churn on edge cases").
 
 Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
 
