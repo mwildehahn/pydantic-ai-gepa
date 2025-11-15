@@ -16,6 +16,7 @@ from pydantic_ai_gepa.components import (
     get_component_names,
     normalize_component_text,
 )
+from pydantic_ai_gepa.evaluation import evaluate_candidate_dataset
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.types import (
     DataInst,
@@ -47,6 +48,45 @@ def test_normalize_component_text_handles_mapping() -> None:
         },
     }
     assert normalize_component_text(nested) == "Do math."
+
+
+@pytest.mark.asyncio
+async def test_evaluate_candidate_dataset_helper() -> None:
+    agent = Agent(TestModel(custom_output_text="alpha"), instructions="Seed")
+
+    dataset = [
+        DataInstWithPrompt(
+            user_prompt=UserPromptPart(content=f"Case {idx}"),
+            message_history=None,
+            metadata={"expected": "alpha" if idx == 0 else "beta"},
+            case_id=f"case-{idx}",
+        )
+        for idx in range(2)
+    ]
+
+    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+        predicted = (
+            str(output.result).strip()
+            if output.success and output.result is not None
+            else ""
+        )
+        expected = str(data_inst.metadata.get("expected", ""))
+        score = 1.0 if predicted == expected else 0.0
+        return MetricResult(score=score, feedback="match" if score else "mismatch")
+
+    records = await evaluate_candidate_dataset(
+        agent=agent,
+        metric=metric,
+        input_type=None,
+        dataset=dataset,
+        candidate={"instructions": "Always answer alpha"},
+        concurrency=2,
+    )
+
+    assert len(records) == 2
+    scores = {record.case_id: record.score for record in records}
+    assert scores["case-0"] == pytest.approx(1.0)
+    assert scores["case-1"] == pytest.approx(0.0)
 
 
 def test_get_component_names():

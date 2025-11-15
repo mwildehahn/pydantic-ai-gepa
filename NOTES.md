@@ -84,3 +84,8 @@
 ## 2025-11-15T01:25Z eval helper + CLI flag
 - Added `--evaluate-only`, `--candidate-file`, and `--eval-concurrency` to `examples/math_tools.py`. When invoked, the script loads the requested optimization result (defaulting to the latest), applies the candidate prompts, and evaluates every case concurrently—printing aggregate scores and the lowest-scoring items.
 - Shared the adapter construction helper between optimization and evaluation so both paths stay consistent.
+
+## 2025-11-15T02:00Z eval helper + dataset expansion
+- Added `pydantic_ai_gepa.evaluation.evaluate_candidate_dataset` so any agent/candidate pair can be evaluated over a `pydantic_evals` dataset with concurrency control. Covered by a new integration test.
+- Wired `examples/math_tools.py` to reuse this helper via a new `--evaluate-only` flag. The CLI now loads the requested optimization result (default latest), normalizes the candidate text, runs every case in parallel, and prints the average plus lowest-scoring cases.
+- Expanded the math_tools dataset with 10 range/recurrence stress tests (strict “between”, descending ranges, and Tribonacci 25/30) to keep pressure on the prompt.

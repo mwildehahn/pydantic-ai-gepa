@@ -5,7 +5,7 @@ import pprint
 from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 import logfire
 from pydantic import BaseModel, Field
@@ -16,9 +16,10 @@ from pydantic_evals import Case, Dataset
 from utils import run_python_tool
 
 from pydantic_ai_gepa import InspectionAborted
-from pydantic_ai_gepa.components import apply_candidate_to_agent, normalize_component_text
+from pydantic_ai_gepa.components import normalize_component_text
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
+from pydantic_ai_gepa.evaluation import EvaluationRecord, evaluate_candidate_dataset
 from pydantic_ai_gepa.gepa_graph import (
     CandidateSelectorStrategy,
     GepaConfig,
@@ -656,34 +657,22 @@ def load_candidate_from_file(path: Path) -> tuple[dict[str, str], str] | None:
     return extract_seed_candidate(data)
 
 
-async def evaluate_candidate_dataset(
-    candidate_texts: dict[str, str],
-    *,
-    concurrency: int,
-) -> None:
-    semaphore = asyncio.Semaphore(max(1, concurrency))
-    results: list[tuple[str, dict[str, Any]]] = []
+def _normalize_candidate_texts(candidate: Mapping[str, Any]) -> dict[str, str]:
+    return {name: normalize_component_text(text) for name, text in candidate.items()}
 
-    with apply_candidate_to_agent(signature_agent, candidate_texts):
-        adapter = _build_agent_adapter()
 
-        async def run_case(data_inst: DataInstWithInput[MathProblemInput]) -> None:
-            async with semaphore:
-                outcome = await adapter.process_data_instance(data_inst, capture_traces=False)
-                results.append((data_inst.case_id, outcome))
-
-        await asyncio.gather(*(run_case(case) for case in signature_dataset))
-
-    scores = [payload.get("score", 0.0) for _, payload in results]
-    average = sum(scores) / len(scores) if scores else 0.0
+def _print_eval_summary(records: list[EvaluationRecord]) -> None:
+    if not records:
+        print("No evaluation records produced.")
+        return
+    average = sum(record.score for record in records) / len(records)
     print("\nEvaluation summary")
-    print(f"   Cases: {len(results)}")
+    print(f"   Cases: {len(records)}")
     print(f"   Average score: {average:.4f}")
-    print("   Worst cases:")
-    for case_id, payload in sorted(results, key=lambda item: item[1].get("score", 0.0))[:5]:
-        score = payload.get("score", 0.0)
-        feedback = payload.get("feedback") or payload.get("output", {}).get("error_message")
-        print(f"      - {case_id}: score={score:.4f} | feedback={feedback}")
+    print("   Lowest scores:")
+    for record in sorted(records, key=lambda r: r.score)[:5]:
+        feedback = record.feedback or record.payload.get("feedback")
+        print(f"      - {record.case_id}: score={record.score:.4f} | feedback={feedback}")
 
 
 async def main(
@@ -706,9 +695,19 @@ async def main(
         if payload is None:
             print(f"No candidate found in {target_file}.")
             return
-        candidate_texts, descriptor = payload
+        candidate_texts_raw, descriptor = payload
+        candidate_texts = _normalize_candidate_texts(candidate_texts_raw)
         print(f"Evaluating candidate from {target_file} ({descriptor})")
-        await evaluate_candidate_dataset(candidate_texts, concurrency=eval_concurrency)
+        records = await evaluate_candidate_dataset(
+            agent=signature_agent,
+            metric=metric,
+            input_type=MathProblemInput,
+            dataset=signature_dataset,
+            candidate=candidate_texts,
+            concurrency=eval_concurrency,
+            agent_usage_limits=UsageLimits(tool_calls_limit=5),
+        )
+        _print_eval_summary(records)
         return
 
     latest_result: GepaResult | None = None
