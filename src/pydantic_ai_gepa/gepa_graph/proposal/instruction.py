@@ -389,10 +389,16 @@ class InstructionProposalGenerator:
                 if moves:
                     joined_moves = ", ".join(str(move) for move in moves)
                     lines.append(f"  - Moves: {joined_moves}")
+                elif iteration is not None:
+                    lines.append("  - Moves: (not provided)")
                 if "edge_insight" in metadata_entry:
                     lines.append(f"  - Edge insight: {metadata_entry['edge_insight']}")
+                elif iteration is not None:
+                    lines.append("  - Edge insight: (not provided)")
                 if "checkpoint" in metadata_entry:
                     lines.append(f"  - Checkpoint: {metadata_entry['checkpoint']}")
+                elif iteration is not None:
+                    lines.append("  - Checkpoint: (not provided)")
                 lines.append("")
 
         lines.extend([

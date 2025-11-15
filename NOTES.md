@@ -63,3 +63,7 @@
 ## 2025-11-14T18:30-08:00 log instrumentation
 - Added a `logfire.info("ReflectStep proposal reasoning", ...)` hook capturing pattern/hypothesis/edge insight/moves/checkpoint every time a reflection proposal returns. This should make it easy to query Logfire for the exact Evolution Moves being tried per iteration.
 - Tests: `uv run pytest tests/gepa_graph/steps/test_reflect_step.py`.
+
+## 2025-11-15T00:45Z stored hypothesis surfacing
+- `_build_user_prompt` now renders the newly captured metadata for each component (moves, edge insight, checkpoint). Missing values are surfaced explicitly as "(not provided)" so we can catch reflections that fail to emit the required fields.
+- Tests: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.
