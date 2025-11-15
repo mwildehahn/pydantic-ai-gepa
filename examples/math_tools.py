@@ -16,6 +16,7 @@ from pydantic_evals import Case, Dataset
 from utils import run_python_tool
 
 from pydantic_ai_gepa import InspectionAborted
+from pydantic_ai_gepa.components import apply_candidate_to_agent, normalize_component_text
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.gepa_graph import (
@@ -31,6 +32,16 @@ from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutpu
 logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
 logfire.instrument_httpx(capture_all=True)
+
+
+def _build_agent_adapter(cache_manager: CacheManager | None = None) -> AgentAdapter:
+    return AgentAdapter(
+        agent=signature_agent,
+        metric=metric,
+        input_type=MathProblemInput,
+        cache_manager=cache_manager,
+        agent_usage_limits=UsageLimits(tool_calls_limit=5),
+    )
 
 
 class MathProblemInput(BaseModel):
@@ -207,6 +218,87 @@ CASE_DEFINITIONS: list[dict[str, Any]] = [
         "expected": 1.0,
         "tolerance": 1e-9,
         "feedback": "Even powers of -1 yield 1, odd powers yield -1. Sum the results directly.",
+    },
+    # TIER 5: Range edges, descending spans, and recurrence stress tests
+    {
+        "name": "between-50-60-exclusive",
+        "prompt": "Sum all integers strictly between 50 and 60.",
+        "expression": "sum(range(51, 60))",
+        "expected": 495.0,
+        "tolerance": 1e-9,
+        "feedback": "\"Between A and B\" (without saying inclusive) means exclude both endpoints. Use 51 through 59.",
+    },
+    {
+        "name": "between-neg5-5-exclusive",
+        "prompt": "Sum the integers strictly between -5 and 5.",
+        "expression": "sum(range(-4, 5))",
+        "expected": 0.0,
+        "tolerance": 1e-9,
+        "feedback": "Strictly between means -4 through 4. The positives and negatives cancel out.",
+    },
+    {
+        "name": "between-1-2-empty",
+        "prompt": "Sum the integers strictly between 1 and 2.",
+        "expression": "sum(range(2, 2))",
+        "expected": 0.0,
+        "tolerance": 1e-9,
+        "feedback": "There are no integers strictly between consecutive integers. Return 0 for an empty range.",
+    },
+    {
+        "name": "descending-inclusive-30-20",
+        "prompt": "Sum the integers from 30 down to 20, inclusive.",
+        "expression": "sum(range(30, 19, -1))",
+        "expected": 275.0,
+        "tolerance": 1e-9,
+        "feedback": "Descending ranges require a negative step. Include both endpoints exactly once.",
+    },
+    {
+        "name": "descending-exclusive-30-20",
+        "prompt": "Sum the integers from 30 down to 20, excluding both endpoints.",
+        "expression": "sum(range(29, 20, -1))",
+        "expected": 225.0,
+        "tolerance": 1e-9,
+        "feedback": "Exclude the endpoints by starting at 29 and stopping after 21 when stepping downward.",
+    },
+    {
+        "name": "descending-average-12-8",
+        "prompt": "Compute the average of the integers from 12 down to 8 (inclusive).",
+        "expression": "sum(range(12, 7, -1)) / len(range(12, 7, -1))",
+        "expected": 10.0,
+        "tolerance": 1e-9,
+        "feedback": "Even descending ranges have well-defined length. Average the five values 12..8.",
+    },
+    {
+        "name": "between-10-11-empty",
+        "prompt": "Count the integers strictly between 10 and 11.",
+        "expression": "len(range(11, 11))",
+        "expected": 0.0,
+        "tolerance": 1e-9,
+        "feedback": "Adjacent integers have zero strictly-between values. Guard against assuming at least one element.",
+    },
+    {
+        "name": "inclusive-neg3-pos3",
+        "prompt": "Sum the integers from -3 through 3 (inclusive).",
+        "expression": "sum(range(-3, 4))",
+        "expected": 0.0,
+        "tolerance": 1e-9,
+        "feedback": "\"Through\" means inclusive. The symmetric range cancels back to zero.",
+    },
+    {
+        "name": "tribonacci-25",
+        "prompt": "Find the 25th Tribonacci number when T(0)=0, T(1)=1, T(2)=1, and T(n)=T(n-1)+T(n-2)+T(n-3).",
+        "expression": "(lambda: [t := [0, 1, 1], [t.append(sum(t[-3:])) for _ in range(23)], t[-1]][2])()",
+        "expected": 1_389_537.0,
+        "tolerance": 1e-9,
+        "feedback": "Ensure the recurrence seeds are correct and iterate all the way to n=25 without off-by-one errors.",
+    },
+    {
+        "name": "tribonacci-30",
+        "prompt": "Compute the 30th Tribonacci number with the same base cases (0,1,1).",
+        "expression": "(lambda: [t := [0, 1, 1], [t.append(sum(t[-3:])) for _ in range(28)], t[-1]][2])()",
+        "expected": 29_249_425.0,
+        "tolerance": 1e-9,
+        "feedback": "Longer Tribonacci runs magnify seed mistakes; track the list carefully.",
     },
     # TIER 5: Range edges, descending spans, and recurrence stress tests
     {
@@ -428,13 +520,7 @@ async def run_math_tools_optimization(
         verbose=True,
     )
 
-    adapter = AgentAdapter(
-        agent=signature_agent,
-        metric=metric,
-        input_type=MathProblemInput,
-        cache_manager=cache_manager,
-        agent_usage_limits=UsageLimits(tool_calls_limit=5),
-    )
+    adapter = _build_agent_adapter(cache_manager)
 
     config = GepaConfig(
         max_evaluations=max_evaluations,
@@ -487,6 +573,22 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=100,
         help="Maximum number of GEPA metric evaluations to run before stopping.",
+    )
+    parser.add_argument(
+        "--evaluate-only",
+        action="store_true",
+        help="Evaluate the latest (or provided) candidate on the full dataset without running optimization.",
+    )
+    parser.add_argument(
+        "--candidate-file",
+        type=Path,
+        help="Optimization result JSON to load when using --evaluate-only. Defaults to the most recent file.",
+    )
+    parser.add_argument(
+        "--eval-concurrency",
+        type=int,
+        default=20,
+        help="Maximum concurrent evaluations when running --evaluate-only.",
     )
     return parser.parse_args()
 
@@ -549,12 +651,66 @@ def extract_seed_candidate(
     return None
 
 
+def load_candidate_from_file(path: Path) -> tuple[dict[str, str], str] | None:
+    data = GepaResult.model_validate_json(path.read_text())
+    return extract_seed_candidate(data)
+
+
+async def evaluate_candidate_dataset(
+    candidate_texts: dict[str, str],
+    *,
+    concurrency: int,
+) -> None:
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    results: list[tuple[str, dict[str, Any]]] = []
+
+    with apply_candidate_to_agent(signature_agent, candidate_texts):
+        adapter = _build_agent_adapter()
+
+        async def run_case(data_inst: DataInstWithInput[MathProblemInput]) -> None:
+            async with semaphore:
+                outcome = await adapter.process_data_instance(data_inst, capture_traces=False)
+                results.append((data_inst.case_id, outcome))
+
+        await asyncio.gather(*(run_case(case) for case in signature_dataset))
+
+    scores = [payload.get("score", 0.0) for _, payload in results]
+    average = sum(scores) / len(scores) if scores else 0.0
+    print("\nEvaluation summary")
+    print(f"   Cases: {len(results)}")
+    print(f"   Average score: {average:.4f}")
+    print("   Worst cases:")
+    for case_id, payload in sorted(results, key=lambda item: item[1].get("score", 0.0))[:5]:
+        score = payload.get("score", 0.0)
+        feedback = payload.get("feedback") or payload.get("output", {}).get("error_message")
+        print(f"      - {case_id}: score={score:.4f} | feedback={feedback}")
+
+
 async def main(
     load_latest: bool,
     resume_from_latest: bool,
     results_dir: Path,
     max_evaluations: int,
+    evaluate_only: bool,
+    candidate_file: Path | None,
+    eval_concurrency: int,
 ) -> None:
+    if evaluate_only:
+        target_file = candidate_file
+        if target_file is None:
+            target_file = latest_result_file(results_dir)
+        if target_file is None:
+            print("No optimization results available to evaluate.")
+            return
+        payload = load_candidate_from_file(target_file)
+        if payload is None:
+            print(f"No candidate found in {target_file}.")
+            return
+        candidate_texts, descriptor = payload
+        print(f"Evaluating candidate from {target_file} ({descriptor})")
+        await evaluate_candidate_dataset(candidate_texts, concurrency=eval_concurrency)
+        return
+
     latest_result: GepaResult | None = None
     latest_file: Path | None = None
 
@@ -648,5 +804,8 @@ if __name__ == "__main__":
             resume_from_latest=args.resume_from_latest,
             results_dir=args.results_dir,
             max_evaluations=args.max_evaluations,
+            evaluate_only=args.evaluate_only,
+            candidate_file=args.candidate_file,
+            eval_concurrency=args.eval_concurrency,
         )
     )

@@ -80,3 +80,7 @@
 ## 2025-11-15T01:15Z candidate serialization fix
 - `normalize_component_text` now unwraps mapping values (e.g., `{ "text": ... }`) before casting to string. This fixes the double-serialized prompts we saw when resuming from saved results. Added a regression test in `tests/test_integration.py`.
 - Tests: `uv run pytest tests/test_integration.py tests/gepa_graph/steps/test_reflect_step.py`.
+
+## 2025-11-15T01:25Z eval helper + CLI flag
+- Added `--evaluate-only`, `--candidate-file`, and `--eval-concurrency` to `examples/math_tools.py`. When invoked, the script loads the requested optimization result (defaulting to the latest), applies the candidate prompts, and evaluates every case concurrently—printing aggregate scores and the lowest-scoring items.
+- Shared the adapter construction helper between optimization and evaluation so both paths stay consistent.
