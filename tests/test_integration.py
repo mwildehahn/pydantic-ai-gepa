@@ -4,9 +4,11 @@ from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
+from pydantic import BaseModel
 from pydantic_ai import Agent
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
+from pydantic_evals import Case, Dataset
 import time_machine
 
 import pydantic_ai_gepa.adapters.agent_adapter as agent_adapter_module
@@ -16,7 +18,11 @@ from pydantic_ai_gepa.components import (
     get_component_names,
     normalize_component_text,
 )
-from pydantic_ai_gepa.evaluation import evaluate_candidate_dataset
+from pydantic_ai_gepa.signature_agent import SignatureAgent
+from pydantic_ai_gepa.evaluation import (
+    dataset_to_data_insts,
+    evaluate_candidate_dataset,
+)
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.types import (
     DataInst,
@@ -52,17 +58,19 @@ def test_normalize_component_text_handles_mapping() -> None:
 
 @pytest.mark.asyncio
 async def test_evaluate_candidate_dataset_helper() -> None:
-    agent = Agent(TestModel(custom_output_text="alpha"), instructions="Seed")
+    base_agent = Agent(TestModel(custom_output_text="alpha"), instructions="Seed")
 
-    dataset = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"Case {idx}"),
-            message_history=None,
-            metadata={"expected": "alpha" if idx == 0 else "beta"},
-            case_id=f"case-{idx}",
-        )
-        for idx in range(2)
-    ]
+    dataset = Dataset(
+        cases=[
+            Case(name="case-0", inputs={"text": "a"}, expected_output="alpha"),
+            Case(name="case-1", inputs={"text": "b"}, expected_output="beta"),
+        ]
+    )
+
+    class InputModel(BaseModel):
+        text: str
+
+    data_insts = dataset_to_data_insts(dataset, input_type=InputModel)
 
     def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
         predicted = (
@@ -74,11 +82,13 @@ async def test_evaluate_candidate_dataset_helper() -> None:
         score = 1.0 if predicted == expected else 0.0
         return MetricResult(score=score, feedback="match" if score else "mismatch")
 
+    agent = SignatureAgent(base_agent, input_type=InputModel, optimize_tools=False)
+
     records = await evaluate_candidate_dataset(
         agent=agent,
         metric=metric,
-        input_type=None,
-        dataset=dataset,
+        input_type=InputModel,
+        dataset=data_insts,
         candidate={"instructions": "Always answer alpha"},
         concurrency=2,
     )

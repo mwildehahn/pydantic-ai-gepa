@@ -8,10 +8,12 @@ from typing import Any, Mapping, Sequence
 
 from pydantic_ai import UsageLimits
 from pydantic_ai.agent import AbstractAgent
+from pydantic import BaseModel
+from pydantic_evals import Dataset
 
 from .components import apply_candidate_to_agent
 from .adapters.agent_adapter import AgentAdapter
-from .types import DataInst
+from .types import DataInst, DataInstWithInput
 
 
 @dataclass(slots=True)
@@ -70,6 +72,36 @@ async def evaluate_candidate_dataset(
         ))
 
     return records
+
+
+def dataset_to_data_insts(
+    dataset: Dataset[Any, Any],
+    *,
+    input_type: type[BaseModel],
+) -> list[DataInstWithInput[Any]]:
+    """Convert a pydantic_evals Dataset into GEPA DataInst entries."""
+
+    insts: list[DataInstWithInput[Any]] = []
+    for idx, case in enumerate(dataset.cases):
+        inputs = case.inputs
+        if not isinstance(inputs, input_type):
+            inputs = input_type.model_validate(inputs)
+        insts.append(
+            DataInstWithInput(
+                input=inputs,
+                message_history=None,
+                metadata={"expected": case.expected_output},
+                case_id=case.name or f"case-{idx}",
+            )
+        )
+    return insts
+
+
+__all__ = [
+    "EvaluationRecord",
+    "evaluate_candidate_dataset",
+    "dataset_to_data_insts",
+]
 
 
 __all__ = [
