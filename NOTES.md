@@ -13,6 +13,11 @@
 3. Update `src/pydantic_ai_gepa/gepa_graph/proposal/instruction.py` (and related components) with higher-level evolution cues, then re-run `uv run --env-file .env python examples/math_tools.py` to validate.
 4. Continue logging each experiment and result snapshot here so the session can resume cleanly if interrupted.
 
+## 2025-11-15T00:20Z resume checklist
+- Before running `examples/math_tools.py`, load the latest optimization artifact and resume from it so we don't keep restarting from the seed instructions:
+  - `uv run --env-file .env python examples/math_tools.py --results-dir optimization_results --resume-from-latest --max-evaluations 100`
+- This ensures the reflection prompt starts from the best-known candidate (currently stored under `optimization_results/math_tools_optimization_20251114_160545.json`) instead of the default "Solve math problems by calling the run_python sandbox tool" seed.
+
 ## 2025-11-14T16:15-08:00 logfire review
 - Pulled Logfire trace `019a84a54ad978e70a13fdf5df0dc657` (`span_name=propose new texts`) to confirm the reflection agent is still using the stock `DEFAULT_AGENT_INSTRUCTIONS` block; HTTP child spans show the actual student instructions being issued to `gpt-5-nano`.
 - Sampled validation artifacts from `optimization_results/math_tools_20251114_144658.json` → best candidate idx=1 still records 3 reflection minibatch failures due to `tool_calls_limit` exhaustion on `digit-sum-2-200`, `primorial-product`, and `mixed-boundaries`.
