@@ -76,3 +76,7 @@
 ## 2025-11-15T01:05Z math_tools dataset expansion
 - Added 10 range- and recurrence-focused cases (strictly-between ranges, descending spans, and larger Tribonacci targets). These target the remaining failure modes (`empty-range-edge`, `tribonacci-20`) so the minibatch exposes them even when the previous prompt looks perfect on easier items.
 - New cases: between-50-60-exclusive, between-neg5-5-exclusive, between-1-2-empty, descending-inclusive-30-20, descending-exclusive-30-20, descending-average-12-8, between-10-11-empty, inclusive-neg3-pos3, tribonacci-25, tribonacci-30.
+
+## 2025-11-15T01:15Z candidate serialization fix
+- `normalize_component_text` now unwraps mapping values (e.g., `{ "text": ... }`) before casting to string. This fixes the double-serialized prompts we saw when resuming from saved results. Added a regression test in `tests/test_integration.py`.
+- Tests: `uv run pytest tests/test_integration.py tests/gepa_graph/steps/test_reflect_step.py`.

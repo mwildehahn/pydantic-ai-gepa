@@ -14,6 +14,7 @@ from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
+    normalize_component_text,
 )
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.types import (
@@ -35,6 +36,17 @@ def test_extract_seed_candidate():
 
     assert candidate["instructions"] == "Be helpful"
     assert len(candidate) == 1
+
+
+def test_normalize_component_text_handles_mapping() -> None:
+    nested = {
+        "name": "instructions",
+        "text": {
+            "name": "instructions",
+            "text": "Do math.",
+        },
+    }
+    assert normalize_component_text(nested) == "Do math."
 
 
 def test_get_component_names():

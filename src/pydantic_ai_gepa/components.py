@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Any
 
@@ -21,6 +21,11 @@ def normalize_component_text(value: Any) -> str:
     """Normalize component text values to strings."""
     if value is None:
         return ""
+    if isinstance(value, Mapping):
+        if "text" in value:
+            return normalize_component_text(value["text"])
+        if "content" in value:
+            return normalize_component_text(value["content"])
     if isinstance(value, str):
         return value
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
@@ -214,4 +219,3 @@ def apply_candidate_to_agent_and_input_type(
             stack.enter_context(spec.apply_candidate(candidate))
 
         yield
-
