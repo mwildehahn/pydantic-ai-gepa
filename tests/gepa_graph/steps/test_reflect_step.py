@@ -411,6 +411,48 @@ async def test_reflect_step_skips_when_batch_is_perfect() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reflect_step_does_not_skip_perfect_batch_when_validation_not_perfect() -> None:
+    config = GepaConfig(
+        max_evaluations=100,
+        minibatch_size=2,
+        merges_per_accept=1,
+        perfect_score=1.0,
+        skip_perfect_score=True,
+        skip_perfect_requires_validation=True,
+    )
+    state = _make_state(config=config)
+    seed = state.candidates[0]
+    seed.record_validation(
+        data_id="case-validation",
+        score=0.75,
+        output=RolloutOutput.from_success("ok"),
+    )
+    minibatch = await _training_examples(state)
+    evaluator = _StubEvaluator([
+        _eval_results([1.0, 1.0]),
+        _eval_results([0.8, 0.9]),
+    ])
+    batch_sampler = _StubBatchSampler(minibatch)
+    stub_adapter = _StubAdapter()
+    adapter = cast(Adapter[DataInst], stub_adapter)
+    generator = _StubProposalGenerator({"instructions": "Updated"})
+    deps = _make_deps(
+        adapter=adapter,
+        evaluator=evaluator,
+        batch_sampler=batch_sampler,
+        proposal_generator=generator,
+    )
+    ctx = _ctx(state, deps)
+
+    result = await reflect_step(ctx)
+
+    assert result == "continue"
+    assert generator.calls == 1  # reflection still attempted
+    assert stub_adapter.dataset_calls == 1
+    assert evaluator.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_reflect_step_requires_reflection_model() -> None:
     state = _make_state()
     minibatch = await _training_examples(state)

@@ -360,6 +360,7 @@ async def run_math_tools_optimization(
         component_selector="all",
         candidate_selector=CandidateSelectorStrategy.PARETO,
         minibatch_size=10,
+        skip_perfect_requires_validation=True,
         use_merge=True,
         track_component_hypotheses=True,
         max_concurrent_evaluations=20,

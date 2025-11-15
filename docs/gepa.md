@@ -309,6 +309,7 @@ class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
 - `batch_sampler`: Training example selection
 - `perfect_score`: Score threshold for skipping
 - `skip_perfect_score`: Whether to skip perfect-scoring batches
+- `skip_perfect_requires_validation`: Only skip when validation averages also meet `perfect_score`
 - `reflection_lm`: LLM for text proposal
 - `reflection_prompt_template`: Custom prompt template
 

@@ -67,3 +67,8 @@
 ## 2025-11-15T00:45Z stored hypothesis surfacing
 - `_build_user_prompt` now renders the newly captured metadata for each component (moves, edge insight, checkpoint). Missing values are surfaced explicitly as "(not provided)" so we can catch reflections that fail to emit the required fields.
 - Tests: `uv run pytest tests/gepa_graph/proposal/test_instruction.py`.
+
+## 2025-11-15T00:55Z skip guard tweak
+- Added `skip_perfect_requires_validation` to `GepaConfig`. When enabled, reflection only short-circuits on perfect minibatches if the candidate’s average validation score also meets the `perfect_score` threshold. Math_tools now sets this flag so resuming from a strong candidate won’t stall while validation still fails.
+- Updated `_build_user_prompt` earlier to show edge metadata; now `_should_skip_perfect` checks validation averages when the new flag is set. Added regression test `test_reflect_step_does_not_skip_perfect_batch_when_validation_not_perfect`.
+- Tests: `uv run pytest tests/gepa_graph/steps/test_reflect_step.py`.

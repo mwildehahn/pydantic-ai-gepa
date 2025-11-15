@@ -102,6 +102,13 @@ class GepaConfig(BaseModel):
         default=True,
         description="Whether to stop reflecting once a candidate meets or exceeds perfect_score.",
     )
+    skip_perfect_requires_validation: bool = Field(
+        default=False,
+        description=(
+            "When True, only skip reflection on a perfect minibatch if the candidate's average validation score "
+            "also meets the perfect_score threshold."
+        ),
+    )
     reflection_model: Model | KnownModelName | str | None = Field(
         default=None,
         description="LLM used to propose new component text during reflection.",
