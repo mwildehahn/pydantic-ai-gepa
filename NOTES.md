@@ -72,3 +72,7 @@
 - Added `skip_perfect_requires_validation` to `GepaConfig`. When enabled, reflection only short-circuits on perfect minibatches if the candidate’s average validation score also meets the `perfect_score` threshold. Math_tools now sets this flag so resuming from a strong candidate won’t stall while validation still fails.
 - Updated `_build_user_prompt` earlier to show edge metadata; now `_should_skip_perfect` checks validation averages when the new flag is set. Added regression test `test_reflect_step_does_not_skip_perfect_batch_when_validation_not_perfect`.
 - Tests: `uv run pytest tests/gepa_graph/steps/test_reflect_step.py`.
+
+## 2025-11-15T01:05Z math_tools dataset expansion
+- Added 10 range- and recurrence-focused cases (strictly-between ranges, descending spans, and larger Tribonacci targets). These target the remaining failure modes (`empty-range-edge`, `tribonacci-20`) so the minibatch exposes them even when the previous prompt looks perfect on easier items.
+- New cases: between-50-60-exclusive, between-neg5-5-exclusive, between-1-2-empty, descending-inclusive-30-20, descending-exclusive-30-20, descending-average-12-8, between-10-11-empty, inclusive-neg3-pos3, tribonacci-25, tribonacci-30.
