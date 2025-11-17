@@ -6,6 +6,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+import logfire
 from pydantic_ai import UsageLimits
 from pydantic_ai.agent import AbstractAgent
 from pydantic import BaseModel
@@ -42,11 +43,14 @@ async def evaluate_candidate_dataset(
     records: list[EvaluationRecord] = []
 
     cases: Sequence[Case[Any, Any, Any]]
+    dataset_name: str | None = None
     if isinstance(dataset, Dataset):
         cases = dataset.cases
+        dataset_name = dataset.name
     else:
         cases = dataset
 
+    total_cases = len(cases)
     adapter = create_adapter(
         agent=agent,
         metric=metric,
@@ -56,6 +60,9 @@ async def evaluate_candidate_dataset(
     )
 
     candidate_dict = dict(candidate or {})
+
+    task_name = getattr(agent, "name", None) or agent.__class__.__name__
+    extra_attributes: dict[str, Any] = {"gen_ai.operation.name": "experiment"}
 
     async def run_case(index: int, case: Case[Any, Any, Any]) -> None:
         async with semaphore:
@@ -75,8 +82,38 @@ async def evaluate_candidate_dataset(
                 )
             )
 
-    with adapter.apply_candidate(candidate_dict):
-        await asyncio.gather(*(run_case(idx, case) for idx, case in enumerate(cases)))
+    with logfire.span(
+        f"evaluate {task_name}",
+        name=task_name,
+        task_name=task_name,
+        dataset_name=dataset_name,
+        n_cases=total_cases,
+        candidate_components=len(candidate_dict),
+        **extra_attributes,
+    ) as eval_span:
+        with adapter.apply_candidate(candidate_dict):
+            await asyncio.gather(
+                *(run_case(idx, case) for idx, case in enumerate(cases))
+            )
+
+        experiment_metadata: dict[str, Any] = {"n_cases": total_cases}
+        if dataset_name:
+            experiment_metadata["dataset_name"] = dataset_name
+        if candidate_dict:
+            experiment_metadata["candidate_keys"] = sorted(candidate_dict)
+
+        if records:
+            average_score = sum(record.score for record in records) / len(records)
+            experiment_metadata["average_score"] = average_score
+            experiment_metadata["averages"] = {
+                "assertions": average_score,
+                "scores": {"metric_score": average_score},
+                "labels": {},
+                "metrics": {"metric_score": average_score},
+            }
+            eval_span.set_attribute("assertion_pass_rate", average_score)
+
+        eval_span.set_attribute("logfire.experiment.metadata", experiment_metadata)
 
     return records
 
