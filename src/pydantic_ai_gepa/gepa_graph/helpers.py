@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import Any
 
 from ..adapter import Adapter
-from ..types import DataInstT
 from .deps import GepaDeps
 from .evaluation import ParallelEvaluator, ParetoFrontManager
 from .models import CandidateSelectorStrategy, GepaConfig
@@ -21,11 +21,11 @@ from .selectors import (
 )
 
 def create_deps(
-    adapter: Adapter[DataInstT],
+    adapter: Adapter[Any, Any, Any],
     config: GepaConfig,
     *,
     seed_candidate: Mapping[str, str] | None = None,
-) -> GepaDeps[DataInstT]:
+) -> GepaDeps:
     """Construct :class:`GepaDeps` instances for a GEPA run.
 
     Args:

@@ -1,8 +1,11 @@
+from __future__ import annotations
+
 import argparse
 import asyncio
 import json
 import pprint
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -17,7 +20,7 @@ from utils import run_python_tool
 
 from pydantic_ai_gepa import InspectionAborted
 from pydantic_ai_gepa.components import normalize_component_text
-from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
+from pydantic_ai_gepa.adapters import SignatureAgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.evaluation import EvaluationRecord, evaluate_candidate_dataset
 from pydantic_ai_gepa.gepa_graph import (
@@ -28,21 +31,11 @@ from pydantic_ai_gepa.gepa_graph import (
 )
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import MetricResult, RolloutOutput
 
 logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
 logfire.instrument_httpx(capture_all=True)
-
-
-def _build_agent_adapter(cache_manager: CacheManager | None = None) -> AgentAdapter:
-    return AgentAdapter(
-        agent=signature_agent,
-        metric=metric,
-        input_type=MathProblemInput,
-        cache_manager=cache_manager,
-        agent_usage_limits=UsageLimits(tool_calls_limit=5),
-    )
 
 
 class MathProblemInput(BaseModel):
@@ -61,6 +54,26 @@ class MathProblemOutput(BaseModel):
         description="The complete Python script used to compute the answer (can be multi-line with imports)."
     )
     answer: float = Field(description="Numeric answer rounded only if necessary.")
+
+
+@dataclass
+class MathProblemMetadata:
+    expected_answer: float
+    tolerance: float = 1e-9
+    feedback: str | None = None
+    ideal_expression: str | None = None
+
+
+def _build_agent_adapter(
+    cache_manager: CacheManager | None = None,
+) -> SignatureAgentAdapter[MathProblemInput, MathProblemOutput, MathProblemMetadata]:
+    return SignatureAgentAdapter(
+        agent=signature_agent,
+        metric=metric,
+        input_type=MathProblemInput,
+        cache_manager=cache_manager,
+        agent_usage_limits=UsageLimits(tool_calls_limit=5),
+    )
 
 
 CASE_DEFINITIONS: list[dict[str, Any]] = [
@@ -313,29 +326,16 @@ dataset = Dataset[MathProblemInput, MathProblemOutput](
                 expression=case["expression"],
                 explanation=case["feedback"],
             ),
+            metadata=MathProblemMetadata(
+                expected_answer=case["expected"],
+                tolerance=case["tolerance"],
+                feedback=case["feedback"],
+                ideal_expression=case["expression"],
+            ),
         )
         for case in CASE_DEFINITIONS
     ]
 )
-
-signature_dataset = [
-    DataInstWithInput[MathProblemInput](
-        input=dataset_case.inputs,
-        message_history=None,
-        metadata={
-            "expected_answer": dataset_case.expected_output.answer
-            if dataset_case.expected_output
-            else None,
-            "tolerance": CASE_DEFINITIONS[index]["tolerance"],
-            "feedback": CASE_DEFINITIONS[index]["feedback"],
-            "ideal_expression": dataset_case.expected_output.expression
-            if dataset_case.expected_output
-            else None,
-        },
-        case_id=dataset_case.name or f"case-{index}",
-    )
-    for index, dataset_case in enumerate(dataset.cases)
-]
 
 # agent_model = InspectingModel(infer_model("openai:gpt-5-nano"))
 agent_model = infer_model("openai:gpt-5-nano")
@@ -352,15 +352,16 @@ agent = Agent(
     tools=[run_python_tool],
 )
 
-signature_agent = SignatureAgent(
+signature_agent: SignatureAgent[Any, MathProblemOutput] = SignatureAgent(
     agent,
     input_type=MathProblemInput,
+    output_type=MathProblemOutput,
     optimize_tools=True,
 )
 
 
 def metric(
-    data_inst: DataInstWithInput[MathProblemInput],
+    case: Case[MathProblemInput, MathProblemOutput, MathProblemMetadata],
     output: RolloutOutput[MathProblemOutput],
 ) -> MetricResult:
     if not output.success or output.result is None:
@@ -372,10 +373,16 @@ def metric(
     predicted_output = output.result
     predicted = predicted_output.answer
     expression = (predicted_output.expression or "").strip()
-    tolerance = data_inst.metadata.get("tolerance", 1e-9)
-    target = data_inst.metadata.get("expected_answer")
-    base_feedback = data_inst.metadata.get("feedback")
-    ideal_expression = data_inst.metadata.get("ideal_expression")
+    metadata = case.metadata
+    if metadata is None:
+        fallback_target = (
+            case.expected_output.answer if case.expected_output is not None else 0.0
+        )
+        metadata = MathProblemMetadata(expected_answer=fallback_target)
+    tolerance = metadata.tolerance
+    target = metadata.expected_answer
+    base_feedback = metadata.feedback
+    ideal_expression = metadata.ideal_expression
 
     if not expression:
         hint = "Include the Python code you executed."
@@ -427,8 +434,8 @@ def metric(
 
 
 async def run_math_tools_optimization(
-    trainset: Sequence[DataInstWithInput[MathProblemInput]],
-    valset: Sequence[DataInstWithInput[MathProblemInput]],
+    trainset: Sequence[Case[MathProblemInput, MathProblemOutput, MathProblemMetadata]],
+    valset: Sequence[Case[MathProblemInput, MathProblemOutput, MathProblemMetadata]],
     reflection_model: Model | KnownModelName | str,
     seed_candidate: dict[str, str] | None = None,
     *,
@@ -621,7 +628,7 @@ async def main(
             agent=signature_agent,
             metric=metric,
             input_type=MathProblemInput,
-            dataset=signature_dataset,
+            dataset=dataset.cases,
             candidate=candidate_texts,
             concurrency=eval_concurrency,
             agent_usage_limits=UsageLimits(tool_calls_limit=5),
@@ -687,9 +694,10 @@ async def main(
     # reflection_model = InspectingModel(reflection_model)
 
     # 60/40 train/val split to better detect overfitting
-    split_index = int(len(signature_dataset) * 0.6)
-    trainset = signature_dataset[:split_index]
-    valset = signature_dataset[split_index:]
+    cases = list(dataset.cases)
+    split_index = int(len(cases) * 0.6)
+    trainset = cases[:split_index]
+    valset = cases[split_index:]
 
     try:
         result = await run_math_tools_optimization(

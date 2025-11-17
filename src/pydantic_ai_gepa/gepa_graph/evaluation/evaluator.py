@@ -8,11 +8,11 @@ from typing import Any, Generic, Sequence, TypeVar
 
 from ...adapter import Adapter
 from ...evaluation_models import EvaluationBatch
-from ...types import DataInst, RolloutOutput, Trajectory
+from ...types import RolloutOutput, Trajectory
+from pydantic_evals import Case
 from ..models import CandidateProgram
 
 DataIdT = TypeVar("DataIdT")
-DataInstT = TypeVar("DataInstT", bound=DataInst, contravariant=True)
 
 
 @dataclass(slots=True, kw_only=True)
@@ -48,8 +48,8 @@ class ParallelEvaluator:
         self,
         *,
         candidate: CandidateProgram,
-        batch: Sequence[DataInst],
-        adapter: Adapter[DataInst],
+        batch: Sequence[Case[Any, Any, Any]],
+        adapter: Adapter[Any, Any, Any],
         max_concurrent: int = 10,
         capture_traces: bool = False,
     ) -> EvaluationResults[str]:
@@ -65,7 +65,7 @@ class ParallelEvaluator:
         semaphore = asyncio.Semaphore(max(1, max_concurrent))
         candidate_payload = candidate.to_dict_str()
 
-        async def run_one(index: int, instance: DataInst):
+        async def run_one(index: int, instance: Case[Any, Any, Any]):
             async with semaphore:
                 eval_batch = await self._call_adapter(
                     adapter=adapter,
@@ -84,8 +84,8 @@ class ParallelEvaluator:
     async def _call_adapter(
         self,
         *,
-        adapter: Adapter[DataInst],
-        instance: DataInst,
+        adapter: Adapter[Any, Any, Any],
+        instance: Case[Any, Any, Any],
         candidate_payload: dict[str, str],
         capture_traces: bool,
     ) -> EvaluationBatch:
@@ -141,9 +141,8 @@ class ParallelEvaluator:
         )
 
     @staticmethod
-    def _data_id(instance: DataInst, index: int) -> str:
-        case_id = getattr(instance, "case_id", None)
-        return str(case_id) if case_id is not None else str(index)
+    def _data_id(instance: Case[Any, Any, Any], index: int) -> str:
+        return instance.name or f"case-{index}"
 
 
 __all__ = ["EvaluationResults", "ParallelEvaluator"]

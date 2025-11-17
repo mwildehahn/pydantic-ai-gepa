@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from pydantic_ai.messages import UserPromptPart
 from pydantic_graph.beta import StepContext
 
 from typing import Literal, Sequence, cast
+
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
@@ -31,17 +32,12 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     CurrentBestCandidateSelector,
     RoundRobinComponentSelector,
 )
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 
 
-def _make_data_inst(case_id: str) -> DataInstWithPrompt:
-    return DataInstWithPrompt(
-        user_prompt=UserPromptPart(content=f"prompt-{case_id}"),
-        message_history=None,
-        metadata={},
-        case_id=case_id,
-    )
+def _make_data_inst(case_id: str) -> Case[str, str, dict[str, str]]:
+    return Case(name=case_id, inputs=f"prompt-{case_id}", metadata={})
 
 
 def _make_state() -> GepaState:
@@ -58,7 +54,10 @@ def _make_state() -> GepaState:
     )
 
 
-def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, GepaDeps[DataInst], None]:
+def _ctx(
+    state: GepaState,
+    deps: GepaDeps,
+) -> StepContext[GepaState, GepaDeps, None]:
     return StepContext(state=state, deps=deps, inputs=None)
 
 
@@ -132,11 +131,11 @@ def _build_lineage(state: GepaState) -> tuple[int, int, int]:
     return ancestor.idx, parent1.idx, parent2.idx
 
 
-async def _validation_instances(state: GepaState) -> list[DataInstWithPrompt]:
+async def _validation_instances(state: GepaState) -> list[Case[str, str, dict[str, str]]]:
     loader = state.validation_set
     assert loader is not None
     ids = await loader.all_ids()
-    return cast(list[DataInstWithPrompt], await loader.fetch(ids))
+    return cast(list[Case[str, str, dict[str, str]]], await loader.fetch(ids))
 
 
 class _StubAdapter:
@@ -178,14 +177,14 @@ class _StubMergeBuilder(MergeProposalBuilder):
         pair: tuple[int, int],
         ancestor_idx: int,
         merged_candidate: CandidateProgram,
-        subsample: list[DataInstWithPrompt],
+        subsample: list[Case[str, str, dict[str, str]]],
         register_returns: bool = True,
     ) -> None:
         super().__init__(seed=0)
         self._pair = pair
         self._ancestor_idx = ancestor_idx
         self._merged_candidate = merged_candidate
-        self._subsample = [cast(DataInst, inst) for inst in subsample]
+        self._subsample = list(subsample)
         self._register_returns = register_returns
 
     def find_merge_pair(
@@ -212,12 +211,11 @@ class _StubMergeBuilder(MergeProposalBuilder):
         state: GepaState,
         parent1_idx: int,
         parent2_idx: int,
-    ) -> list[tuple[str, DataInst]]:
-        subsample: list[tuple[str, DataInst]] = []
+    ) -> list[tuple[str, Case[str, str, dict[str, str]]]]:
+        subsample: list[tuple[str, Case[str, str, dict[str, str]]]] = []
         for idx, inst in enumerate(self._subsample):
-            case_id = getattr(inst, "case_id", None)
-            data_id = str(case_id) if case_id is not None else str(idx)
-            subsample.append((data_id, inst))
+            case_name = inst.name or f"case-{idx}"
+            subsample.append((case_name, inst))
         return subsample
 
     def register_candidate(
@@ -234,9 +232,9 @@ def _make_deps(
     *,
     merge_builder: MergeProposalBuilder,
     evaluator: ParallelEvaluator,
-) -> GepaDeps[DataInst]:
+) -> GepaDeps:
     return GepaDeps(
-        adapter=cast(Adapter[DataInst], _StubAdapter()),
+        adapter=cast(Adapter[str, str, dict[str, str]], _StubAdapter()),
         evaluator=evaluator,
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
@@ -249,10 +247,10 @@ def _make_deps(
 
 
 def _evaluation_results(
-    subsample: Sequence[DataInstWithPrompt], scores: list[float]
+    subsample: Sequence[Case[str, str, dict[str, str]]], scores: list[float]
 ) -> EvaluationResults[str]:
     return EvaluationResults(
-        data_ids=[inst.case_id for inst in subsample],
+        data_ids=[inst.name or f"case-{idx}" for idx, inst in enumerate(subsample)],
         scores=list(scores),
         outputs=[RolloutOutput.from_success("merged")] * len(subsample),
         trajectories=None,
@@ -264,7 +262,7 @@ async def test_merge_step_accepts_when_scores_non_strictly_better() -> None:
     state = _make_state()
     ancestor_idx, parent1_idx, parent2_idx = _build_lineage(state)
     validation_items = await _validation_instances(state)
-    subsample: list[DataInstWithPrompt] = validation_items[:3]
+    subsample: list[Case[str, str, dict[str, str]]] = validation_items[:3]
 
     merged_candidate = CandidateProgram(
         idx=len(state.candidates),
@@ -302,7 +300,7 @@ async def test_merge_step_accepts_when_scores_non_strictly_better() -> None:
     assert new_candidate.creation_type == "merge"
     assert new_candidate.parent_indices == [parent1_idx, parent2_idx]
     assert new_candidate.minibatch_scores == results.scores
-    assert set(new_candidate.validation_scores) == {inst.case_id for inst in subsample}
+    assert set(new_candidate.validation_scores) == {inst.name for inst in subsample}
 
 
 @pytest.mark.asyncio

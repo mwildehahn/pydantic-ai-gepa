@@ -7,7 +7,7 @@ from typing import Sequence, cast
 
 import pytest
 from pydantic_graph.beta import StepContext
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
@@ -28,7 +28,7 @@ from pydantic_ai_gepa.gepa_graph.steps import (
     reflect_step,
     start_step,
 )
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
@@ -40,13 +40,8 @@ from pydantic_ai_gepa.gepa_graph.proposal import (
 )
 
 
-def _make_data_inst(case_id: str) -> DataInstWithPrompt:
-    return DataInstWithPrompt(
-        user_prompt=UserPromptPart(content=f"prompt-{case_id}"),
-        message_history=None,
-        metadata={},
-        case_id=case_id,
-    )
+def _make_data_inst(case_id: str) -> Case[str, str, dict[str, str]]:
+    return Case(name=case_id, inputs=f"prompt-{case_id}", metadata={})
 
 
 def _make_state(
@@ -80,8 +75,8 @@ class _FakeAdapter:
         self.reflection_sampler = None
 
     async def evaluate(self, batch, candidate, capture_traces):
-        case_id = batch[0].case_id
-        score = self.scores.get(case_id, 0.5)
+        case_name = batch[0].name or "unnamed"
+        score = self.scores.get(case_name, 0.5)
         return _FakeEvaluationBatch(
             outputs=[RolloutOutput.from_success(candidate["instructions"])],
             scores=[score],
@@ -121,9 +116,9 @@ class _HydratingAdapter(_FakeAdapter):
 
 def _make_deps(
     seed_candidate: dict[str, str] | None = None,
-) -> GepaDeps[DataInst]:
+) -> GepaDeps:
     return GepaDeps(
-        adapter=cast(Adapter[DataInst], _FakeAdapter()),
+        adapter=cast(Adapter[str, str, dict[str, str]], _FakeAdapter()),
         evaluator=ParallelEvaluator(),
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
@@ -136,7 +131,9 @@ def _make_deps(
     )
 
 
-def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, GepaDeps[DataInst], None]:
+def _ctx(
+    state: GepaState, deps: GepaDeps
+) -> StepContext[GepaState, GepaDeps, None]:
     return StepContext(state=state, deps=deps, inputs=None)
 
 
@@ -225,7 +222,7 @@ async def test_evaluate_step_hydrates_new_components() -> None:
         discovered_at_evaluation=0,
     )
     state.add_candidate(candidate)
-    adapter = cast(Adapter[DataInst], _HydratingAdapter())
+    adapter = cast(Adapter[str, str, dict[str, str]], _HydratingAdapter())
     deps = _make_deps()
     deps.adapter = adapter
     ctx = _ctx(state, deps)

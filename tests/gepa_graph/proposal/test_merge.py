@@ -3,22 +3,16 @@ from __future__ import annotations
 from typing import Literal
 
 import pytest
-
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue, GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.proposal import MergeProposalBuilder
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput
 
 
-def _make_data_inst(case_id: str) -> DataInstWithPrompt:
-    return DataInstWithPrompt(
-        user_prompt=UserPromptPart(content=f"prompt-{case_id}"),
-        message_history=None,
-        metadata={},
-        case_id=case_id,
-    )
+def _make_data_inst(case_id: str) -> Case[str, str, dict[str, str]]:
+    return Case(name=case_id, inputs=f"prompt-{case_id}", metadata={})
 
 
 def _make_state(
@@ -176,7 +170,7 @@ async def test_select_merge_subsample_stratifies_scores() -> None:
 
     subsample = await builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
     assert len(subsample) == state.config.merge_subsample_size
-    case_ids = {inst.case_id for _, inst in subsample}
+    case_ids = {inst.name for _, inst in subsample}
     assert case_ids.issubset({f"case-{idx}" for idx in range(6)})
 
 

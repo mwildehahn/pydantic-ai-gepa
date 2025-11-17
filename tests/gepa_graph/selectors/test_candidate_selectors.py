@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -16,15 +16,11 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     CurrentBestCandidateSelector,
     ParetoCandidateSelector,
 )
-from pydantic_ai_gepa.types import DataInstWithPrompt
-
-
-def _make_data_inst(case_id: str) -> DataInstWithPrompt:
-    return DataInstWithPrompt(
-        user_prompt=UserPromptPart(content=f"prompt-{case_id}"),
-        message_history=None,
-        metadata={},
-        case_id=case_id,
+def _make_data_inst(case_id: str) -> Case[str, str, dict[str, str]]:
+    return Case(
+        name=case_id,
+        inputs=f"prompt-{case_id}",
+        metadata={"label": "test"},
     )
 
 

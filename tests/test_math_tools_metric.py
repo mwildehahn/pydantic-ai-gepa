@@ -16,20 +16,25 @@ if str(EXAMPLES_DIR) not in sys.path:
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
 import math_tools  # type: ignore[import-not-found]
-from pydantic_ai_gepa.types import DataInstWithInput, RolloutOutput
+from pydantic_evals import Case
+
+from pydantic_ai_gepa.types import RolloutOutput
 
 
-def _make_data_inst() -> DataInstWithInput[math_tools.MathProblemInput]:
-    return DataInstWithInput(
-        input=math_tools.MathProblemInput(problem="Compute 2 + 2."),
-        message_history=None,
-        metadata={
-            "expected_answer": 4.0,
-            "tolerance": 1e-9,
-            "feedback": "Use the sandbox to verify arithmetic.",
-            "ideal_expression": "print(4)",
-        },
-        case_id="penalty-case",
+def _make_case() -> Case[
+    math_tools.MathProblemInput,
+    math_tools.MathProblemOutput,
+    math_tools.MathProblemMetadata,
+]:
+    return Case(
+        name="penalty-case",
+        inputs=math_tools.MathProblemInput(problem="Compute 2 + 2."),
+        metadata=math_tools.MathProblemMetadata(
+            expected_answer=4.0,
+            tolerance=1e-9,
+            feedback="Use the sandbox to verify arithmetic.",
+            ideal_expression="print(4)",
+        ),
     )
 
 
@@ -42,15 +47,15 @@ def _make_output(answer: float = 4.0) -> math_tools.MathProblemOutput:
 
 
 def test_metric_penalizes_multiple_run_python_invocations() -> None:
-    data_inst = _make_data_inst()
+    case = _make_case()
     baseline = math_tools.metric(
-        data_inst,
+        case,
         RolloutOutput.from_success(
             _make_output(), usage=_usage.RunUsage(tool_calls=1)
         ),
     )
     penalized = math_tools.metric(
-        data_inst,
+        case,
         RolloutOutput.from_success(
             _make_output(), usage=_usage.RunUsage(tool_calls=3)
         ),

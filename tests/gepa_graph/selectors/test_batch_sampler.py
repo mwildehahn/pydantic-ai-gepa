@@ -6,22 +6,16 @@ from collections import Counter
 
 import pytest
 
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
 from pydantic_ai_gepa.gepa_graph.selectors import BatchSampler
-from pydantic_ai_gepa.types import DataInstWithPrompt
 
 
-def _make_training(count: int) -> list[DataInstWithPrompt]:
+def _make_training(count: int) -> list[Case[str, str, dict[str, str]]]:
     return [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"prompt-{idx}"),
-            message_history=None,
-            metadata={},
-            case_id=str(idx),
-        )
+        Case(name=f"case-{idx}", inputs=f"prompt-{idx}", metadata={"label": "stub"})
         for idx in range(count)
     ]
 
@@ -40,8 +34,8 @@ async def test_batch_sampler_deterministic_sequence() -> None:
     batches_a = [await sampler_a.sample(state.training_set, state, 2) for _ in range(3)]
     batches_b = [await sampler_b.sample(state.training_set, state, 2) for _ in range(3)]
 
-    ids_a = [[inst.case_id for inst in batch] for batch in batches_a]
-    ids_b = [[inst.case_id for inst in batch] for batch in batches_b]
+    ids_a = [[inst.name for inst in batch] for batch in batches_a]
+    ids_b = [[inst.name for inst in batch] for batch in batches_b]
 
     assert ids_a == ids_b
 
@@ -52,7 +46,7 @@ async def test_batch_sampler_padding_prefers_least_used() -> None:
     sampler = BatchSampler(seed=1)
 
     batches = [await sampler.sample(state.training_set, state, 2) for _ in range(2)]
-    counts = Counter(inst.case_id for batch in batches for inst in batch)
+    counts = Counter(inst.name for batch in batches for inst in batch)
 
     # Because padding repeats only one element, ensure usage skew is at most 1.
     assert max(counts.values()) - min(counts.values()) <= 1

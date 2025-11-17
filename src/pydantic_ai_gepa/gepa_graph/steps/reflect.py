@@ -15,7 +15,7 @@ from ...adapter import (
     SharedReflectiveDataset,
 )
 from ...evaluation_models import EvaluationBatch
-from ...types import DataInst
+from pydantic_evals import Case
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaState
@@ -232,7 +232,7 @@ def _select_parent(
 async def _sample_minibatch(
     state: GepaState,
     deps: GepaDeps,
-) -> list[DataInst]:
+) -> list[Case[Any, Any, Any]]:
     loader = state.training_set
     batch = await deps.batch_sampler.sample(
         training_set=loader,
@@ -249,7 +249,7 @@ async def _evaluate_minibatch(
     deps: GepaDeps,
     state: GepaState,
     candidate: CandidateProgram,
-    batch: Sequence[DataInst],
+    batch: Sequence[Case[Any, Any, Any]],
     capture_traces: bool,
 ) -> EvaluationResults[str]:
     return await deps.evaluator.evaluate_batch(

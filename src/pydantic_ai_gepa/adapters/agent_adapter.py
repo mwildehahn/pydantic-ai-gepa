@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
@@ -10,12 +11,13 @@ import json
 import logging
 import os
 from types import TracebackType
-from typing import TYPE_CHECKING, Any, Generic, Literal
+from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
 
 import logfire
 
 from pydantic import BaseModel
 from pydantic_ai import capture_run_messages, usage as _usage
+from pydantic_ai.agent import AgentRunResult
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.messages import (
     AudioUrl,
@@ -52,14 +54,13 @@ from ..signature import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
 from ..tool_components import get_or_create_tool_optimizer
 from ..types import (
-    DataInst,
-    DataInstT,
-    DataInstWithPrompt,
+    MetadataWithMessageHistory,
     MetricResult,
     RolloutOutput,
     Trajectory,
 )
 from ..adapter import Adapter, ReflectiveDataset, SharedReflectiveDataset
+from pydantic_evals import Case
 
 
 if TYPE_CHECKING:
@@ -67,6 +68,10 @@ if TYPE_CHECKING:
 
 from pydantic_ai.exceptions import ToolRetryError as _ToolRetryError
 from pydantic_ai.exceptions import UsageLimitExceeded as _UsageLimitExceeded
+
+InputT = TypeVar("InputT")
+OutputT = TypeVar("OutputT")
+MetadataT = TypeVar("MetadataT")
 
 _TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = (_ToolRetryError,)
 
@@ -388,7 +393,7 @@ class AgentAdapterTrajectory(Trajectory):
     output_tools: list[ToolDefinition] | None = None
     error: str | None = None
     usage: dict[str, int] = field(default_factory=dict)
-    data_inst: DataInst | None = None
+    case: Case[Any, Any, Any] | None = None
     metric_feedback: str | None = None
 
     def _extract_user_content(self, part: UserPromptPart) -> str:
@@ -545,46 +550,28 @@ class AgentAdapterTrajectory(Trajectory):
         return record
 
 
-class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
-    """GEPA adapter for optimizing a single pydantic-ai agent with an optional input_type.
 
-    This adapter connects pydantic-ai agents to the GEPA optimization engine,
-    enabling prompt optimization through evaluation and reflection. It focuses on
-    optimizing a single agent's instructions, optionally with a single structured
-    input model class for formatting.
-    """
+class _BaseAgentAdapter(
+    Adapter[InputT, OutputT, MetadataT],
+    Generic[InputT, OutputT, MetadataT],
+    ABC,
+):
+    """Shared functionality for prompt and signature adapters."""
 
     def __init__(
         self,
-        agent: AbstractAgent[Any, Any],
-        metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
         *,
-        input_type: InputSpec[BaseModel] | None = None,
+        agent: "AbstractAgent[Any, Any]",
+        metric: Callable[[Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult],
+        input_spec: BoundInputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
-    ):
-        """Initialize the adapter.
-
-        Args:
-            agent: The pydantic-ai agent to optimize.
-            metric: A function that computes (score, feedback) for a data instance
-                   and its output. Higher scores are better. The feedback string
-                   (second element) is optional but recommended for better optimization.
-            input_type: Optional structured input specification whose instructions and field
-                            descriptions will be optimized alongside the agent's prompts.
-            cache_manager: The cache manager to use for caching.
-            optimize_tools: If True, install tool optimization support so plain agents
-                expose tool description/parameter components.
-            agent_usage_limits: Optional UsageLimits applied to each agent run during evaluation.
-            gepa_usage_limits: Optional UsageLimits applied cumulatively across the GEPA run.
-        """
+    ) -> None:
         self.agent = agent
         self.metric = metric
-        self.input_spec: BoundInputSpec[BaseModel] | None = (
-            build_input_spec(input_type) if input_type else None
-        )
+        self.input_spec = input_spec
         self.cache_manager = cache_manager
         self._model_identifier = _derive_model_identifier(agent)
         if (
@@ -634,87 +621,61 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         usage = self._gepa_usage
 
         if limits.request_limit is not None and usage.requests > limits.request_limit:
-            self._raise_usage_budget_error(
-                "requests", limits.request_limit, usage.requests
+            raise UsageBudgetExceeded(
+                f"Request limit exceeded: {usage.requests} > {limits.request_limit}"
             )
-        if (
-            limits.tool_calls_limit is not None
-            and usage.tool_calls > limits.tool_calls_limit
-        ):
-            self._raise_usage_budget_error(
-                "tool_calls", limits.tool_calls_limit, usage.tool_calls
-            )
+
         if (
             limits.input_tokens_limit is not None
             and usage.input_tokens > limits.input_tokens_limit
         ):
-            self._raise_usage_budget_error(
-                "input_tokens", limits.input_tokens_limit, usage.input_tokens
+            raise UsageBudgetExceeded(
+                f"Input token limit exceeded: {usage.input_tokens} > {limits.input_tokens_limit}"
             )
+
         if (
             limits.output_tokens_limit is not None
             and usage.output_tokens > limits.output_tokens_limit
         ):
-            self._raise_usage_budget_error(
-                "output_tokens", limits.output_tokens_limit, usage.output_tokens
-            )
-        total_tokens_limit = limits.total_tokens_limit
-        total_tokens = usage.total_tokens
-        if (
-            total_tokens_limit is not None
-            and total_tokens > total_tokens_limit
-        ):
-            self._raise_usage_budget_error(
-                "total_tokens", total_tokens_limit, total_tokens
+            raise UsageBudgetExceeded(
+                f"Output token limit exceeded: {usage.output_tokens} > {limits.output_tokens_limit}"
             )
 
-    @staticmethod
-    def _raise_usage_budget_error(
-        limit_name: str, limit_value: int, actual_value: int
-    ) -> None:
-        raise UsageBudgetExceeded(
-            f"GEPA usage limit exceeded for {limit_name}: "
-            f"limit={limit_value}, actual={actual_value}"
-        )
+        if (
+            limits.total_tokens_limit is not None
+            and usage.total_tokens > limits.total_tokens_limit
+        ):
+            raise UsageBudgetExceeded(
+                f"Total token limit exceeded: {usage.total_tokens} > {limits.total_tokens_limit}"
+            )
 
     async def evaluate(
         self,
-        batch: Sequence[DataInstT],
+        batch: Sequence[Case[InputT, OutputT, MetadataT]],
         candidate: dict[str, str],
-        capture_traces: bool = False,
+        capture_traces: bool,
     ) -> EvaluationBatch:
-        """Evaluate the candidate on a batch of data instances.
-
-        Args:
-            batch: List of data instances to evaluate.
-            candidate: Candidate mapping component names to text.
-            capture_traces: Whether to capture trajectories for reflection.
-
-        Returns:
-            EvaluationBatch with outputs, scores, and optionally trajectories.
-        """
+        """Evaluate a batch of cases asynchronously."""
         outputs: list[RolloutOutput[Any]] = []
         scores: list[float] = []
-        trajectories: list[AgentAdapterTrajectory] | None = (
-            [] if capture_traces else None
-        )
+        trajectories: list[AgentAdapterTrajectory] | None = [] if capture_traces else None
 
-        with self._apply_candidate(candidate):
+        with self.apply_candidate(candidate):
             results = await asyncio.gather(
                 *(
-                    self.process_data_instance(
-                        data_inst,
+                    self.process_case(
+                        case,
+                        index,
                         capture_traces,
                         candidate,
                     )
-                    for data_inst in batch
+                    for index, case in enumerate(batch)
                 )
             )
 
         for result in results:
             outputs.append(result["output"])
             scores.append(result["score"])
-
             if trajectories is not None and "trajectory" in result:
                 trajectories.append(result["trajectory"])
 
@@ -724,67 +685,46 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             trajectories=trajectories if trajectories else None,
         )
 
-    def _apply_candidate(self, candidate: dict[str, str]):
-        """Context manager to apply candidate to both agent and signature.
-
-        Args:
-            candidate: The candidate mapping component names to text.
-
-        Returns:
-            Context manager that applies the candidate.
-        """
+    def apply_candidate(self, candidate: dict[str, str] | None):
+        """Context manager to apply candidate to both agent and signature."""
         stack = ExitStack()
-
-        # Apply to agent
-        stack.enter_context(apply_candidate_to_agent(self.agent, candidate))
-
-        # Apply to input if provided
+        stack.enter_context(apply_candidate_to_agent(self.agent, candidate or {}))
         if self.input_spec:
-            stack.enter_context(self.input_spec.apply_candidate(candidate))
-
-        # TODO: look at applying to output_spec too (optimizing output docs)
+            stack.enter_context(self.input_spec.apply_candidate(candidate or {}))
         return stack
 
-    async def process_data_instance(
+    async def process_case(
         self,
-        data_inst: DataInstT,
+        case: Case[InputT, OutputT, MetadataT],
+        case_index: int,
         capture_traces: bool = False,
         candidate: dict[str, str] | None = None,
     ) -> dict[str, Any]:
-        """Process a single data instance and return results.
-
-        Args:
-            data_inst: The data instance to process.
-            capture_traces: Whether to capture trajectory information.
-
-        Returns:
-            Dictionary containing 'output', 'score', and optionally 'trajectory'.
-        """
+        """Process a single Case and return the metric evaluation."""
+        metric_result: MetricResult | None = None
+        case_name = self._case_identifier(case, case_index)
         try:
-            # Check cache first for agent run (if we have a current candidate)
-            metric_result: MetricResult | None = None
-
             if self.cache_manager and candidate:
                 cached_agent_result = self.cache_manager.get_cached_agent_run(
-                    data_inst,
+                    case,
+                    case_index,
                     candidate,
                     capture_traces,
                     model_identifier=self._model_identifier,
                 )
-
                 if cached_agent_result is not None:
                     trajectory, output = cached_agent_result
                 else:
                     if capture_traces:
                         trajectory, output = await self._run_with_trace(
-                            data_inst, candidate
+                            case, case_index, candidate
                         )
                     else:
-                        output = await self._run_simple(data_inst, candidate)
+                        output = await self._run_simple(case, case_index, candidate)
                         trajectory = None
-
                     self.cache_manager.cache_agent_run(
-                        data_inst,
+                        case,
+                        case_index,
                         candidate,
                         trajectory,
                         output,
@@ -794,95 +734,83 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             else:
                 if capture_traces:
                     trajectory, output = await self._run_with_trace(
-                        data_inst, candidate
+                        case, case_index, candidate
                     )
                 else:
-                    output = await self._run_simple(data_inst, candidate)
+                    output = await self._run_simple(case, case_index, candidate)
                     trajectory = None
 
-            # Compute score using the metric and capture optional feedback
-            # Use caching if available and we have a current candidate
             if self.cache_manager and candidate:
-                # Check cache first
-                cached_result = self.cache_manager.get_cached_metric_result(
-                    data_inst,
+                cached_metric = self.cache_manager.get_cached_metric_result(
+                    case,
+                    case_index,
                     output,
                     candidate,
                     model_identifier=self._model_identifier,
                 )
-
-                if cached_result is not None:
-                    metric_result = cached_result
+                if cached_metric is not None:
+                    metric_result = cached_metric
                 else:
-                    # Call metric and cache result
-                    metric_result = self.metric(data_inst, output)
+                    metric_result = self.metric(case, output)
                     self.cache_manager.cache_metric_result(
-                        data_inst,
+                        case,
+                        case_index,
                         output,
                         candidate,
                         metric_result,
                         model_identifier=self._model_identifier,
                     )
             else:
-                # No caching, call metric directly
-                metric_result = self.metric(data_inst, output)
+                metric_result = self.metric(case, output)
 
-            # Attach metric-provided feedback to the trajectory if captured
             if trajectory is not None and metric_result is not None:
                 trajectory.metric_feedback = metric_result.feedback
 
             assert metric_result is not None
-            score = metric_result.score
-            metric_feedback = metric_result.feedback
-
             result: dict[str, Any] = {
                 "output": output,
-                "score": score,
-                "feedback": metric_feedback,
+                "score": metric_result.score,
+                "feedback": metric_result.feedback,
             }
-
             if trajectory is not None:
                 result["trajectory"] = trajectory
-
             return result
 
         except InspectionAborted:
             raise
         except UsageBudgetExceeded:
             raise
-        except Exception as e:
-            error_kind = _classify_exception(e)
-            case_id = getattr(data_inst, "case_id", "unknown")
+        except Exception as exc:
+            error_kind = _classify_exception(exc)
             logfire.error(
-                "AgentAdapter failed to process data instance",
-                case_id=case_id,
+                "AgentAdapter failed to process case",
+                case_id=case_name,
                 error_kind=error_kind,
                 capture_traces=capture_traces,
                 candidate_keys=sorted(candidate.keys()) if candidate else None,
             )
-            logger.exception("Failed to process data instance %s", case_id)
-            output = RolloutOutput.from_error(e, kind=error_kind)
+            logger.exception("Failed to process case %s", case_name)
+            output = RolloutOutput.from_error(exc, kind=error_kind)
             trajectory = (
                 AgentAdapterTrajectory(
                     messages=[],
                     instructions=None,
                     function_tools=None,
+                    output_tools=None,
                     final_output=None,
-                    error=str(e),
+                    error=str(exc),
                     usage={},
-                    data_inst=data_inst,
+                    case=case,
                 )
                 if capture_traces and error_kind == "tool"
                 else None
             )
-
             error_result: dict[str, Any] = {
                 "output": output,
-                "score": 0.0,  # Failed execution gets score 0
+                "score": 0.0,
             }
             if trajectory is not None:
                 error_result["trajectory"] = trajectory
-
             return error_result
 
     def _extract_instructions_and_tools(
@@ -892,110 +820,89 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         instructions_text: str | None = None
         function_tools: list[ToolDefinition] | None = None
         output_tools: list[ToolDefinition] | None = None
-
         for message in messages:
             if not isinstance(message, ModelRequest):
                 continue
-
             if instructions_text is None and isinstance(message.instructions, str):
                 instructions_text = message.instructions
-
             params = message.model_request_parameters
             if params is None:
                 continue
-
             if function_tools is None and params.function_tools:
                 function_tools = list(params.function_tools)
-
             if output_tools is None and params.output_tools:
                 output_tools = list(params.output_tools)
-
             if (
                 instructions_text is not None
                 and function_tools is not None
                 and output_tools is not None
             ):
                 break
-
         return instructions_text, function_tools, output_tools
 
     def _build_synthetic_request(
         self,
-        instance: DataInstT,
+        case: Case[InputT, OutputT, MetadataT],
         candidate: dict[str, str] | None,
     ) -> ModelRequest | None:
-        """Synthesize a ModelRequest when no trace messages were captured."""
-        if not isinstance(instance, DataInstWithPrompt):
-            return None
+        return None
 
-        instructions_text = None
-        if candidate is not None:
-            instructions_text = candidate.get("instructions")
-        if instructions_text is None:
-            maybe_instructions = _safe_getattr(self.agent, "_instructions")
-            if isinstance(maybe_instructions, str):
-                instructions_text = maybe_instructions
+    def _message_history_for_case(
+        self, case: Case[InputT, OutputT, MetadataT]
+    ) -> list[ModelMessage] | None:
+        metadata = case.metadata
+        if isinstance(metadata, MetadataWithMessageHistory):
+            return metadata.message_history
+        return None
 
-        return ModelRequest(
-            parts=[instance.user_prompt],
-            instructions=instructions_text,
-        )
-
+    @staticmethod
+    def _case_identifier(
+        case: Case[Any, Any, Any],
+        case_index: int,
+    ) -> str:
+        return case.name or f"case-{case_index}"
 
     def _gather_messages(
         self,
         *,
         messages: Sequence[ModelMessage],
         captured_messages: Sequence[ModelMessage],
-        instance: DataInstT,
+        case: Case[InputT, OutputT, MetadataT],
+        case_index: int,
         candidate: dict[str, str] | None,
     ) -> list[ModelMessage]:
-        """Return recorded messages, falling back to the instance context."""
         if messages:
             return list(messages)
         if captured_messages:
             return list(captured_messages)
-        history = list(getattr(instance, "message_history", None) or [])
-        synthetic = self._build_synthetic_request(instance, candidate)
+        history = list(self._message_history_for_case(case) or [])
+        synthetic = self._build_synthetic_request(case, candidate)
         if synthetic is not None:
             history.append(synthetic)
         return history
 
     async def _run_with_trace(
-        self, instance: DataInstT, candidate: dict[str, str] | None
+        self,
+        case: Case[InputT, OutputT, MetadataT],
+        case_index: int,
+        candidate: dict[str, str] | None,
     ) -> tuple[AgentAdapterTrajectory | None, RolloutOutput[Any]]:
-        """Run the agent and capture the trajectory.
-
-        Args:
-            instance: The data instance to run.
-
-        Returns:
-            Tuple of (trajectory, output).
-        """
         messages: list[ModelMessage] = []
         captured_messages: list[ModelMessage] = []
-        run_result: Any | None = None
+        run_result: AgentRunResult[Any] | None = None
         run_usage: _usage.RunUsage | None = None
         usage_kwargs = self._usage_kwargs()
-
+        message_history = self._message_history_for_case(case)
+        case_name = self._case_identifier(case, case_index)
         try:
             with capture_run_messages() as run_messages:
                 captured_messages = run_messages
-                if isinstance(instance, DataInstWithPrompt):
-                    run_result = await self.agent.run(
-                        instance.user_prompt.content,
-                        message_history=instance.message_history,
-                        **usage_kwargs,
-                    )
-                else:
-                    assert isinstance(self.agent, SignatureAgent)
-                    run_result = await self.agent.run_signature(
-                        instance.input,
-                        message_history=instance.message_history,
-                        candidate=candidate,
-                        **usage_kwargs,
-                    )
-
+                run_result = await self._invoke_agent(
+                    case,
+                    candidate=candidate,
+                    message_history=message_history,
+                    usage_kwargs=usage_kwargs,
+                )
                 messages = run_result.new_messages()
             run_usage = run_result.usage()
             await self._record_gepa_usage(run_usage)
@@ -1004,19 +911,16 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         except UsageBudgetExceeded:
             raise
         except _UsageLimitExceeded as exc:
-            case_id = getattr(instance, "case_id", "unknown")
-            logfire.warn(
-                "Agent run usage limit reached",
-                case_id=case_id,
-            )
+            logfire.warn("Agent run usage limit reached", case_id=case_name)
             logger.warning(
-                "Agent run for instance %s exceeded per-run usage limits",
-                case_id,
+                "Agent run for case %s exceeded per-run usage limits",
+                case_name,
             )
             all_messages = self._gather_messages(
                 messages=messages,
                 captured_messages=captured_messages,
-                instance=instance,
+                case=case,
+                case_index=case_index,
                 candidate=candidate,
             )
             (
@@ -1032,27 +936,24 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                 final_output=None,
                 error=str(exc),
                 usage={},
-                data_inst=instance,
+                case=case,
             )
             output = RolloutOutput.from_error(exc, kind="system")
             return trajectory, output
-        except Exception as e:
-            error_kind = _classify_exception(e)
-            case_id = getattr(instance, "case_id", "unknown")
+        except Exception as exc:
+            error_kind = _classify_exception(exc)
             logfire.error(
                 "AgentAdapter run_with_trace failed",
-                case_id=case_id,
+                case_id=case_name,
                 error_kind=error_kind,
                 candidate_keys=sorted(candidate.keys()) if candidate else None,
             )
-            logger.exception(
-                "Failed to run agent with traces for instance %s",
-                case_id,
-            )
+            logger.exception("Failed to run agent with traces for case %s", case_name)
             all_messages = self._gather_messages(
                 messages=messages,
                 captured_messages=captured_messages,
-                instance=instance,
+                case=case,
+                case_index=case_index,
                 candidate=candidate,
             )
             trajectory = None
@@ -1068,31 +969,30 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
                     function_tools=function_tools,
                     output_tools=output_tools,
                     final_output=None,
-                    error=str(e),
+                    error=str(exc),
                     usage={},
-                    data_inst=instance,
+                    case=case,
                 )
-            output = RolloutOutput.from_error(e, kind=error_kind)
+            output = RolloutOutput.from_error(exc, kind=error_kind)
             return trajectory, output
 
         assert run_result is not None
         final_messages = self._gather_messages(
             messages=messages,
             captured_messages=captured_messages,
-            instance=instance,
+            case=case,
+            case_index=case_index,
             candidate=candidate,
         )
         final_output = run_result.output
         target_agent = self.agent
         if isinstance(target_agent, WrapperAgent):
             target_agent = target_agent.wrapped
-
         (
             instructions_text,
             function_tools,
             output_tools,
         ) = self._extract_instructions_and_tools(final_messages)
-
         trajectory = AgentAdapterTrajectory(
             messages=final_messages,
             instructions=instructions_text,
@@ -1101,41 +1001,26 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             final_output=final_output,
             error=None,
             usage=asdict(run_usage) if run_usage else {},
-            data_inst=instance,
+            case=case,
         )
         output = RolloutOutput.from_success(final_output, usage=run_usage)
-
         return trajectory, output
 
     async def _run_simple(
-        self, instance: DataInstT, candidate: dict[str, str] | None
+        self,
+        case: Case[InputT, OutputT, MetadataT],
+        case_index: int,
+        candidate: dict[str, str] | None,
     ) -> RolloutOutput[Any]:
-        """Run the agent without capturing traces.
-
-        Args:
-            instance: The data instance to run.
-
-        Returns:
-            The rollout output.
-        """
         usage_kwargs = self._usage_kwargs()
-
+        case_name = self._case_identifier(case, case_index)
         try:
-            if isinstance(instance, DataInstWithPrompt):
-                result = await self.agent.run(
-                    instance.user_prompt.content,
-                    message_history=instance.message_history,
-                    **usage_kwargs,
-                )
-            else:
-                assert isinstance(self.agent, SignatureAgent)
-                result = await self.agent.run_signature(
-                    instance.input,
-                    message_history=instance.message_history,
-                    candidate=candidate,
-                    **usage_kwargs,
-                )
-
+            result = await self._invoke_agent(
+                case,
+                candidate=candidate,
+                message_history=self._message_history_for_case(case),
+                usage_kwargs=usage_kwargs,
+            )
             run_usage = result.usage()
             await self._record_gepa_usage(run_usage)
             return RolloutOutput.from_success(result.output, usage=run_usage)
@@ -1144,30 +1029,33 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         except UsageBudgetExceeded:
             raise
         except _UsageLimitExceeded as exc:
-            case_id = getattr(instance, "case_id", "unknown")
-            logfire.warn(
-                "Agent run usage limit reached",
-                case_id=case_id,
-            )
+            logfire.warn("Agent run usage limit reached", case_id=case_name)
             logger.warning(
-                "Agent run for instance %s exceeded per-run usage limits",
-                case_id,
+                "Agent run for case %s exceeded per-run usage limits",
+                case_name,
             )
             return RolloutOutput.from_error(exc, kind="system")
-        except Exception as e:
-            error_kind = _classify_exception(e)
-            case_id = getattr(instance, "case_id", "unknown")
+        except Exception as exc:
+            error_kind = _classify_exception(exc)
             logfire.error(
                 "AgentAdapter run_simple failed",
-                case_id=case_id,
+                case_id=case_name,
                 error_kind=error_kind,
                 candidate_keys=sorted(candidate.keys()) if candidate else None,
             )
-            logger.exception(
-                "Failed to run agent without traces for instance %s",
-                case_id,
-            )
-            return RolloutOutput.from_error(e, kind=error_kind)
+            logger.exception("Failed to run agent without traces for case %s", case_name)
+            return RolloutOutput.from_error(exc, kind=error_kind)
+
+    @abstractmethod
+    async def _invoke_agent(
+        self,
+        case: Case[InputT, OutputT, MetadataT],
+        *,
+        candidate: dict[str, str] | None,
+        message_history: list[ModelMessage] | None,
+        usage_kwargs: Mapping[str, Any],
+    ) -> AgentRunResult[Any]:
+        """Run the underlying agent for the provided case."""
 
     def make_reflective_dataset(
         self,
@@ -1176,16 +1064,6 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
     ) -> ReflectiveDataset:
-        """Build a reflective dataset for instruction refinement.
-
-        Args:
-            candidate: The candidate that was evaluated.
-            eval_batch: The evaluation results with trajectories.
-            components_to_update: Component names to update.
-
-        Returns:
-            ReflectiveDataset containing shared reflection records for all components.
-        """
         trajectories = eval_batch.trajectories
         if not trajectories:
             return SharedReflectiveDataset(records=[])
@@ -1231,3 +1109,153 @@ class AgentAdapter(Adapter[DataInstT], Generic[DataInstT]):
             agent=self.agent,
             input_type=self.input_spec,
         )
+
+
+class AgentAdapter(
+    _BaseAgentAdapter[str, OutputT, MetadataT],
+    Generic[OutputT, MetadataT],
+):
+    """Adapter for agents that accept string prompts."""
+
+    def __init__(
+        self,
+        *,
+        agent: "AbstractAgent[Any, Any]",
+        metric: Callable[[Case[str, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult],
+        cache_manager: CacheManager | None = None,
+        optimize_tools: bool = False,
+        agent_usage_limits: _usage.UsageLimits | None = None,
+        gepa_usage_limits: _usage.UsageLimits | None = None,
+    ) -> None:
+        super().__init__(
+            agent=agent,
+            metric=metric,
+            input_spec=None,
+            cache_manager=cache_manager,
+            optimize_tools=optimize_tools,
+            agent_usage_limits=agent_usage_limits,
+            gepa_usage_limits=gepa_usage_limits,
+        )
+
+    async def _invoke_agent(
+        self,
+        case: Case[str, OutputT, MetadataT],
+        *,
+        candidate: dict[str, str] | None,
+        message_history: list[ModelMessage] | None,
+        usage_kwargs: Mapping[str, Any],
+    ) -> AgentRunResult[Any]:
+        prompt = case.inputs
+        if not isinstance(prompt, str):
+            raise TypeError(
+                "AgentAdapter expects Case.inputs to be a string prompt for prompt-based agents"
+            )
+        return await self.agent.run(
+            prompt,
+            message_history=message_history,
+            **usage_kwargs,
+        )
+
+    def _build_synthetic_request(
+        self,
+        case: Case[str, OutputT, MetadataT],
+        candidate: dict[str, str] | None,
+    ) -> ModelRequest | None:
+        prompt = case.inputs
+        if not isinstance(prompt, str):
+            return None
+        instructions_text = None
+        if candidate is not None:
+            instructions_text = candidate.get("instructions")
+        if instructions_text is None:
+            maybe_instructions = _safe_getattr(self.agent, "_instructions")
+            if isinstance(maybe_instructions, str):
+                instructions_text = maybe_instructions
+        return ModelRequest(
+            parts=[UserPromptPart(content=prompt)],
+            instructions=instructions_text,
+        )
+
+
+class SignatureAgentAdapter(
+    _BaseAgentAdapter[InputT, OutputT, MetadataT],
+    Generic[InputT, OutputT, MetadataT],
+):
+    """Adapter for agents that accept structured inputs."""
+
+    def __init__(
+        self,
+        *,
+        agent: SignatureAgent[Any, OutputT],
+        metric: Callable[[Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult],
+        input_type: InputSpec[BaseModel] | None = None,
+        cache_manager: CacheManager | None = None,
+        optimize_tools: bool = False,
+        agent_usage_limits: _usage.UsageLimits | None = None,
+        gepa_usage_limits: _usage.UsageLimits | None = None,
+    ) -> None:
+        bound_spec = (
+            build_input_spec(input_type)
+            if input_type is not None
+            else agent.input_spec
+        )
+        self._input_model_cls: type[BaseModel] | None = bound_spec.model_cls if bound_spec else None
+        self._signature_agent: SignatureAgent[Any, OutputT] = agent
+        super().__init__(
+            agent=agent,
+            metric=metric,
+            input_spec=bound_spec,
+            cache_manager=cache_manager,
+            optimize_tools=optimize_tools,
+            agent_usage_limits=agent_usage_limits,
+            gepa_usage_limits=gepa_usage_limits,
+        )
+
+    async def _invoke_agent(
+        self,
+        case: Case[InputT, OutputT, MetadataT],
+        *,
+        candidate: dict[str, str] | None,
+        message_history: list[ModelMessage] | None,
+        usage_kwargs: Mapping[str, Any],
+    ) -> AgentRunResult[Any]:
+        inputs = self._validate_inputs(case.inputs)
+        return await self._signature_agent.run_signature(
+            inputs,
+            message_history=message_history,
+            candidate=candidate,
+            **usage_kwargs,
+        )
+
+    def _validate_inputs(self, inputs: InputT) -> BaseModel:
+        if isinstance(inputs, BaseModel):
+            return inputs
+        if isinstance(inputs, Mapping):
+            if self._input_model_cls is None:
+                raise ValueError(
+                    "SignatureAgentAdapter requires an input_type when cases provide dict inputs"
+                )
+            return self._input_model_cls.model_validate(inputs)
+        raise ValueError("SignatureAgentAdapter requires BaseModel or dict inputs")
+
+
+def create_adapter(
+    *,
+    agent: "AbstractAgent[Any, Any]",
+    metric: Callable[[Case[Any, Any, MetadataT], RolloutOutput[Any]], MetricResult],
+    input_type: InputSpec[BaseModel] | None = None,
+    **kwargs: Any,
+) -> AgentAdapter[Any, MetadataT] | SignatureAgentAdapter[Any, Any, MetadataT]:
+    """Create an adapter suited for the provided agent."""
+    if isinstance(agent, SignatureAgent):
+        return SignatureAgentAdapter(
+            agent=agent,
+            metric=metric,
+            input_type=input_type,
+            **kwargs,
+        )
+    if input_type is not None:
+        raise TypeError(
+            "input_type can only be provided when agent is a SignatureAgent"
+        )
+    return AgentAdapter(agent=agent, metric=metric, **kwargs)

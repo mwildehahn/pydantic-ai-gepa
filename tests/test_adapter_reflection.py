@@ -10,24 +10,27 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import ToolDefinition
 
+from pydantic_evals import Case
+
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter, AgentAdapterTrajectory
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.evaluation_models import EvaluationBatch
 from pydantic_ai_gepa.types import (
-    DataInst,
-    DataInstWithPrompt,
     MetricResult,
     RolloutOutput,
 )
 
 
-def _make_adapter() -> AgentAdapter[DataInst]:
+def _make_adapter() -> AgentAdapter[str, dict[str, Any]]:
     agent = Agent(TestModel(), instructions="Base instructions")
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(
+        case: Case[str, str, dict[str, Any]],
+        output: RolloutOutput[Any],
+    ) -> MetricResult:
         return MetricResult(score=0.5, feedback="feedback")
 
-    return AgentAdapter(agent, metric)
+    return AgentAdapter(agent=agent, metric=metric)
 
 
 def _make_trajectory(
@@ -148,19 +151,14 @@ async def test_run_with_trace_returns_trajectory_on_usage_limit() -> None:
     agent = Agent(TestModel(), instructions="Base instructions")
 
     adapter = AgentAdapter(
-        agent,
-        metric=lambda data_inst, output: MetricResult(score=0.0, feedback="unused"),
+        agent=agent,
+        metric=lambda case, output: MetricResult(score=0.0, feedback="unused"),
         agent_usage_limits=UsageLimits(request_limit=0),
     )
 
-    data_inst = DataInstWithPrompt(
-        user_prompt=UserPromptPart(content="Hello"),
-        message_history=None,
-        metadata={},
-        case_id="usage-limit-case",
-    )
+    case = Case(name="usage-limit-case", inputs="Hello", metadata={})
 
-    trajectory, output = await adapter._run_with_trace(data_inst, candidate=None)
+    trajectory, output = await adapter._run_with_trace(case, 0, candidate=None)
     assert trajectory is not None
     assert output.success is False
     assert trajectory.error is not None

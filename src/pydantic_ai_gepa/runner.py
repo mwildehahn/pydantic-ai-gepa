@@ -16,7 +16,7 @@ from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
 from pydantic_graph.beta.graph import EndMarker, GraphTask
 
-from .adapters.agent_adapter import AgentAdapter
+from .adapters.agent_adapter import create_adapter
 from .cache import CacheManager
 from .components import (
     apply_candidate_to_agent,
@@ -36,7 +36,7 @@ from .gepa_graph.models import (
 )
 from .signature import InputSpec
 from .reflection import ReflectionSampler
-from .types import DataInstT, MetricResult, RolloutOutput
+from .types import Case, MetricResult, RolloutOutput
 from .progress import OptimizationProgress
 ComponentSelectorLiteral = Literal["round_robin", "all"]
 
@@ -133,7 +133,7 @@ async def optimize_agent(
     agent: AbstractAgent[Any, Any],
     trainset: DatasetInput,
     *,
-    metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
+    metric: Callable[[Case[Any, Any, Any], RolloutOutput[Any]], MetricResult],
     valset: DatasetInput | None = None,
     input_type: InputSpec[BaseModel] | None = None,
     seed_candidate: dict[str, str] | None = None,
@@ -260,7 +260,7 @@ async def optimize_agent(
             verbose=cache_verbose,
         )
 
-    adapter = AgentAdapter(
+    adapter = create_adapter(
         agent=agent,
         metric=metric,
         input_type=input_type,

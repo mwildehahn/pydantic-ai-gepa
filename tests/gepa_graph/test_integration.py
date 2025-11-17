@@ -10,13 +10,12 @@ from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph import create_deps, create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig, GepaState
-from pydantic_ai_gepa.types import DataInst
 from tests.gepa_graph.utils import AdapterStub, ProposalGeneratorStub, make_dataset
 
 
 @pytest.mark.asyncio
 async def test_graph_run_produces_improved_candidate() -> None:
-    adapter = cast(Adapter[DataInst], AdapterStub())
+    adapter = cast(Adapter[str, str, dict[str, str]], AdapterStub())
     config = GepaConfig(
         max_evaluations=40,
         minibatch_size=2,

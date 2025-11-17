@@ -24,15 +24,11 @@ from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
 from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import (
-    DataInst,
-    DataInstWithInput,
-    DataInstWithPrompt,
     MetricResult,
     RolloutOutput,
 )
 
 from pydantic_ai import Agent, usage as _usage
-from pydantic_ai.messages import UserPromptPart
 from pydantic_ai.models.test import TestModel
 from pydantic_evals import Case, Dataset
 
@@ -69,28 +65,15 @@ async def test_optimize_agent_minimal_flow():
         cases=[
             Case(
                 name=f"case-{i}",
-                inputs={"text": f"Sample {i} describing something {tok}."},
+                inputs=(
+                    "Categorize the following input as one of: positive, negative, or neutral.\n"
+                    f"Input: Sample {i} describing something {tok}."
+                ),
                 expected_output=_label_for_token(tok),
             )
             for i, tok in enumerate(tokens)
         ]
     )
-
-    # Convert the dataset to GEPA DataInst entries
-    trainset: list[DataInst] = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(
-                content=(
-                    "Categorize the following input as one of: positive, negative, or neutral.\n"
-                    f"Input: {case.inputs['text']}"
-                )
-            ),
-            message_history=None,
-            metadata={"label": str(case.expected_output)},
-            case_id=case.name or f"case-{i}",
-        )
-        for i, case in enumerate(dataset.cases)
-    ]
 
     # Agent returns a fixed label; we are not testing real model behavior here
     agent = Agent(
@@ -104,14 +87,14 @@ async def test_optimize_agent_minimal_flow():
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(
-        data_inst: DataInst, output: RolloutOutput[Any]
+        case: Case[str, str, Any], output: RolloutOutput[Any]
     ) -> MetricResult:
         predicted = (
             str(output.result).strip().lower()
             if output.success and output.result is not None
             else ""
         )
-        expected = str(data_inst.metadata.get("label", "")).strip().lower()
+        expected = str(case.expected_output or "").strip().lower()
         score = 1.0 if predicted == expected else 0.0
         return MetricResult(
             score=score,
@@ -134,7 +117,7 @@ async def test_optimize_agent_minimal_flow():
     # Keep the budget low; use TestModel() for the reflection model to exercise the full path
     result = await optimize_agent(
         agent=agent,
-        trainset=trainset,
+        trainset=dataset,
         metric=metric,
         reflection_model=reflection_model,
         max_metric_calls=20,
@@ -177,25 +160,12 @@ async def test_optimize_agent_minimal_flow_with_signature():
         cases=[
             Case(
                 name=f"case-{i}",
-                inputs={"text": f"Sample {i} describing something {tok}."},
+                inputs=Input(text=f"Sample {i} describing something {tok}."),
                 expected_output=_label_for_token(tok),
             )
             for i, tok in enumerate(tokens)
         ]
     )
-
-    # Convert the dataset to GEPA DataInst entries
-    trainset: list[DataInst] = [
-        DataInstWithInput(
-            input=Input(
-                text=case.inputs["text"],
-            ),
-            message_history=None,
-            metadata={"label": str(case.expected_output)},
-            case_id=case.name or f"case-{i}",
-        )
-        for i, case in enumerate(dataset.cases)
-    ]
 
     # Agent returns a fixed label; we are not testing real model behavior here
     agent = Agent(
@@ -213,14 +183,14 @@ async def test_optimize_agent_minimal_flow_with_signature():
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
     def metric(
-        data_inst: DataInst, output: RolloutOutput[Any]
+        case: Case[Input, str, Any], output: RolloutOutput[Any]
     ) -> MetricResult:
         predicted = (
             str(output.result).strip().lower()
             if output.success and output.result is not None
             else ""
         )
-        expected = str(data_inst.metadata.get("label", "")).strip().lower()
+        expected = str(case.expected_output or "").strip().lower()
         score = 1.0 if predicted == expected else 0.0
         return MetricResult(
             score=score,
@@ -243,7 +213,7 @@ async def test_optimize_agent_minimal_flow_with_signature():
     # Keep the budget low; use TestModel() for the reflection model to exercise the full path
     result = await optimize_agent(
         agent=signature_agent,
-        trainset=trainset,
+        trainset=dataset,
         input_type=Input,
         metric=metric,
         reflection_model=reflection_model,
@@ -269,17 +239,12 @@ async def test_optimize_agent_reports_progress(monkeypatch: pytest.MonkeyPatch):
         instructions="Say ok.",
     )
 
-    trainset: list[DataInst] = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content="Hello"),
-            message_history=None,
-            metadata={"label": "ok"},
-            case_id="case-0",
-        )
+    trainset = [
+        Case(name="case-0", inputs="Hello", expected_output="ok")
     ]
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
-        del data_inst  # unused
+    def metric(case: Case[str, str, Any], output: RolloutOutput[Any]) -> MetricResult:
+        del case  # unused
         return MetricResult(score=1.0, feedback="Fine")
 
     reflection_output = InstructionProposalOutput(
@@ -336,13 +301,8 @@ async def test_optimize_agent_reports_progress(monkeypatch: pytest.MonkeyPatch):
 async def test_optimize_agent_respects_agent_usage_limits():
     """Per-run UsageLimits should be enforced for each agent evaluation."""
 
-    trainset: list[DataInst] = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content="Respond with anything."),
-            message_history=None,
-            metadata={"label": "irrelevant"},
-            case_id="usage-case",
-        )
+    trainset = [
+        Case(name="usage-case", inputs="Respond with anything.", expected_output="irrelevant")
     ]
 
     agent = Agent(
@@ -365,8 +325,8 @@ async def test_optimize_agent_respects_agent_usage_limits():
 
     metric_outputs: list[bool] = []
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
-        del data_inst  # unused
+    def metric(case: Case[str, str, Any], output: RolloutOutput[Any]) -> MetricResult:
+        del case  # unused
         metric_outputs.append(output.success)
         # Hitting the per-run request limit should yield a failed rollout.
         assert output.success is False
@@ -391,13 +351,8 @@ async def test_optimize_agent_respects_agent_usage_limits():
 async def test_optimize_agent_stops_on_gepa_usage_budget():
     """The overall usage budget should stop the optimizer once exceeded."""
 
-    trainset: list[DataInst] = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"Prompt {i}"),
-            message_history=None,
-            metadata={"label": "ok"},
-            case_id=f"budget-case-{i}",
-        )
+    trainset = [
+        Case(name=f"budget-case-{i}", inputs=f"Prompt {i}", expected_output="ok")
         for i in range(3)
     ]
 
@@ -419,8 +374,8 @@ async def test_optimize_agent_stops_on_gepa_usage_budget():
         custom_output_args=reflection_output.model_dump(mode="python")
     )
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
-        del data_inst  # unused
+    def metric(case: Case[str, str, Any], output: RolloutOutput[Any]) -> MetricResult:
+        del case  # unused
         return MetricResult(score=1.0 if output.success else 0.0, feedback="ok")
 
     result = await optimize_agent(

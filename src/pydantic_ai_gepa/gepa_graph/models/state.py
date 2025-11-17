@@ -17,7 +17,8 @@ from pydantic import (
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
 
-from ...types import DataInst, RolloutOutput
+from ...types import RolloutOutput
+from pydantic_evals import Case
 from ..datasets import DataLoader, ensure_loader
 from ...reflection import ReflectionSampler
 from .candidate import CandidateProgram
@@ -288,10 +289,10 @@ class GepaState(BaseModel):
         ..., description="Immutable configuration that governs the optimization run."
     )
 
-    training_set: DataLoader[Any, DataInst] = Field(
+    training_set: DataLoader[Any, Case[Any, Any, Any]] = Field(
         ..., exclude=True, description="Training dataset used to evaluate candidates."
     )
-    validation_set: DataLoader[Any, DataInst] | None = Field(
+    validation_set: DataLoader[Any, Case[Any, Any, Any]] | None = Field(
         default=None,
         exclude=True,
         description="Optional validation dataset; defaults to the training data when omitted.",
@@ -302,8 +303,11 @@ class GepaState(BaseModel):
     @field_validator("training_set", mode="before")
     @classmethod
     def _coerce_training_set(
-        cls, value: DataLoader[Any, DataInst] | Sequence[DataInst] | None
-    ) -> DataLoader[Any, DataInst]:
+        cls,
+        value: DataLoader[Any, Case[Any, Any, Any]]
+        | Sequence[Case[Any, Any, Any]]
+        | None,
+    ) -> DataLoader[Any, Case[Any, Any, Any]]:
         if value is None:
             raise ValueError("training_set is required.")
         loader = ensure_loader(value)
@@ -314,8 +318,11 @@ class GepaState(BaseModel):
     @field_validator("validation_set", mode="before")
     @classmethod
     def _coerce_validation_set(
-        cls, value: DataLoader[Any, DataInst] | Sequence[DataInst] | None
-    ) -> DataLoader[Any, DataInst] | None:
+        cls,
+        value: DataLoader[Any, Case[Any, Any, Any]]
+        | Sequence[Case[Any, Any, Any]]
+        | None,
+    ) -> DataLoader[Any, Case[Any, Any, Any]] | None:
         if value is None:
             return None
         loader = ensure_loader(value)

@@ -18,7 +18,7 @@ GEPA (Genetic Evolution with Prompt Adaptation) is an evolutionary optimization 
 - Components can be prompts, instructions, code snippets, or any text
 
 **Data Types**
-- `DataInst`: User-defined input data type (opaque to GEPA)
+- `Case[InputT, OutputT, MetadataT]`: Structured dataset example from `pydantic_evals` containing inputs, optional metadata, and optional expected outputs
 - `Trajectory`: Execution trace capturing intermediate system states
 - `RolloutOutput`: System output (opaque to GEPA)
 - `DataId`: Hashable identifier for data examples (int, str, UUID, tuple, etc.)
@@ -189,10 +189,14 @@ The single integration point between user systems and GEPA.
 ### 3.1 GEPAAdapter Protocol
 
 ```python
-class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
+from pydantic_evals import Case
+
+CaseT = Case[InputT, OutputT, MetadataT]
+
+class GEPAAdapter(Protocol[CaseT, Trajectory, RolloutOutput]):
     def evaluate(
         self,
-        batch: list[DataInst],
+        batch: Sequence[CaseT],
         candidate: dict[str, str],
         capture_traces: bool = False,
     ) -> EvaluationBatch[Trajectory, RolloutOutput]
@@ -490,7 +494,7 @@ Can implement:
 all_ids() -> Sequence[DataId]
   - Return ordered universe of IDs currently available
 
-fetch(ids: Sequence[DataId]) -> list[DataInst]
+fetch(ids: Sequence[DataId]) -> list[Case[InputT, OutputT, MetadataT]]
   - Materialize payloads for IDs, preserving order
 
 __len__() -> int
@@ -506,7 +510,7 @@ __len__() -> int
 ### 8.2 ListDataLoader
 
 **Simple in-memory implementation**
-- Wraps `Sequence[DataInst]`
+- Wraps `Sequence[Case[InputT, OutputT, MetadataT]]`
 - Uses integer indices as DataId
 - Direct list access
 

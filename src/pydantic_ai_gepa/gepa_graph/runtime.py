@@ -11,7 +11,6 @@ from pydantic_graph.beta.graph import EndMarker, GraphTask
 
 from ..adapter import Adapter
 from ..exceptions import UsageBudgetExceeded
-from ..types import DataInstT
 from .deps import GepaDeps
 from .datasets import DatasetInput, resolve_dataset
 from .graph import create_gepa_graph
@@ -25,13 +24,13 @@ logger = logging.getLogger(__name__)
 
 async def optimize(
     *,
-    adapter: Adapter[DataInstT],
+    adapter: Adapter[Any, Any, Any],
     config: GepaConfig,
     trainset: DatasetInput,
     valset: DatasetInput | None = None,
     seed_candidate: Mapping[str, str] | None = None,
-    deps: GepaDeps[DataInstT] | None = None,
-        graph: Graph[GepaState, GepaDeps[Any], None, GepaResult] | None = None,
+    deps: GepaDeps | None = None,
+        graph: Graph[GepaState, GepaDeps, None, GepaResult] | None = None,
     show_progress: bool = False,
 ) -> GepaResult:
     """Execute the GEPA graph end-to-end and return the resulting ``GepaResult``.
@@ -108,7 +107,7 @@ async def optimize(
 
 
 def _describe_event(
-    graph: Graph[GepaState, GepaDeps[Any], None, GepaResult],
+    graph: Graph[GepaState, GepaDeps, None, GepaResult],
     event: EndMarker[GepaResult] | Sequence[GraphTask],
 ) -> str | None:
     if isinstance(event, EndMarker):
@@ -123,7 +122,7 @@ def _describe_event(
 
 
 def _node_label(
-    graph: Graph[GepaState, GepaDeps[Any], None, GepaResult],
+    graph: Graph[GepaState, GepaDeps, None, GepaResult],
     node_id,
 ) -> str:
     node = graph.nodes.get(node_id)

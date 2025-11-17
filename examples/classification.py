@@ -1,8 +1,9 @@
 import asyncio
 import json
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import logfire
 from pydantic import BaseModel, Field
@@ -12,7 +13,7 @@ from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import DataInstWithInput, MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import MetricResult, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -31,8 +32,13 @@ class ClassificationOutput(BaseModel):
     category: Literal["positive", "negative", "neutral"]
 
 
+@dataclass
+class ClassificationMetadata:
+    label: Literal["positive", "negative", "neutral"]
+
+
 # Define a challenging dataset with ambiguous cases that force specific classifications
-dataset = Dataset[ClassificationInput, ClassificationOutput](
+dataset = Dataset[ClassificationInput, ClassificationOutput, ClassificationMetadata](
     cases=[
         # Extremely ambiguous cases - could genuinely be any category
         Case(
@@ -237,22 +243,6 @@ dataset = Dataset[ClassificationInput, ClassificationOutput](
     ]
 )
 
-# Use a diverse set of challenging cases for training
-# Include examples from different categories to help the model learn the nuanced steering patterns
-signature_dataset = [
-    DataInstWithInput[ClassificationInput](
-        input=case.inputs,
-        message_history=None,
-        metadata={
-            "label": case.expected_output.category
-            if case.expected_output
-            else "unknown"
-        },
-        case_id=case.name or f"case-{i}",
-    )
-    for i, case in enumerate(dataset.cases)
-]
-
 agent = Agent(
     model="openai:gpt-3.5-turbo",
     instructions="Classify text sentiment.",  # Intentionally simple to test optimization
@@ -302,24 +292,36 @@ eval_signature_agent = SignatureAgent(
 
 
 def metric(
-    data_inst: DataInstWithInput[ClassificationInput],
+    case: Case[ClassificationInput, ClassificationOutput, ClassificationMetadata],
     output: RolloutOutput[ClassificationOutput],
 ) -> MetricResult:
-    if (
-        output.success
-        and output.result
-        and output.result.category == data_inst.metadata["label"]
-    ):
+    metadata = case.metadata
+    label = (
+        metadata.label
+        if metadata is not None
+        else (
+            case.expected_output.category
+            if case.expected_output is not None
+            else "unknown"
+        )
+    )
+    if output.success and output.result and output.result.category == label:
         print("Correct")
         return MetricResult(score=1.0, feedback="Correct")
 
+    allowed = {"positive", "negative", "neutral"}
+    if label in allowed:
+        desired = cast(Literal["positive", "negative", "neutral"], label)
+    else:
+        desired = "neutral"
+
     eval_signature = EvaluationInput(
-        text=data_inst.input.text,
+        text=case.inputs.text,
         error_message=output.error_message,
         category=output.result.category
         if output.result
         else "neutral",  # Default to neutral if no result
-        desired_category=data_inst.metadata["label"],
+        desired_category=desired,
     )
 
     eval_output = eval_signature_agent.run_signature_sync(
@@ -355,8 +357,8 @@ async def main() -> None:
     result = await optimize_agent(
         agent=signature_agent,
         seed_candidate=seed_result.best_candidate,
-        trainset=signature_dataset[:15],
-        valset=signature_dataset[15:],
+        trainset=dataset.cases[:15],
+        valset=dataset.cases[15:],
         module_selector="all",
         metric=metric,
         input_type=ClassificationInput,

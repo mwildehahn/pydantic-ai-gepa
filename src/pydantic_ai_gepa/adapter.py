@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Generic, Protocol, TypeVar
+
+from pydantic_evals import Case
 
 from .evaluation_models import EvaluationBatch
-from .types import DataInstT
+
+InputT = TypeVar("InputT")
+OutputT = TypeVar("OutputT")
+MetadataT = TypeVar("MetadataT")
 
 
 @dataclass(slots=True)
@@ -28,12 +33,12 @@ ReflectiveDataset = SharedReflectiveDataset | ComponentReflectiveDataset
 
 
 
-class Adapter(Protocol[DataInstT]):
+class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
     """Protocol describing the minimal surface required by the GEPA engine."""
 
     async def evaluate(
         self,
-        batch: Sequence[DataInstT],
+        batch: Sequence[Case[InputT, OutputT, MetadataT]],
         candidate: dict[str, str],
         capture_traces: bool,
     ) -> EvaluationBatch:

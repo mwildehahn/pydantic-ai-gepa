@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Any, Iterable
 
 import logfire
 from pydantic_graph.beta import StepContext
 
-from ...types import DataInst
+from pydantic_evals import Case
 from ..deps import GepaDeps
 from ..models import CandidateProgram, GepaState
 from .continue_step import IterationAction
@@ -149,7 +149,7 @@ def _record_partial_validation(
 def _get_subsample_scores(
     state: GepaState,
     parent_idx: int,
-    subsample: Iterable[tuple[str, DataInst]],
+    subsample: Iterable[tuple[str, Case[Any, Any, Any]]],
 ) -> list[float]:
     if parent_idx < 0 or parent_idx >= len(state.candidates):
         raise IndexError(f"Parent index {parent_idx} is out of range.")

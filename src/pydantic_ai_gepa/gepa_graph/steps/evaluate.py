@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Sequence
 
 import logfire
 from pydantic_graph.beta import StepContext
 
-from ...types import DataInst
+from pydantic_evals import Case
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
 from ..models import CandidateProgram, ComponentValue, GepaState
@@ -82,7 +82,7 @@ def _current_candidate(state: GepaState) -> CandidateProgram:
     return state.candidates[-1]
 
 
-async def _get_validation_batch(state: GepaState) -> list[DataInst]:
+async def _get_validation_batch(state: GepaState) -> list[Case[Any, Any, Any]]:
     loader = state.validation_set
     if loader is None or len(loader) == 0:
         raise ValueError("GepaState.validation_set must be populated before evaluation.")

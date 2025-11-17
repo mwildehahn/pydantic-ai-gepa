@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 
 import pytest
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationBatch, ParallelEvaluator
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput
 
 
 def _make_candidate() -> CandidateProgram:
@@ -24,13 +24,8 @@ def _make_candidate() -> CandidateProgram:
     )
 
 
-def _make_data_inst(case_id: str) -> DataInstWithPrompt:
-    return DataInstWithPrompt(
-        user_prompt=UserPromptPart(content=f"prompt-{case_id}"),
-        message_history=None,
-        metadata={},
-        case_id=case_id,
-    )
+def _make_data_inst(case_id: str) -> Case[str, str, dict[str, str]]:
+    return Case(name=case_id, inputs=f"prompt-{case_id}", metadata={})
 
 
 class _RecordingAdapter:
@@ -49,7 +44,11 @@ class _RecordingAdapter:
             trajectories = None
             if capture_traces:
                 trajectories = [
-                    AgentAdapterTrajectory(messages=[], final_output=None, data_inst=batch[0])
+                    AgentAdapterTrajectory(
+                        messages=[],
+                        final_output=None,
+                        case=batch[0],
+                    )
                 ]
 
             return EvaluationBatch(
@@ -74,7 +73,7 @@ class _CachingAdapter:
         self.cache_hits = 0
 
     async def evaluate(self, batch, candidate, capture_traces):
-        key = (batch[0].case_id, tuple(sorted(candidate.items())))
+        key = (batch[0].name, tuple(sorted(candidate.items())))
         if key in self._cache:
             self.cache_hits += 1
             return self._cache[key]

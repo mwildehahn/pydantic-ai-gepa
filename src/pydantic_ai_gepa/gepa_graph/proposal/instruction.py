@@ -554,7 +554,7 @@ class InstructionProposalGenerator:
         if not self._include_hypothesis_metadata or reasoning is None:
             return {}
 
-        base = {
+        base: dict[str, Any] = {
             "pattern": reasoning.pattern_discovery.strip(),
             "hypothesis": reasoning.creative_hypothesis.strip(),
             "approach": reasoning.experimental_approach.strip(),

@@ -9,11 +9,10 @@ from typing import Any, Mapping, Sequence
 from pydantic_ai import UsageLimits
 from pydantic_ai.agent import AbstractAgent
 from pydantic import BaseModel
-from pydantic_evals import Dataset
+from pydantic_evals import Case, Dataset
 
-from .components import apply_candidate_to_agent
-from .adapters.agent_adapter import AgentAdapter
-from .types import DataInst, DataInstWithInput
+from .adapters.agent_adapter import create_adapter
+from .signature import InputSpec
 
 
 @dataclass(slots=True)
@@ -30,25 +29,43 @@ async def evaluate_candidate_dataset(
     *,
     agent: AbstractAgent[Any, Any],
     metric,
-    input_type,
-    dataset: Sequence[DataInst],
+    dataset: Sequence[Case[Any, Any, Any]] | Dataset[Any, Any],
     candidate: Mapping[str, str] | None = None,
     concurrency: int = 20,
     agent_usage_limits: UsageLimits | None = None,
     capture_traces: bool = False,
+    input_type: InputSpec[BaseModel] | None = None,
 ) -> list[EvaluationRecord]:
     """Evaluate an agent/candidate pair on a dataset in parallel."""
 
     semaphore = asyncio.Semaphore(max(1, concurrency))
     records: list[EvaluationRecord] = []
 
-    async def run_case(index: int, data_inst: DataInst, adapter: AgentAdapter) -> None:
+    cases: Sequence[Case[Any, Any, Any]]
+    if isinstance(dataset, Dataset):
+        cases = dataset.cases
+    else:
+        cases = dataset
+
+    adapter = create_adapter(
+        agent=agent,
+        metric=metric,
+        input_type=input_type,
+        cache_manager=None,
+        agent_usage_limits=agent_usage_limits,
+    )
+
+    candidate_dict = dict(candidate or {})
+
+    async def run_case(index: int, case: Case[Any, Any, Any]) -> None:
         async with semaphore:
-            result = await adapter.process_data_instance(
-                data_inst,
+            result = await adapter.process_case(
+                case,
+                index,
                 capture_traces=capture_traces,
+                candidate=candidate_dict,
             )
-            case_id = getattr(data_inst, "case_id", None) or f"case-{index}"
+            case_id = case.name or f"case-{index}"
             records.append(
                 EvaluationRecord(
                     case_id=case_id,
@@ -58,50 +75,10 @@ async def evaluate_candidate_dataset(
                 )
             )
 
-    with apply_candidate_to_agent(agent, candidate):
-        adapter = AgentAdapter(
-            agent=agent,
-            metric=metric,
-            input_type=input_type,
-            cache_manager=None,
-            agent_usage_limits=agent_usage_limits,
-        )
-        await asyncio.gather(*(
-            run_case(idx, data_inst, adapter)
-            for idx, data_inst in enumerate(dataset)
-        ))
+    with adapter.apply_candidate(candidate_dict):
+        await asyncio.gather(*(run_case(idx, case) for idx, case in enumerate(cases)))
 
     return records
-
-
-def dataset_to_data_insts(
-    dataset: Dataset[Any, Any],
-    *,
-    input_type: type[BaseModel],
-) -> list[DataInstWithInput[Any]]:
-    """Convert a pydantic_evals Dataset into GEPA DataInst entries."""
-
-    insts: list[DataInstWithInput[Any]] = []
-    for idx, case in enumerate(dataset.cases):
-        inputs = case.inputs
-        if not isinstance(inputs, input_type):
-            inputs = input_type.model_validate(inputs)
-        insts.append(
-            DataInstWithInput(
-                input=inputs,
-                message_history=None,
-                metadata={"expected": case.expected_output},
-                case_id=case.name or f"case-{idx}",
-            )
-        )
-    return insts
-
-
-__all__ = [
-    "EvaluationRecord",
-    "evaluate_candidate_dataset",
-    "dataset_to_data_insts",
-]
 
 
 __all__ = [

@@ -10,7 +10,6 @@ from pydantic_graph.beta import Graph
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.gepa_graph.graph import create_gepa_graph
 from pydantic_ai_gepa.gepa_graph.models import GepaConfig
-from pydantic_ai_gepa.types import DataInst
 
 
 @dataclass
@@ -39,8 +38,8 @@ class _AdapterStub:
         return {"instructions": "seed"}
 
 
-def _make_adapter(name: str | None = None) -> Adapter[DataInst]:
-    return cast(Adapter[DataInst], _AdapterStub(agent=_AgentStub(name=name)))
+def _make_adapter(name: str | None = None) -> Adapter[str, str, dict[str, str]]:
+    return cast(Adapter[str, str, dict[str, str]], _AdapterStub(agent=_AgentStub(name=name)))
 
 
 def test_create_gepa_graph_without_merge() -> None:

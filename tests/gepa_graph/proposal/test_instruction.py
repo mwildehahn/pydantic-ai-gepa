@@ -6,7 +6,8 @@ from inline_snapshot import snapshot
 import pytest
 import time_machine
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_evals import Case
 from pydantic_ai.models.function import FunctionModel
 
 from pydantic_ai_gepa.adapter import (
@@ -16,7 +17,7 @@ from pydantic_ai_gepa.adapter import (
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue
 from pydantic_ai_gepa.gepa_graph.proposal import InstructionProposalGenerator
-from pydantic_ai_gepa.types import DataInstWithPrompt, MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import MetricResult, RolloutOutput
 
 
 def _make_candidate() -> CandidateProgram:
@@ -625,7 +626,7 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
         return f"Weather in {location}: Sunny, 72°F"
 
     # Set up adapter with a simple metric
-    def metric(data_inst: DataInstWithPrompt, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(case: Case[str, str, dict[str, str]], output: RolloutOutput[Any]) -> MetricResult:
         # Score based on whether it used the tool
         success = output.success and output.result is not None
         return MetricResult(
@@ -633,22 +634,12 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
             feedback="Good use of tools" if success else "Failed to use tools",
         )
 
-    adapter = AgentAdapter(agent, metric, optimize_tools=True)
+    adapter = AgentAdapter(agent=agent, metric=metric, optimize_tools=True)
 
     # Create test data with multiple runs
     test_data = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content="What's the weather in San Francisco?"),
-            message_history=None,
-            metadata={},
-            case_id="weather_1",
-        ),
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content="What's the weather in New York?"),
-            message_history=None,
-            metadata={},
-            case_id="weather_2",
-        ),
+        Case(name="weather_1", inputs="What's the weather in San Francisco?", metadata={}),
+        Case(name="weather_2", inputs="What's the weather in New York?", metadata={}),
     ]
 
     # Run evaluation with traces
