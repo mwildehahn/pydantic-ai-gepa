@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 
 from .gepa_graph.models import CandidateMap, ComponentValue
-from .signature import InputSpec, build_input_spec
+from .input_type import InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .tool_components import get_tool_optimizer
 

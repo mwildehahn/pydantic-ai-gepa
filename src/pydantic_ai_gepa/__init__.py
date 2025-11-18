@@ -18,7 +18,7 @@ from .inspection import (
 )
 from .exceptions import UsageBudgetExceeded
 from .runner import GepaOptimizationResult, optimize_agent
-from .signature import (
+from .input_type import (
     BoundInputSpec,
     InputSpec,
     SignatureSuffix,

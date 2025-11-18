@@ -257,7 +257,7 @@ src/pydantic_ai_gepa/
 ├── runner.py          # Main optimize_agent entry point
 ├── components/        # GEPA optimization components
 ├── caching/          # LLM result caching
-├── signature.py      # Agent signature adapters
+├── input_type.py     # Structured input utilities
 └── ...
 
 examples/             # Example optimization workflows

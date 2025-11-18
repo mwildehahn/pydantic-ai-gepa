@@ -50,7 +50,7 @@ from ..components import (
 from ..evaluation_models import EvaluationBatch
 from ..gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
 from ..inspection import InspectionAborted
-from ..signature import BoundInputSpec, InputSpec, build_input_spec
+from ..input_type import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
 from ..tool_components import get_or_create_tool_optimizer
 from ..types import (

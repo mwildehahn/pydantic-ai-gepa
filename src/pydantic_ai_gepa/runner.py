@@ -35,7 +35,7 @@ from .gepa_graph.models import (
     GepaResult,
     GepaState,
 )
-from .signature import InputSpec
+from .input_type import InputSpec
 from .reflection import ReflectionSampler
 from .types import Case, MetricResult, RolloutOutput
 from .progress import OptimizationProgress

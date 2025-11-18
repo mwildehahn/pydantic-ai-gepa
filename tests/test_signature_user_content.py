@@ -5,7 +5,7 @@ from typing import Sequence
 from pydantic import BaseModel, Field
 from pydantic_ai.messages import ImageUrl, UserContent
 
-from pydantic_ai_gepa.signature import (
+from pydantic_ai_gepa.input_type import (
     generate_system_instructions,
     generate_user_content,
 )

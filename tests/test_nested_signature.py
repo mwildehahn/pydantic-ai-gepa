@@ -3,7 +3,7 @@ from __future__ import annotations
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
-from pydantic_ai_gepa.signature import (
+from pydantic_ai_gepa.input_type import (
     apply_candidate_to_input_model,
     generate_system_instructions,
     generate_user_content,

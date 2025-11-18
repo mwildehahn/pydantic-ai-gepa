@@ -14,7 +14,7 @@ from pydantic_ai_gepa.gepa_graph.models import (
     ComponentValue,
     candidate_texts,
 )
-from pydantic_ai_gepa.signature import (
+from pydantic_ai_gepa.input_type import (
     apply_candidate_to_input_model,
     generate_system_instructions,
     generate_user_content,

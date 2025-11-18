@@ -14,7 +14,7 @@ from pydantic_evals import Case, Dataset
 
 from .adapters.agent_adapter import create_adapter
 from .gepa_graph.models import CandidateMap, candidate_texts
-from .signature import InputSpec
+from .input_type import InputSpec
 
 
 @dataclass(slots=True)
