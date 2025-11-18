@@ -1,5 +1,8 @@
 # pydantic-ai-gepa
 
+> [!NOTE]
+> This library is in an extremely experimental, fast-moving phase and should not be considered stable while we work toward a solid API.
+
 GEPA-driven prompt optimization for [pydantic-ai](https://github.com/pydantic/pydantic-ai) agents. This library provides evolutionary optimization of agent prompts, structured input schemas, and tool descriptions within the pydantic-ai ecosystem.
 
 ## About
