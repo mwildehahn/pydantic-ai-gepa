@@ -133,13 +133,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             if existing_optimizer is not None:
                 self._tool_optimizer = existing_optimizer
 
-    def _resolve_input_spec(
-        self,
-        input_type: InputSpec[BaseModel] | None = None,
-    ) -> BoundInputSpec[BaseModel]:
-        """Return the bound input spec for either the default or an override."""
-        if input_type is not None:
-            return build_input_spec(input_type)
+    def _resolve_input_spec(self) -> BoundInputSpec[BaseModel]:
+        """Return the bound input spec configured for this agent."""
         return self._input_spec
 
     @property
@@ -312,9 +307,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     async def run_signature(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -333,9 +327,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     async def run_signature(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT],
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -353,9 +346,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     async def run_signature(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -374,8 +366,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """Run the agent with a signature-based prompt.
 
         Args:
-            signature: The structured input instance containing the input data.
-            input_type: Optional structured input specification to override the default input schema.
+            input_type: The structured input instance containing the input data.
             output_type: Custom output type to use for this run; defaults to the configured signature output type.
             candidate: Optional GEPA candidate with optimized text for components.
             user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
@@ -396,10 +387,10 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Raises:
             ValueError: If user_prompt is provided without message_history.
         """
-        # Prepare user content and system instructions from signature
-        bound_input_spec = self._resolve_input_spec(input_type)
+        # Prepare user content and system instructions from the structured input
+        bound_input_spec = self._resolve_input_spec()
         prepared_user_prompt, instructions_override = self._prepare_run_arguments(
-            signature,
+            input_type,
             input_spec=bound_input_spec,
             candidate=candidate,
             message_history=message_history,
@@ -442,9 +433,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_sync(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -463,9 +453,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_sync(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT],
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -483,9 +472,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
     def run_signature_sync(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -504,8 +492,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """Synchronously run the agent with a signature-based prompt.
 
         Args:
-            signature: The structured input instance containing the input data.
-            input_type: Optional structured input specification to override the default input schema.
+            input_type: The structured input instance containing the input data.
             output_type: Custom output type to use for this run; defaults to the configured signature output type.
             candidate: Optional GEPA candidate with optimized text for components.
             user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
@@ -526,10 +513,10 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Raises:
             ValueError: If user_prompt is provided without message_history.
         """
-        # Prepare user content and system instructions from signature
-        bound_input_spec = self._resolve_input_spec(input_type)
+        # Prepare user content and system instructions from the structured input
+        bound_input_spec = self._resolve_input_spec()
         prepared_user_prompt, instructions_override = self._prepare_run_arguments(
-            signature,
+            input_type,
             input_spec=bound_input_spec,
             candidate=candidate,
             message_history=message_history,
@@ -572,9 +559,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_stream(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -593,9 +579,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @overload
     def run_signature_stream(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT],
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -614,9 +599,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     @asynccontextmanager
     async def run_signature_stream(
         self,
-        signature: BaseModel,
+        input_type: BaseModel,
         *,
-        input_type: InputSpec[BaseModel] | None = None,
         output_type: OutputSpec[RunOutputDataT] | type[RunOutputDataT] | None = None,
         candidate: dict[str, str] | None = None,
         user_prompt: UserPromptInput | None = None,
@@ -635,8 +619,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         """Stream the agent execution with a signature-based prompt.
 
         Args:
-            signature: The structured input instance containing the input data.
-            input_type: Optional structured input specification to override the default input schema.
+            input_type: The structured input instance containing the input data.
             output_type: Custom output type to use for this run; defaults to the configured signature output type.
             candidate: Optional GEPA candidate with optimized text for components.
             user_prompt: Explicit user prompt to send for follow-ups; requires message_history.
@@ -657,10 +640,10 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         Raises:
             ValueError: If user_prompt is provided without message_history.
         """
-        # Prepare user content and system instructions from signature
-        bound_input_spec = self._resolve_input_spec(input_type)
+        # Prepare user content and system instructions from the structured input
+        bound_input_spec = self._resolve_input_spec()
         prepared_user_prompt, instructions_override = self._prepare_run_arguments(
-            signature,
+            input_type,
             input_spec=bound_input_spec,
             candidate=candidate,
             message_history=message_history,
