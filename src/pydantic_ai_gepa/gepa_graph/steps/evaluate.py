@@ -85,12 +85,16 @@ def _current_candidate(state: GepaState) -> CandidateProgram:
 async def _get_validation_batch(state: GepaState) -> list[Case[Any, Any, Any]]:
     loader = state.validation_set
     if loader is None or len(loader) == 0:
-        raise ValueError("GepaState.validation_set must be populated before evaluation.")
+        raise ValueError(
+            "GepaState.validation_set must be populated before evaluation."
+        )
     ids = list(await loader.all_ids())
     return await loader.fetch(ids)
 
 
-def _apply_results(candidate: CandidateProgram, results: EvaluationResults[str]) -> None:
+def _apply_results(
+    candidate: CandidateProgram, results: EvaluationResults[str]
+) -> None:
     for data_id, score, output in results:
         candidate.record_validation(
             data_id=data_id,
@@ -113,20 +117,20 @@ def _hydrate_missing_components(
     components = deps.adapter.get_components()
 
     missing = {
-        key: text
-        for key, text in components.items()
+        key: value
+        for key, value in components.items()
         if key not in candidate.components
     }
     if not missing:
         return
 
     for name, text in missing.items():
-        candidate.components[name] = ComponentValue(name=name, text=text)
+        candidate.components[name] = text.model_copy()
 
     seed = deps.seed_candidate or {}
-    updated_seed = dict(seed)
-    for name, text in missing.items():
-        updated_seed.setdefault(name, text)
+    updated_seed = {name: component.model_copy() for name, component in seed.items()}
+    for name, value in missing.items():
+        updated_seed.setdefault(name, value.model_copy())
     deps.seed_candidate = updated_seed
 
 

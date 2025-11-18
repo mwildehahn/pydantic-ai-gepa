@@ -10,6 +10,7 @@ from pydantic_evals import Case
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 from pydantic_ai_gepa.gepa_graph.proposal import ProposalResult
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
 from pydantic_ai_gepa.types import RolloutOutput
 
 __all__ = [
@@ -50,7 +51,7 @@ class AdapterStub:
         self.input_spec = None
 
     async def evaluate(self, batch, candidate, capture_traces):
-        text = candidate["instructions"]
+        text = candidate["instructions"].text
         base = 0.85 if text.startswith("improved") else 0.4
 
         outputs = [
@@ -89,8 +90,8 @@ class AdapterStub:
         ]
         return SharedReflectiveDataset(records=records)
 
-    def get_components(self) -> dict[str, str]:
-        return {"instructions": "seed instructions"}
+    def get_components(self) -> CandidateMap:
+        return {"instructions": ComponentValue(name="instructions", text="seed instructions")}
 
 
 class ProposalGeneratorStub:

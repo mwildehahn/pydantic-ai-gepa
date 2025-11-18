@@ -666,8 +666,8 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
     candidate_program = CandidateProgram(
         idx=0,
         components={
-            name: ComponentValue(name=name, text=text)
-            for name, text in candidate.items()
+            name: value if isinstance(value, ComponentValue) else ComponentValue(name=name, text=value)
+            for name, value in candidate.items()
         },
         creation_type="seed",
         discovered_at_iteration=0,

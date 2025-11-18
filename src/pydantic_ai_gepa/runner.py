@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Mapping, cast
 
 import logfire
 
@@ -21,14 +20,16 @@ from .cache import CacheManager
 from .components import (
     apply_candidate_to_agent,
     apply_candidate_to_agent_and_input_type,
+    ensure_component_values,
     extract_seed_candidate_with_input_type,
-    normalize_component_text,
 )
 from .exceptions import UsageBudgetExceeded
 from .gepa_graph import create_deps, create_gepa_graph
 from .gepa_graph.datasets import DatasetInput, resolve_dataset
 from .gepa_graph.models import (
+    CandidateMap,
     CandidateSelectorStrategy,
+    ComponentValue,
     EvaluationErrorEvent,
     GepaConfig,
     GepaResult,
@@ -38,6 +39,7 @@ from .signature import InputSpec
 from .reflection import ReflectionSampler
 from .types import Case, MetricResult, RolloutOutput
 from .progress import OptimizationProgress
+
 ComponentSelectorLiteral = Literal["round_robin", "all"]
 
 if TYPE_CHECKING:
@@ -45,27 +47,16 @@ if TYPE_CHECKING:
     from pydantic_ai.models import Model
 
 
-module_logger = logging.getLogger(__name__)
-
-
-def _normalize_candidate(
-    candidate: dict[str, Any] | None,
-) -> dict[str, str]:
-    if not candidate:
-        return {}
-    return {key: normalize_component_text(value) for key, value in candidate.items()}
-
-
 class GepaOptimizationResult(BaseModel):
     """Result from GEPA optimization."""
 
-    best_candidate: dict[str, str]
+    best_candidate: CandidateMap
     """The best candidate found during optimization."""
 
     best_score: float
     """The validation score of the best candidate."""
 
-    original_candidate: dict[str, str]
+    original_candidate: CandidateMap
     """The original candidate before optimization."""
 
     original_score: float | None
@@ -136,7 +127,7 @@ async def optimize_agent(
     metric: Callable[[Case[Any, Any, Any], RolloutOutput[Any]], MetricResult],
     valset: DatasetInput | None = None,
     input_type: InputSpec[BaseModel] | None = None,
-    seed_candidate: dict[str, str] | None = None,
+    seed_candidate: Mapping[str, ComponentValue | str] | None = None,
     reflection_model: Model | KnownModelName | str | None = None,
     reflection_model_settings: ModelSettings | None = None,
     candidate_selection_strategy: str = "pareto",
@@ -236,15 +227,18 @@ async def optimize_agent(
         GepaOptimizationResult with the best candidate and metadata.
     """
     train_loader = await resolve_dataset(trainset, name="trainset")
-    val_loader = await resolve_dataset(valset, name="valset") if valset is not None else None
+    val_loader = (
+        await resolve_dataset(valset, name="valset") if valset is not None else None
+    )
 
-    extracted_seed_candidate = _normalize_candidate(
-        extract_seed_candidate_with_input_type(agent=agent, input_type=input_type)
+    extracted_seed_candidate = extract_seed_candidate_with_input_type(
+        agent=agent,
+        input_type=input_type,
     )
     if seed_candidate is None:
         normalized_seed_candidate = extracted_seed_candidate
     else:
-        normalized_seed_candidate = _normalize_candidate(seed_candidate)
+        normalized_seed_candidate = ensure_component_values(seed_candidate)
         if sorted(extracted_seed_candidate.keys()) != sorted(
             normalized_seed_candidate.keys()
         ):
@@ -337,9 +331,9 @@ async def optimize_agent(
             exception=exc,
             total_evaluations=state.total_evaluations,
         )
-        module_logger.info(
-            "GEPA usage budget exceeded; returning best-so-far candidate (evaluations=%s)",
-            state.total_evaluations,
+        logfire.info(
+            "Returning best-so-far candidate after usage budget exceeded",
+            total_evaluations=state.total_evaluations,
         )
         gepa_result = GepaResult.from_state(state)
     except Exception as exc:
@@ -349,7 +343,10 @@ async def optimize_agent(
             "Optimization failed",
             exception=exc,
         )
-        module_logger.exception("Optimization failed", exc_info=exc)
+        logfire.error(
+            "Optimization failed while returning fallback result",
+            exception=exc,
+        )
         return _fallback_result(normalized_seed_candidate)
 
     if gepa_result is None:
@@ -359,7 +356,10 @@ async def optimize_agent(
     if best_candidate_model is None:
         best_candidate_dict = normalized_seed_candidate
     else:
-        best_candidate_dict = _normalize_candidate(best_candidate_model.to_dict_str())
+        best_candidate_dict = {
+            name: component.model_copy()
+            for name, component in best_candidate_model.components.items()
+        }
 
     if gepa_result.original_candidate is not None:
         original_candidate_model = gepa_result.original_candidate
@@ -371,9 +371,10 @@ async def optimize_agent(
     if original_candidate_model is None:
         original_candidate_dict = normalized_seed_candidate
     else:
-        original_candidate_dict = _normalize_candidate(
-            original_candidate_model.to_dict_str()
-        )
+        original_candidate_dict = {
+            name: component.model_copy()
+            for name, component in original_candidate_model.components.items()
+        }
 
     result = GepaOptimizationResult(
         best_candidate=best_candidate_dict,
@@ -389,7 +390,6 @@ async def optimize_agent(
     if cache_manager and cache_verbose:
         stats = cache_manager.get_cache_stats()
         logfire.info("Cache stats", stats=stats)
-        module_logger.info("Cache stats: %s", stats)
 
     return result
 
@@ -401,7 +401,7 @@ def _build_gepa_config(
     skip_perfect_score: bool,
     perfect_score: float,
     module_selector: str,
-    seed_candidate: dict[str, str],
+    seed_candidate: CandidateMap,
     candidate_selection_strategy: str,
     use_merge: bool,
     max_merge_invocations: int,
@@ -486,8 +486,12 @@ def _node_label(graph: Any, node_id) -> str:
     return str(node_id)
 
 
-def _fallback_result(seed_candidate: dict[str, str]) -> GepaOptimizationResult:
-    candidate_copy = dict(seed_candidate)
+def _fallback_result(
+    seed_candidate: CandidateMap,
+) -> GepaOptimizationResult:
+    candidate_copy = {
+        name: component.model_copy() for name, component in seed_candidate.items()
+    }
     return GepaOptimizationResult(
         best_candidate=candidate_copy,
         best_score=0.0,

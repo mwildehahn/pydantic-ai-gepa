@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Generic, Sequence, TypeVar
-
-from ...adapter import Adapter
+from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar
 from ...evaluation_models import EvaluationBatch
 from ...types import RolloutOutput, Trajectory
 from pydantic_evals import Case
-from ..models import CandidateProgram
+from ..models import CandidateMap, CandidateProgram
+
+if TYPE_CHECKING:
+    from ...adapter import Adapter
 
 DataIdT = TypeVar("DataIdT")
 
@@ -49,7 +50,7 @@ class ParallelEvaluator:
         *,
         candidate: CandidateProgram,
         batch: Sequence[Case[Any, Any, Any]],
-        adapter: Adapter[Any, Any, Any],
+        adapter: "Adapter[Any, Any, Any]",
         max_concurrent: int = 10,
         capture_traces: bool = False,
     ) -> EvaluationResults[str]:
@@ -63,7 +64,7 @@ class ParallelEvaluator:
             )
 
         semaphore = asyncio.Semaphore(max(1, max_concurrent))
-        candidate_payload = candidate.to_dict_str()
+        candidate_payload = candidate.components
 
         async def run_one(index: int, instance: Case[Any, Any, Any]):
             async with semaphore:
@@ -84,9 +85,9 @@ class ParallelEvaluator:
     async def _call_adapter(
         self,
         *,
-        adapter: Adapter[Any, Any, Any],
+        adapter: "Adapter[Any, Any, Any]",
         instance: Case[Any, Any, Any],
-        candidate_payload: dict[str, str],
+        candidate_payload: CandidateMap,
         capture_traces: bool,
     ) -> EvaluationBatch:
         return await adapter.evaluate(

@@ -13,6 +13,7 @@ from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
 
 from pydantic_ai_gepa.cache import CacheManager, create_cached_metric
+from pydantic_ai_gepa.gepa_graph.models import ComponentValue
 from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
     ComponentUpdate,
     InstructionProposalOutput,
@@ -64,7 +65,9 @@ def test_cache_manager_basic():
         )
 
         output = RolloutOutput.from_success("Test result")
-        candidate = {"instructions": "Test instructions"}
+        candidate = {
+            "instructions": ComponentValue(name="instructions", text="Test instructions"),
+        }
 
         # Initially, cache should miss
         result = cache.get_cached_metric_result(case, None, output, candidate)
@@ -85,7 +88,9 @@ def test_cache_manager_basic():
         assert result == MetricResult(score=0.95, feedback="Good job")
 
         # Different candidate should miss
-        different_candidate = {"instructions": "Different instructions"}
+        different_candidate = {
+            "instructions": ComponentValue(name="instructions", text="Different instructions"),
+        }
         result = cache.get_cached_metric_result(
             case,
             None,
@@ -126,7 +131,9 @@ def test_cache_scopes_entries_by_model():
             metadata={"label": "positive"},
         )
         output = RolloutOutput.from_success("positive")
-        candidate = {"instructions": "Classify sentiment"}
+        candidate = {
+            "instructions": ComponentValue(name="instructions", text="Classify sentiment"),
+        }
 
         result_a = MetricResult(score=0.9, feedback="model-a")
         result_b = MetricResult(score=0.5, feedback="model-b")
@@ -210,8 +217,11 @@ def test_cache_manager_with_signature():
 
         output = RolloutOutput.from_success("positive")
         candidate = {
-            "instructions": "Classify the text",
-            "signature:TestSignature:text:desc": "Input text",
+            "instructions": ComponentValue(name="instructions", text="Classify the text"),
+            "signature:TestSignature:text:desc": ComponentValue(
+                name="signature:TestSignature:text:desc",
+                text="Input text",
+            ),
         }
 
         # Cache a result
@@ -243,7 +253,9 @@ def test_cache_manager_disabled():
 
     case = _prompt_case("Test", name="test-1")
     output = RolloutOutput.from_success("Result")
-    candidate = {"instructions": "Do something"}
+    candidate = {
+        "instructions": ComponentValue(name="instructions", text="Do something"),
+    }
 
     # Should always return None when disabled
     result = cache.get_cached_metric_result(case, None, output, candidate)
@@ -279,7 +291,9 @@ def test_create_cached_metric():
             return MetricResult(score=0.8, feedback=f"Call {call_count}")
 
         # Create cached version
-        candidate = {"instructions": "Test"}
+        candidate = {
+            "instructions": ComponentValue(name="instructions", text="Test"),
+        }
         cached_metric = create_cached_metric(mock_metric, cache_manager, candidate)
 
         # Create test data
@@ -402,7 +416,9 @@ def test_cache_handles_errors():
 
         # Test with error output
         error_output = RolloutOutput.from_error(Exception("Test error"))
-        candidate = {"instructions": "Test"}
+        candidate = {
+            "instructions": ComponentValue(name="instructions", text="Test"),
+        }
 
         # Should be able to cache error results
         cache.cache_metric_result(
@@ -437,7 +453,9 @@ def test_cache_agent_runs():
 
         output = RolloutOutput.from_success("Agent result")
         trajectory = AgentAdapterTrajectory(messages=[], final_output="Agent result", error=None)
-        candidate = {"instructions": "Test instructions"}
+        candidate = {
+            "instructions": ComponentValue(name="instructions", text="Test instructions"),
+        }
 
         # Initially, cache should miss
         result = cache.get_cached_agent_run(case, 0, candidate, capture_traces=True)
@@ -483,7 +501,9 @@ def test_cache_agent_runs():
         assert cached_output.result == "Agent result"
 
         # Different candidate should miss
-        different_candidate = {"instructions": "Different"}
+        different_candidate = {
+            "instructions": ComponentValue(name="instructions", text="Different"),
+        }
         result = cache.get_cached_agent_run(
             case,
             0,
@@ -507,12 +527,18 @@ def test_cache_key_stability():
 
         # Candidates with different key orders but same content
         candidate1 = {
-            "instructions": "Test",
-            "signature:ExampleSignature:instructions": "InputType",
+            "instructions": ComponentValue(name="instructions", text="Test"),
+            "signature:ExampleSignature:instructions": ComponentValue(
+                name="signature:ExampleSignature:instructions",
+                text="InputType",
+            ),
         }
         candidate2 = {
-            "signature:ExampleSignature:instructions": "InputType",
-            "instructions": "Test",
+            "signature:ExampleSignature:instructions": ComponentValue(
+                name="signature:ExampleSignature:instructions",
+                text="InputType",
+            ),
+            "instructions": ComponentValue(name="instructions", text="Test"),
         }
 
         # Cache with first candidate

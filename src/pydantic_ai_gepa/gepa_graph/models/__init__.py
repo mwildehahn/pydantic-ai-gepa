@@ -1,6 +1,6 @@
 """Data models used by the GEPA graph implementation."""
 
-from .candidate import CandidateProgram, ComponentValue
+from .candidate import CandidateMap, CandidateProgram, ComponentValue, candidate_texts
 from .pareto import ParetoFrontEntry
 from .result import GepaResult
 from .state import (
@@ -14,6 +14,8 @@ from .state import (
 __all__ = [
     "CandidateProgram",
     "CandidateSelectorStrategy",
+    "CandidateMap",
+    "candidate_texts",
     "EvaluationErrorEvent",
     "ComponentValue",
     "GenealogyRecord",

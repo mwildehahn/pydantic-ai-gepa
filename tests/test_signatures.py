@@ -9,6 +9,11 @@ from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 from pydantic_ai_gepa import AgentAdapter, MetricResult, SignatureAgent, SignatureAgentAdapter
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
+    ComponentValue,
+    candidate_texts,
+)
 from pydantic_ai_gepa.signature import (
     apply_candidate_to_input_model,
     generate_system_instructions,
@@ -19,6 +24,8 @@ from pydantic_evals import Case
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
+def _instructions_candidate(text: str) -> CandidateMap:
+    return {"instructions": ComponentValue(name="instructions", text=text)}
 
 
 class EmailSender(BaseModel):
@@ -388,7 +395,7 @@ async def test_agent_adapter_applies_candidate_to_signature_agent():
         metadata={},
     )
 
-    candidate = {"instructions": "Reflected instructions"}
+    candidate = _instructions_candidate("Reflected instructions")
     batch = await adapter.evaluate(
         [instance],
         candidate=candidate,
@@ -399,7 +406,7 @@ async def test_agent_adapter_applies_candidate_to_signature_agent():
     trajectory = batch.trajectories[0]
     assert trajectory is not None
     assert trajectory.instructions is not None
-    assert trajectory.instructions.splitlines()[0] == candidate["instructions"]
+    assert trajectory.instructions.splitlines()[0] == candidate["instructions"].text
 
 
 def test_extract_seed_candidate_with_signatures():
@@ -417,7 +424,7 @@ def test_extract_seed_candidate_with_signatures():
     )
 
     # Should have components from both agent and signature
-    assert candidate == snapshot(
+    assert candidate_texts(candidate) == snapshot(
         {
             "instructions": "Be helpful and professional.",
             "signature:EmailSupportSignature:instructions": "Analyze customer support emails and generate appropriate responses.",

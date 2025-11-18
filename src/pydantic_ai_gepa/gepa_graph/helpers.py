@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..adapter import Adapter
 from .deps import GepaDeps
 from .evaluation import ParallelEvaluator, ParetoFrontManager
-from .models import CandidateSelectorStrategy, GepaConfig
-from .proposal import InstructionProposalGenerator, MergeProposalBuilder
+from .models import CandidateMap, CandidateSelectorStrategy, ComponentValue, GepaConfig
 from .selectors import (
     AllComponentSelector,
     BatchSampler,
@@ -20,11 +17,16 @@ from .selectors import (
     RoundRobinComponentSelector,
 )
 
+if TYPE_CHECKING:
+    from ..adapter import Adapter
+    from .proposal import InstructionProposalGenerator, MergeProposalBuilder
+
+
 def create_deps(
-    adapter: Adapter[Any, Any, Any],
+    adapter: "Adapter[Any, Any, Any]",
     config: GepaConfig,
     *,
-    seed_candidate: Mapping[str, str] | None = None,
+    seed_candidate: CandidateMap | None = None,
 ) -> GepaDeps:
     """Construct :class:`GepaDeps` instances for a GEPA run.
 
@@ -34,6 +36,8 @@ def create_deps(
         seed_candidate: Optional initial candidate mapping injected into ``GepaDeps``
             for consumption by :class:`StartStep`.
     """
+    from .proposal import InstructionProposalGenerator, MergeProposalBuilder
+
     candidate_selector = _build_candidate_selector(config)
     component_selector = _build_component_selector(config)
     batch_sampler = BatchSampler(seed=config.seed)
@@ -51,7 +55,7 @@ def create_deps(
         ),
         merge_builder=MergeProposalBuilder(seed=config.seed),
         reflection_model=config.reflection_model,
-        seed_candidate=dict(seed_candidate) if seed_candidate is not None else None,
+        seed_candidate=seed_candidate,
     )
 
 

@@ -13,7 +13,9 @@ from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.gepa_graph import create_deps
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
     CandidateSelectorStrategy,
+    ComponentValue,
     GepaConfig,
     GepaState,
 )
@@ -49,8 +51,8 @@ class _AdapterStub:
     ) -> SharedReflectiveDataset:  # pragma: no cover
         return SharedReflectiveDataset(records=[])
 
-    def get_components(self) -> dict[str, str]:  # pragma: no cover
-        return {"instructions": "seed"}
+    def get_components(self) -> CandidateMap:  # pragma: no cover
+        return {"instructions": ComponentValue(name="instructions", text="seed")}
 
 
 def _make_adapter() -> Adapter[str, str, dict[str, str]]:

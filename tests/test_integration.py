@@ -16,7 +16,6 @@ from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
-    normalize_component_text,
 )
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.evaluation import evaluate_candidate_dataset
@@ -25,6 +24,7 @@ from pydantic_ai_gepa.types import (
     MetricResult,
     RolloutOutput,
 )
+from pydantic_ai_gepa.gepa_graph.models import ComponentValue
 
 
 def test_extract_seed_candidate():
@@ -36,19 +36,8 @@ def test_extract_seed_candidate():
 
     candidate = extract_seed_candidate(agent)
 
-    assert candidate["instructions"] == "Be helpful"
+    assert candidate["instructions"].text == "Be helpful"
     assert len(candidate) == 1
-
-
-def test_normalize_component_text_handles_mapping() -> None:
-    nested = {
-        "name": "instructions",
-        "text": {
-            "name": "instructions",
-            "text": "Do math.",
-        },
-    }
-    assert normalize_component_text(nested) == "Do math."
 
 
 @pytest.mark.asyncio
@@ -85,7 +74,11 @@ async def test_evaluate_candidate_dataset_helper() -> None:
         metric=metric,
         input_type=InputModel,
         dataset=dataset,
-        candidate={"instructions": "Always answer alpha"},
+        candidate={
+            "instructions": ComponentValue(
+                name="instructions", text="Always answer alpha"
+            )
+        },
         concurrency=2,
     )
 

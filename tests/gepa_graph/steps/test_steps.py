@@ -15,6 +15,7 @@ from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
     CandidateProgram,
     ComponentValue,
     GepaConfig,
@@ -78,7 +79,7 @@ class _FakeAdapter:
         case_name = batch[0].name or "unnamed"
         score = self.scores.get(case_name, 0.5)
         return _FakeEvaluationBatch(
-            outputs=[RolloutOutput.from_success(candidate["instructions"])],
+            outputs=[RolloutOutput.from_success(candidate["instructions"].text)],
             scores=[score],
         )
 
@@ -91,8 +92,8 @@ class _FakeAdapter:
     ) -> SharedReflectiveDataset:
         return SharedReflectiveDataset(records=[])
 
-    def get_components(self) -> dict[str, str]:
-        return {"instructions": "seed"}
+    def get_components(self) -> CandidateMap:
+        return {"instructions": ComponentValue(name="instructions", text="seed")}
 
 
 class _HydratingAdapter(_FakeAdapter):
@@ -105,17 +106,17 @@ class _HydratingAdapter(_FakeAdapter):
         self._include_tool = True
         return result
 
-    def get_components(self) -> dict[str, str]:
+    def get_components(self) -> CandidateMap:
         components = super().get_components()
         if self._include_tool:
-            hydrated = dict(components)
-            hydrated["tool:new"] = "desc"
+            hydrated = {name: value.model_copy() for name, value in components.items()}
+            hydrated["tool:new"] = ComponentValue(name="tool:new", text="desc")
             return hydrated
         return components
 
 
 def _make_deps(
-    seed_candidate: dict[str, str] | None = None,
+    seed_candidate: CandidateMap | None = None,
 ) -> GepaDeps:
     return GepaDeps(
         adapter=cast(Adapter[str, str, dict[str, str]], _FakeAdapter()),
@@ -140,7 +141,11 @@ def _ctx(
 @pytest.mark.asyncio
 async def test_start_step_adds_seed_candidate_from_deps() -> None:
     state = _make_state()
-    deps = _make_deps(seed_candidate={"instructions": "hello world"})
+    deps = _make_deps(
+        seed_candidate={
+            "instructions": ComponentValue(name="instructions", text="hello world"),
+        }
+    )
     ctx = _ctx(state, deps)
 
     await start_step(ctx)
@@ -154,7 +159,11 @@ async def test_start_step_adds_seed_candidate_from_deps() -> None:
 @pytest.mark.asyncio
 async def test_start_step_is_idempotent_when_candidates_exist() -> None:
     state = _make_state()
-    deps = _make_deps(seed_candidate={"instructions": "hello"})
+    deps = _make_deps(
+        seed_candidate={
+            "instructions": ComponentValue(name="instructions", text="hello"),
+        }
+    )
     state.add_candidate(
         CandidateProgram(
             idx=0,
@@ -185,7 +194,9 @@ async def test_start_step_uses_adapter_snapshot_when_seed_missing() -> None:
     assert len(state.candidates) == 1
     candidate = state.candidates[0]
     assert candidate.components["instructions"].text == "seed"
-    assert deps.seed_candidate == {"instructions": "seed"}
+    assert deps.seed_candidate == {
+        "instructions": ComponentValue(name="instructions", text="seed"),
+    }
 
 
 @pytest.mark.asyncio
@@ -232,7 +243,7 @@ async def test_evaluate_step_hydrates_new_components() -> None:
     assert "tool:new" in candidate.components
     assert candidate.components["tool:new"].text == "desc"
     assert deps.seed_candidate is not None
-    assert deps.seed_candidate["tool:new"] == "desc"
+    assert deps.seed_candidate["tool:new"].text == "desc"
 
 
 @pytest.mark.asyncio

@@ -2,35 +2,34 @@
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+import logfire
 from pydantic_graph.beta import Graph
 from pydantic_graph.beta.graph import EndMarker, GraphTask
 
-from ..adapter import Adapter
+if TYPE_CHECKING:
+    from ..adapter import Adapter
+
 from ..exceptions import UsageBudgetExceeded
 from .deps import GepaDeps
 from .datasets import DatasetInput, resolve_dataset
 from .graph import create_gepa_graph
 from .helpers import create_deps
-from .models import GepaConfig, GepaResult, GepaState
+from .models import CandidateMap, ComponentValue, GepaConfig, GepaResult, GepaState
 from ..progress import OptimizationProgress
-
-
-logger = logging.getLogger(__name__)
 
 
 async def optimize(
     *,
-    adapter: Adapter[Any, Any, Any],
+    adapter: "Adapter[Any, Any, Any]",
     config: GepaConfig,
     trainset: DatasetInput,
     valset: DatasetInput | None = None,
-    seed_candidate: Mapping[str, str] | None = None,
+    seed_candidate: Mapping[str, ComponentValue | str] | None = None,
     deps: GepaDeps | None = None,
-        graph: Graph[GepaState, GepaDeps, None, GepaResult] | None = None,
+    graph: Graph[GepaState, GepaDeps, None, GepaResult] | None = None,
     show_progress: bool = False,
 ) -> GepaResult:
     """Execute the GEPA graph end-to-end and return the resulting ``GepaResult``.
@@ -47,24 +46,24 @@ async def optimize(
         show_progress: When True, display a Rich progress bar that tracks the evaluation budget.
     """
 
+    normalized_seed = _coerce_seed_candidate(seed_candidate)
+
     if deps is None:
         resolved_deps = create_deps(
             adapter,
             config,
-            seed_candidate=seed_candidate,
+            seed_candidate=normalized_seed,
         )
     else:
         resolved_deps = deps
-        if seed_candidate is not None:
-            resolved_deps.seed_candidate = dict(seed_candidate)
+        if normalized_seed is not None:
+            resolved_deps.seed_candidate = normalized_seed
 
-    resolved_graph = (
-        graph
-        if graph is not None
-        else create_gepa_graph(config=config)
-    )
+    resolved_graph = graph if graph is not None else create_gepa_graph(config=config)
     training_loader = await resolve_dataset(trainset, name="trainset")
-    validation_loader = await resolve_dataset(valset, name="valset") if valset is not None else None
+    validation_loader = (
+        await resolve_dataset(valset, name="valset") if valset is not None else None
+    )
 
     state = GepaState(
         config=config,
@@ -97,13 +96,31 @@ async def optimize(
             )
     except UsageBudgetExceeded:
         state.mark_stopped(reason="Usage budget exceeded")
-        logger.info("GEPA run stopped early due to usage budget limit.")
+        logfire.info(
+            "GEPA run stopped early due to usage budget limit",
+            best_score=state.best_score,
+            total_evaluations=state.total_evaluations,
+        )
         return GepaResult.from_state(state)
 
     if run_output is None:
         raise RuntimeError("GEPA graph run did not complete.")
 
     return run_output
+
+
+def _coerce_seed_candidate(
+    seed_candidate: Mapping[str, ComponentValue | str] | None,
+) -> CandidateMap | None:
+    if seed_candidate is None:
+        return None
+
+    return {
+        name: component
+        if isinstance(component, ComponentValue)
+        else ComponentValue(name=name, text=str(component))
+        for name, component in seed_candidate.items()
+    }
 
 
 def _describe_event(

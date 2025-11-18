@@ -10,7 +10,7 @@ from typing import Any, Iterable, Sequence
 
 from pydantic_evals import Case
 from ..datasets import DataLoader, data_id_for_instance
-from ..models import CandidateProgram, ComponentValue, GepaState
+from ..models import CandidateMap, CandidateProgram, ComponentValue, GepaState
 
 _SCORE_EPSILON = 1e-6
 
@@ -95,7 +95,7 @@ class MergeProposalBuilder:
         parent1_score = parent1.avg_validation_score
         parent2_score = parent2.avg_validation_score
 
-        merged_components: dict[str, ComponentValue] = {}
+        merged_components: CandidateMap = {}
         for name in parent1.components:
             merged_components[name] = self._choose_component(
                 component=name,

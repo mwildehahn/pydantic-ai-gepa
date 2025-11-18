@@ -9,6 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 from pydantic_evals import Case
 
 from .evaluation_models import EvaluationBatch
+from .gepa_graph.models import CandidateMap, ComponentValue
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -39,7 +40,7 @@ class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
     async def evaluate(
         self,
         batch: Sequence[Case[InputT, OutputT, MetadataT]],
-        candidate: dict[str, str],
+        candidate: CandidateMap,
         capture_traces: bool,
     ) -> EvaluationBatch:
         ...
@@ -47,13 +48,13 @@ class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
     def make_reflective_dataset(
         self,
         *,
-        candidate: dict[str, str],
+        candidate: CandidateMap,
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
     ) -> ReflectiveDataset:
         ...
 
-    def get_components(self) -> dict[str, str]:
+    def get_components(self) -> CandidateMap:
         """Return the adapter's current candidate component mapping."""
         ...
 

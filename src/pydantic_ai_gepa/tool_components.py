@@ -6,13 +6,15 @@ import contextvars
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterable, Iterator, cast
 
 from pydantic_ai._run_context import RunContext
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.agent.wrapper import WrapperAgent
 from pydantic_ai.builtin_tools import AbstractBuiltinTool
 from pydantic_ai.tools import ToolDefinition
+
+from .gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
 
 ToolCandidate = dict[str, str]
 
@@ -46,7 +48,9 @@ def _parameter_key(tool_name: str, path: tuple[str, ...]) -> str:
     return f"tool:{tool_name}:param:{_format_path(path)}"
 
 
-def _iter_schema_descriptions(schema: Any, path: tuple[str, ...] = ()) -> Iterable[tuple[tuple[str, ...], str]]:
+def _iter_schema_descriptions(
+    schema: Any, path: tuple[str, ...] = ()
+) -> Iterable[tuple[tuple[str, ...], str]]:
     """Yield (path, description) pairs for a tool parameter schema."""
     if not isinstance(schema, dict):
         return
@@ -68,7 +72,9 @@ def _iter_schema_descriptions(schema: Any, path: tuple[str, ...] = ()) -> Iterab
             yield from _iter_schema_descriptions(items, path + ("[]",))
 
 
-def _set_schema_description(schema: dict[str, Any], path: tuple[str, ...], value: str) -> bool:
+def _set_schema_description(
+    schema: dict[str, Any], path: tuple[str, ...], value: str
+) -> bool:
     """Set a description on a copied schema, returning True if modified."""
     target: dict[str, Any] | None = schema
     for segment in path:
@@ -163,15 +169,17 @@ class ToolOptimizationManager:
     def __init__(self, agent: AbstractAgent[Any, Any]) -> None:
         self._base_agent = _unwrap_agent(agent)
         self._base_prepare = getattr(self._base_agent, "_prepare_tools", None)
-        self._candidate_var: contextvars.ContextVar[ToolCandidate | None] = contextvars.ContextVar(
-            "gepa_tool_candidate", default=None
+        self._candidate_var: contextvars.ContextVar[ToolCandidate | None] = (
+            contextvars.ContextVar("gepa_tool_candidate", default=None)
         )
         self._catalog = ToolComponentCatalog()
         self._latest_builtin_tools: list[AbstractBuiltinTool] = []
 
         # Install wrapper only once.
         if getattr(self._base_agent, "_gepa_tool_prepare_wrapper", None) is None:
-            setattr(self._base_agent, "_gepa_tool_prepare_wrapper", self._prepare_wrapper)
+            setattr(
+                self._base_agent, "_gepa_tool_prepare_wrapper", self._prepare_wrapper
+            )
             self._base_agent._prepare_tools = self._prepare_wrapper  # type: ignore[assignment]
 
     def get_seed_components(self) -> dict[str, str]:
@@ -199,19 +207,46 @@ class ToolOptimizationManager:
         return list(self._latest_builtin_tools)
 
     @contextmanager
-    def candidate_context(self, candidate: dict[str, str] | None) -> Iterator[None]:
+    def candidate_context(
+        self, candidate: CandidateMap | dict[str, str] | None
+    ) -> Iterator[None]:
         """Context manager to apply a candidate during tool preparation."""
-        filtered = self._filter_candidate(candidate)
+        candidate_map = self._normalize_candidate(candidate)
+        candidate_text = candidate_texts(candidate_map)
+        filtered = self._filter_candidate(candidate_text or None)
         token = self._candidate_var.set(filtered)
         try:
             yield
         finally:
             self._candidate_var.reset(token)
 
-    def _filter_candidate(self, candidate: dict[str, str] | None) -> ToolCandidate | None:
+    def _normalize_candidate(
+        self, candidate: CandidateMap | dict[str, str] | None
+    ) -> CandidateMap:
+        if not candidate:
+            return {}
+        if isinstance(candidate, dict) and all(
+            isinstance(value, ComponentValue) for value in candidate.values()
+        ):
+            return cast(CandidateMap, candidate)
+
+        normalized: CandidateMap = {}
+        for name, value in candidate.items():
+            if isinstance(value, ComponentValue):
+                normalized[name] = value
+            else:
+                normalized[name] = ComponentValue(name=name, text=str(value))
+
+        return normalized
+
+    def _filter_candidate(
+        self, candidate: dict[str, str] | None
+    ) -> ToolCandidate | None:
         if not candidate:
             return None
-        filtered = {key: value for key, value in candidate.items() if key.startswith("tool:")}
+        filtered = {
+            key: value for key, value in candidate.items() if key.startswith("tool:")
+        }
         return filtered or None
 
     async def _prepare_wrapper(
@@ -279,8 +314,9 @@ class ToolOptimizationManager:
         return tool_def
 
 
-
-def get_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimizationManager | None:
+def get_tool_optimizer(
+    agent: AbstractAgent[Any, Any],
+) -> ToolOptimizationManager | None:
     """Return the installed tool optimization manager for an agent, if any."""
     base_agent = _unwrap_agent(agent)
     manager = getattr(base_agent, "_gepa_tool_optimizer", None)
@@ -289,7 +325,9 @@ def get_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimizationManage
     return None
 
 
-def get_or_create_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimizationManager:
+def get_or_create_tool_optimizer(
+    agent: AbstractAgent[Any, Any],
+) -> ToolOptimizationManager:
     """Retrieve or attach a tool optimization manager to an agent."""
     base_agent = _unwrap_agent(agent)
     manager = getattr(base_agent, "_gepa_tool_optimizer", None)
@@ -304,7 +342,9 @@ def get_or_create_tool_optimizer(agent: AbstractAgent[Any, Any]) -> ToolOptimiza
     return manager
 
 
-def _collect_registered_tool_defs(agent: AbstractAgent[Any, Any]) -> list[ToolDefinition]:
+def _collect_registered_tool_defs(
+    agent: AbstractAgent[Any, Any],
+) -> list[ToolDefinition]:
     """Return ToolDefinition objects for currently registered function tools."""
     toolset = getattr(agent, "_function_toolset", None)
     tools = getattr(toolset, "tools", None) if toolset is not None else None

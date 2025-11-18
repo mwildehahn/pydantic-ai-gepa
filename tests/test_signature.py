@@ -8,6 +8,11 @@ from zoneinfo import ZoneInfo
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field, PlainSerializer, WithJsonSchema
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
+    ComponentValue,
+    candidate_texts,
+)
 from pydantic_ai_gepa.signature import (
     SignatureSuffix,
     apply_candidate_to_input_model,
@@ -18,6 +23,10 @@ from pydantic_ai_gepa.signature import (
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
+
+
+def _candidate_map(entries: dict[str, str]) -> CandidateMap:
+    return {name: ComponentValue(name=name, text=value) for name, value in entries.items()}
 
 
 class Email(BaseModel):
@@ -168,9 +177,11 @@ def test_signature_with_context_manager():
     original_instructions = EmailAnalysis.__doc__
 
     # Create a candidate
-    candidate = {
-        "signature:EmailAnalysis:instructions": "Optimized instructions for email analysis.",
-    }
+    candidate = _candidate_map(
+        {
+            "signature:EmailAnalysis:instructions": "Optimized instructions for email analysis.",
+        }
+    )
 
     # Apply temporarily
     with apply_candidate_to_input_model(EmailAnalysis, candidate):
@@ -241,7 +252,7 @@ def test_extract_seed_candidate_with_signature():
     candidate = extract_seed_candidate_with_input_type(
         agent=agent, input_type=EmailAnalysis
     )
-    assert candidate == snapshot(
+    assert candidate_texts(candidate) == snapshot(
         {
             "instructions": "Be helpful and professional.",
             "signature:EmailAnalysis:instructions": "Analyze emails for key information and sentiment.",

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from pydantic_evals import Case, Dataset
 
 from .adapters.agent_adapter import create_adapter
+from .gepa_graph.models import CandidateMap, candidate_texts
 from .signature import InputSpec
 
 
@@ -31,7 +32,7 @@ async def evaluate_candidate_dataset(
     agent: AbstractAgent[Any, Any],
     metric,
     dataset: Sequence[Case[Any, Any, Any]] | Dataset[Any, Any],
-    candidate: Mapping[str, str] | None = None,
+    candidate: CandidateMap | None = None,
     concurrency: int = 20,
     agent_usage_limits: UsageLimits | None = None,
     capture_traces: bool = False,
@@ -59,7 +60,8 @@ async def evaluate_candidate_dataset(
         agent_usage_limits=agent_usage_limits,
     )
 
-    candidate_dict = dict(candidate or {})
+    candidate_map: CandidateMap = candidate.copy() if candidate is not None else {}
+    candidate_text_map = candidate_texts(candidate_map)
 
     task_name = getattr(agent, "name", None) or agent.__class__.__name__
     extra_attributes: dict[str, Any] = {"gen_ai.operation.name": "experiment"}
@@ -70,7 +72,7 @@ async def evaluate_candidate_dataset(
                 case,
                 index,
                 capture_traces=capture_traces,
-                candidate=candidate_dict,
+                candidate=candidate_map,
             )
             case_id = case.name or f"case-{index}"
             records.append(
@@ -88,10 +90,10 @@ async def evaluate_candidate_dataset(
         task_name=task_name,
         dataset_name=dataset_name,
         n_cases=total_cases,
-        candidate_components=len(candidate_dict),
+        candidate_components=len(candidate_map),
         **extra_attributes,
     ) as eval_span:
-        with adapter.apply_candidate(candidate_dict):
+        with adapter.apply_candidate(candidate_map):
             await asyncio.gather(
                 *(run_case(idx, case) for idx, case in enumerate(cases))
             )
@@ -99,8 +101,8 @@ async def evaluate_candidate_dataset(
         experiment_metadata: dict[str, Any] = {"n_cases": total_cases}
         if dataset_name:
             experiment_metadata["dataset_name"] = dataset_name
-        if candidate_dict:
-            experiment_metadata["candidate_keys"] = sorted(candidate_dict)
+        if candidate_text_map:
+            experiment_metadata["candidate_keys"] = sorted(candidate_text_map)
 
         if records:
             average_score = sum(record.score for record in records) / len(records)

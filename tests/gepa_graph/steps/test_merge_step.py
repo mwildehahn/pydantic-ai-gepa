@@ -17,6 +17,7 @@ from pydantic_ai_gepa.gepa_graph.evaluation import (
     ParallelEvaluator,
 )
 from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
     CandidateProgram,
     ComponentValue,
     GepaConfig,
@@ -156,8 +157,8 @@ class _StubAdapter:
     ) -> SharedReflectiveDataset:  # pragma: no cover
         return SharedReflectiveDataset(records=[])
 
-    def get_components(self) -> dict[str, str]:  # pragma: no cover
-        return {"instructions": "seed"}
+    def get_components(self) -> CandidateMap:  # pragma: no cover
+        return {"instructions": ComponentValue(name="instructions", text="seed")}
 
 
 class _StubEvaluator(ParallelEvaluator):

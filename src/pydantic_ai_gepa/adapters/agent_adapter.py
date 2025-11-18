@@ -8,7 +8,6 @@ from collections.abc import Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 import json
-import logging
 import os
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Generic, Literal, TypeVar
@@ -49,6 +48,7 @@ from ..components import (
     extract_seed_candidate_with_input_type,
 )
 from ..evaluation_models import EvaluationBatch
+from ..gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
 from ..inspection import InspectionAborted
 from ..signature import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
@@ -73,17 +73,14 @@ InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
 MetadataT = TypeVar("MetadataT")
 
-_TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = (_ToolRetryError,)
-
-
-logger = logging.getLogger(__name__)
-
 ErrorKind = Literal["tool", "system"]
 
 _LIBRARY_MODULE_PREFIXES = ("pydantic_ai", "pydantic_ai_gepa", "pydantic_graph")
 _LIBRARY_PATH_MARKERS = tuple(
-    f"{os.sep}{name}{os.sep}" for name in ("pydantic_ai", "pydantic_ai_gepa", "pydantic_graph")
+    f"{os.sep}{name}{os.sep}"
+    for name in ("pydantic_ai", "pydantic_ai_gepa", "pydantic_graph")
 )
+_TOOL_ERROR_TYPES: tuple[type[BaseException], ...] = (_ToolRetryError,)
 
 
 def _traceback_originates_from_library(tb: TracebackType | None) -> bool:
@@ -95,7 +92,9 @@ def _traceback_originates_from_library(tb: TracebackType | None) -> bool:
         return False
     frame = last_tb.tb_frame
     module_name = frame.f_globals.get("__name__")
-    if isinstance(module_name, str) and module_name.startswith(_LIBRARY_MODULE_PREFIXES):
+    if isinstance(module_name, str) and module_name.startswith(
+        _LIBRARY_MODULE_PREFIXES
+    ):
         return True
     filename = frame.f_code.co_filename
     if filename and any(marker in filename for marker in _LIBRARY_PATH_MARKERS):
@@ -107,9 +106,13 @@ def _classify_exception(exc: BaseException) -> ErrorKind:
     """Differentiate tool call failures from systemic/library issues."""
     if _TOOL_ERROR_TYPES and isinstance(exc, _TOOL_ERROR_TYPES):
         return "tool"
+
     module_name = type(exc).__module__
-    if isinstance(module_name, str) and module_name.startswith(_LIBRARY_MODULE_PREFIXES):
+    if isinstance(module_name, str) and module_name.startswith(
+        _LIBRARY_MODULE_PREFIXES
+    ):
         return "system"
+
     if _traceback_originates_from_library(exc.__traceback__):
         return "system"
     return "tool"
@@ -133,7 +136,7 @@ def _safe_getattr(obj: Any, attr: str) -> Any | None:
     except AttributeError:
         return None
     except Exception:
-        logger.debug("Failed to read attribute %s from %r", attr, obj, exc_info=True)
+        logfire.debug("Failed to read attribute", attr=attr, obj=obj, exc_info=True)
         return None
 
 
@@ -147,9 +150,7 @@ def _serialize_model_reference(model_obj: Any) -> str:
     if model_name:
         parts.append(str(model_name))
 
-    class_path = (
-        f"{model_obj.__class__.__module__}.{model_obj.__class__.__qualname__}"
-    )
+    class_path = f"{model_obj.__class__.__module__}.{model_obj.__class__.__qualname__}"
     parts.append(class_path)
 
     provider_name = _safe_getattr(model_obj, "provider_name")
@@ -504,7 +505,9 @@ class AgentAdapterTrajectory(Trajectory):
             existing_fn = existing.get("function")
             candidate_fn = tool.get("function")
             if isinstance(existing_fn, dict) and isinstance(candidate_fn, Mapping):
-                if not existing_fn.get("description") and candidate_fn.get("description"):
+                if not existing_fn.get("description") and candidate_fn.get(
+                    "description"
+                ):
                     existing_fn["description"] = candidate_fn["description"]
                 if not existing_fn.get("parameters") and candidate_fn.get("parameters"):
                     existing_fn["parameters"] = candidate_fn["parameters"]
@@ -550,7 +553,6 @@ class AgentAdapterTrajectory(Trajectory):
         return record
 
 
-
 class _BaseAgentAdapter(
     Adapter[InputT, OutputT, MetadataT],
     Generic[InputT, OutputT, MetadataT],
@@ -562,7 +564,9 @@ class _BaseAgentAdapter(
         self,
         *,
         agent: "AbstractAgent[Any, Any]",
-        metric: Callable[[Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult],
+        metric: Callable[
+            [Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult
+        ],
         input_spec: BoundInputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
@@ -592,10 +596,10 @@ class _BaseAgentAdapter(
         """Install tool optimization support for plain agents when requested."""
         try:
             get_or_create_tool_optimizer(self.agent)
-        except Exception:
-            logger.debug(
-                "Tool optimization not available for agent %s",
-                getattr(self.agent, "name", self.agent.__class__.__name__),
+        except Exception as e:
+            logfire.debug(
+                "Tool optimization not available for agent",
+                agent_name=getattr(self.agent, "name", self.agent.__class__.__name__),
                 exc_info=True,
             )
 
@@ -652,13 +656,15 @@ class _BaseAgentAdapter(
     async def evaluate(
         self,
         batch: Sequence[Case[InputT, OutputT, MetadataT]],
-        candidate: dict[str, str],
+        candidate: CandidateMap,
         capture_traces: bool,
     ) -> EvaluationBatch:
         """Evaluate a batch of cases asynchronously."""
         outputs: list[RolloutOutput[Any]] = []
         scores: list[float] = []
-        trajectories: list[AgentAdapterTrajectory] | None = [] if capture_traces else None
+        trajectories: list[AgentAdapterTrajectory] | None = (
+            [] if capture_traces else None
+        )
 
         with self.apply_candidate(candidate):
             results = await asyncio.gather(
@@ -685,12 +691,13 @@ class _BaseAgentAdapter(
             trajectories=trajectories if trajectories else None,
         )
 
-    def apply_candidate(self, candidate: dict[str, str] | None):
+    def apply_candidate(self, candidate: CandidateMap | None):
         """Context manager to apply candidate to both agent and signature."""
         stack = ExitStack()
-        stack.enter_context(apply_candidate_to_agent(self.agent, candidate or {}))
+        candidate_map = candidate if candidate is not None else {}
+        stack.enter_context(apply_candidate_to_agent(self.agent, candidate_map))
         if self.input_spec:
-            stack.enter_context(self.input_spec.apply_candidate(candidate or {}))
+            stack.enter_context(self.input_spec.apply_candidate(candidate))
         return stack
 
     async def process_case(
@@ -698,7 +705,7 @@ class _BaseAgentAdapter(
         case: Case[InputT, OutputT, MetadataT],
         case_index: int,
         capture_traces: bool = False,
-        candidate: dict[str, str] | None = None,
+        candidate: CandidateMap | None = None,
     ) -> dict[str, Any]:
         """Process a single Case and return the metric evaluation."""
         metric_result: MetricResult | None = None
@@ -712,6 +719,7 @@ class _BaseAgentAdapter(
                     capture_traces,
                     model_identifier=self._model_identifier,
                 )
+
                 if cached_agent_result is not None:
                     trajectory, output = cached_agent_result
                 else:
@@ -722,6 +730,7 @@ class _BaseAgentAdapter(
                     else:
                         output = await self._run_simple(case, case_index, candidate)
                         trajectory = None
+
                     self.cache_manager.cache_agent_run(
                         case,
                         case_index,
@@ -748,6 +757,7 @@ class _BaseAgentAdapter(
                     candidate,
                     model_identifier=self._model_identifier,
                 )
+
                 if cached_metric is not None:
                     metric_result = cached_metric
                 else:
@@ -789,7 +799,6 @@ class _BaseAgentAdapter(
                 capture_traces=capture_traces,
                 candidate_keys=sorted(candidate.keys()) if candidate else None,
             )
-            logger.exception("Failed to process case %s", case_name)
             output = RolloutOutput.from_error(exc, kind=error_kind)
             trajectory = (
                 AgentAdapterTrajectory(
@@ -823,15 +832,20 @@ class _BaseAgentAdapter(
         for message in messages:
             if not isinstance(message, ModelRequest):
                 continue
+
             if instructions_text is None and isinstance(message.instructions, str):
                 instructions_text = message.instructions
+
             params = message.model_request_parameters
             if params is None:
                 continue
+
             if function_tools is None and params.function_tools:
                 function_tools = list(params.function_tools)
+
             if output_tools is None and params.output_tools:
                 output_tools = list(params.output_tools)
+
             if (
                 instructions_text is not None
                 and function_tools is not None
@@ -843,7 +857,7 @@ class _BaseAgentAdapter(
     def _build_synthetic_request(
         self,
         case: Case[InputT, OutputT, MetadataT],
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
     ) -> ModelRequest | None:
         return None
 
@@ -869,7 +883,7 @@ class _BaseAgentAdapter(
         captured_messages: Sequence[ModelMessage],
         case: Case[InputT, OutputT, MetadataT],
         case_index: int,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
     ) -> list[ModelMessage]:
         if messages:
             return list(messages)
@@ -885,7 +899,7 @@ class _BaseAgentAdapter(
         self,
         case: Case[InputT, OutputT, MetadataT],
         case_index: int,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
     ) -> tuple[AgentAdapterTrajectory | None, RolloutOutput[Any]]:
         messages: list[ModelMessage] = []
         captured_messages: list[ModelMessage] = []
@@ -912,10 +926,6 @@ class _BaseAgentAdapter(
             raise
         except _UsageLimitExceeded as exc:
             logfire.warn("Agent run usage limit reached", case_id=case_name)
-            logger.warning(
-                "Agent run for case %s exceeded per-run usage limits",
-                case_name,
-            )
             all_messages = self._gather_messages(
                 messages=messages,
                 captured_messages=captured_messages,
@@ -948,7 +958,6 @@ class _BaseAgentAdapter(
                 error_kind=error_kind,
                 candidate_keys=sorted(candidate.keys()) if candidate else None,
             )
-            logger.exception("Failed to run agent with traces for case %s", case_name)
             all_messages = self._gather_messages(
                 messages=messages,
                 captured_messages=captured_messages,
@@ -1010,7 +1019,7 @@ class _BaseAgentAdapter(
         self,
         case: Case[InputT, OutputT, MetadataT],
         case_index: int,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
     ) -> RolloutOutput[Any]:
         usage_kwargs = self._usage_kwargs()
         case_name = self._case_identifier(case, case_index)
@@ -1030,10 +1039,6 @@ class _BaseAgentAdapter(
             raise
         except _UsageLimitExceeded as exc:
             logfire.warn("Agent run usage limit reached", case_id=case_name)
-            logger.warning(
-                "Agent run for case %s exceeded per-run usage limits",
-                case_name,
-            )
             return RolloutOutput.from_error(exc, kind="system")
         except Exception as exc:
             error_kind = _classify_exception(exc)
@@ -1043,7 +1048,6 @@ class _BaseAgentAdapter(
                 error_kind=error_kind,
                 candidate_keys=sorted(candidate.keys()) if candidate else None,
             )
-            logger.exception("Failed to run agent without traces for case %s", case_name)
             return RolloutOutput.from_error(exc, kind=error_kind)
 
     @abstractmethod
@@ -1051,7 +1055,7 @@ class _BaseAgentAdapter(
         self,
         case: Case[InputT, OutputT, MetadataT],
         *,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
         message_history: list[ModelMessage] | None,
         usage_kwargs: Mapping[str, Any],
     ) -> AgentRunResult[Any]:
@@ -1060,7 +1064,7 @@ class _BaseAgentAdapter(
     def make_reflective_dataset(
         self,
         *,
-        candidate: dict[str, str],
+        candidate: CandidateMap,
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
     ) -> ReflectiveDataset:
@@ -1103,7 +1107,7 @@ class _BaseAgentAdapter(
             return SharedReflectiveDataset(records=[])
         return SharedReflectiveDataset(records=reflection_records)
 
-    def get_components(self) -> dict[str, str]:
+    def get_components(self) -> CandidateMap:
         """Return the current components extracted from the agent and signature."""
         return extract_seed_candidate_with_input_type(
             agent=self.agent,
@@ -1121,7 +1125,9 @@ class AgentAdapter(
         self,
         *,
         agent: "AbstractAgent[Any, Any]",
-        metric: Callable[[Case[str, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult],
+        metric: Callable[
+            [Case[str, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult
+        ],
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
@@ -1141,7 +1147,7 @@ class AgentAdapter(
         self,
         case: Case[str, OutputT, MetadataT],
         *,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
         message_history: list[ModelMessage] | None,
         usage_kwargs: Mapping[str, Any],
     ) -> AgentRunResult[Any]:
@@ -1159,14 +1165,15 @@ class AgentAdapter(
     def _build_synthetic_request(
         self,
         case: Case[str, OutputT, MetadataT],
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
     ) -> ModelRequest | None:
         prompt = case.inputs
         if not isinstance(prompt, str):
             return None
         instructions_text = None
         if candidate is not None:
-            instructions_text = candidate.get("instructions")
+            candidate_text = candidate_texts(candidate)
+            instructions_text = candidate_text.get("instructions")
         if instructions_text is None:
             maybe_instructions = _safe_getattr(self.agent, "_instructions")
             if isinstance(maybe_instructions, str):
@@ -1187,7 +1194,9 @@ class SignatureAgentAdapter(
         self,
         *,
         agent: SignatureAgent[Any, OutputT],
-        metric: Callable[[Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult],
+        metric: Callable[
+            [Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult
+        ],
         input_type: InputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
@@ -1195,11 +1204,11 @@ class SignatureAgentAdapter(
         gepa_usage_limits: _usage.UsageLimits | None = None,
     ) -> None:
         bound_spec = (
-            build_input_spec(input_type)
-            if input_type is not None
-            else agent.input_spec
+            build_input_spec(input_type) if input_type is not None else agent.input_spec
         )
-        self._input_model_cls: type[BaseModel] | None = bound_spec.model_cls if bound_spec else None
+        self._input_model_cls: type[BaseModel] | None = (
+            bound_spec.model_cls if bound_spec else None
+        )
         self._signature_agent: SignatureAgent[Any, OutputT] = agent
         super().__init__(
             agent=agent,
@@ -1215,15 +1224,16 @@ class SignatureAgentAdapter(
         self,
         case: Case[InputT, OutputT, MetadataT],
         *,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
         message_history: list[ModelMessage] | None,
         usage_kwargs: Mapping[str, Any],
     ) -> AgentRunResult[Any]:
         inputs = self._validate_inputs(case.inputs)
+        candidate_text = candidate_texts(candidate)
         return await self._signature_agent.run_signature(
             inputs,
             message_history=message_history,
-            candidate=candidate,
+            candidate=candidate_text,
             **usage_kwargs,
         )
 

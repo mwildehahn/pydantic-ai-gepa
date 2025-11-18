@@ -24,6 +24,7 @@ from pydantic_ai_gepa.gepa_graph.evaluation import (
     ParetoFrontManager,
 )
 from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
     CandidateProgram,
     ComponentValue,
     GepaConfig,
@@ -140,8 +141,8 @@ class _StubAdapter:
         }
         return ComponentReflectiveDataset(records_by_component=data)
 
-    def get_components(self) -> dict[str, str]:
-        return {"instructions": "seed"}
+    def get_components(self) -> CandidateMap:
+        return {"instructions": ComponentValue(name="instructions", text="seed")}
 
 
 class _StubBatchSampler(BatchSampler):

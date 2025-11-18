@@ -20,6 +20,8 @@ from pydantic_ai.messages import (
     VideoUrl,
 )
 
+from pydantic_ai_gepa.gepa_graph.models.candidate import CandidateMap
+
 __all__ = [
     "SignatureSuffix",
     "generate_system_instructions",
@@ -112,7 +114,7 @@ def get_gepa_components(model_cls: type[BaseModel]) -> dict[str, str]:
 @contextmanager
 def apply_candidate_to_input_model(
     model_cls: type[BaseModel],
-    candidate: dict[str, str] | None,
+    candidate: CandidateMap | None,
 ) -> Iterator[None]:
     """Temporarily apply a GEPA candidate to a structured input model."""
     class_view = _InputClassView(model_cls)
@@ -160,7 +162,7 @@ class BoundInputSpec(Generic[ModelT]):
     @contextmanager
     def apply_candidate(
         self,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
     ) -> Iterator[None]:
         with apply_candidate_to_input_model(self.model_cls, candidate):
             yield
@@ -563,7 +565,7 @@ class _InputClassView(_InputShared):
     @contextmanager
     def apply_candidate(
         self,
-        candidate: dict[str, str] | None,
+        candidate: CandidateMap | None,
     ) -> Iterator[None]:
         if candidate is None:
             yield
@@ -578,12 +580,12 @@ class _InputClassView(_InputShared):
         try:
             instructions_key = f"signature:{self.model_cls.__name__}:instructions"
             if instructions_key in candidate:
-                self.model_cls.__doc__ = candidate[instructions_key]
+                self.model_cls.__doc__ = candidate[instructions_key].text
 
             for field_name, field_info in self.model_cls.model_fields.items():
                 desc_key = f"signature:{self.model_cls.__name__}:{field_name}:desc"
                 if desc_key in candidate:
-                    field_info.description = candidate[desc_key]
+                    field_info.description = candidate[desc_key].text
             yield
         finally:
             self.model_cls.__doc__ = original_instructions

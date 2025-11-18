@@ -14,11 +14,16 @@ from pydantic_evals import Case
 
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter, AgentAdapterTrajectory
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
 from pydantic_ai_gepa.evaluation_models import EvaluationBatch
 from pydantic_ai_gepa.types import (
     MetricResult,
     RolloutOutput,
 )
+
+
+def _candidate_map(text: str) -> CandidateMap:
+    return {"instructions": ComponentValue(name="instructions", text=text)}
 
 
 def _make_adapter() -> AgentAdapter[str, dict[str, Any]]:
@@ -74,7 +79,7 @@ def _build_batch() -> EvaluationBatch:
 def test_make_reflective_dataset_includes_feedback_and_errors() -> None:
     adapter = _make_adapter()
     dataset = adapter.make_reflective_dataset(
-        candidate={"instructions": "Base instructions"},
+        candidate=_candidate_map("Base instructions"),
         eval_batch=_build_batch(),
         components_to_update=["instructions", "tools"],
     )
@@ -92,7 +97,7 @@ def test_make_reflective_dataset_returns_full_records() -> None:
     adapter = _make_adapter()
     batch = _build_batch()
     dataset = adapter.make_reflective_dataset(
-        candidate={"instructions": "seed"},
+        candidate=_candidate_map("seed"),
         eval_batch=batch,
         components_to_update=["instructions"],
     )
@@ -105,7 +110,7 @@ def test_make_reflective_dataset_handles_missing_trajectories() -> None:
     adapter = _make_adapter()
     batch = EvaluationBatch(outputs=[RolloutOutput.from_success("ok")], scores=[0.5])
     dataset = adapter.make_reflective_dataset(
-        candidate={"instructions": "seed"},
+        candidate=_candidate_map("seed"),
         eval_batch=batch,
         components_to_update=["instructions"],
     )

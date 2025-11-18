@@ -18,7 +18,7 @@ from ...evaluation_models import EvaluationBatch
 from pydantic_evals import Case
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
-from ..models import CandidateProgram, ComponentValue, GepaState
+from ..models import CandidateMap, CandidateProgram, ComponentValue, GepaState
 from ..proposal.instruction import ProposalResult
 from .continue_step import IterationAction
 
@@ -325,7 +325,7 @@ def _build_reflective_dataset(
     )
 
     raw_dataset = deps.adapter.make_reflective_dataset(
-        candidate=candidate.to_dict_str(),
+        candidate=candidate.components,
         eval_batch=eval_batch,
         components_to_update=components,
     )
@@ -390,7 +390,7 @@ def _create_candidate(
     new_texts: Mapping[str, str],
     metadata: Mapping[str, dict[str, Any]] | None = None,
 ) -> CandidateProgram:
-    new_components: dict[str, ComponentValue] = {}
+    new_components: CandidateMap = {}
     for name, value in parent.components.items():
         new_components[name] = ComponentValue(
             name=name,

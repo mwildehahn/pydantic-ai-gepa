@@ -11,6 +11,7 @@ from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
 from pydantic_ai_gepa.signature import (
     generate_system_instructions,
     generate_user_content,
@@ -19,6 +20,8 @@ from pydantic_ai_gepa.signature import (
 from pydantic_ai import Agent, ToolDefinition
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
+def _component_map(entries: dict[str, str]) -> CandidateMap:
+    return {name: ComponentValue(name=name, text=value) for name, value in entries.items()}
 
 
 class GeographyQuery(BaseModel):
@@ -430,7 +433,7 @@ def test_signature_agent_tool_components_seed():
     signature_agent = _build_formatter_agent()
 
     seed = extract_seed_candidate(signature_agent)
-    assert seed == snapshot(
+    assert candidate_texts(seed) == snapshot(
         {
             "instructions": "You format copy with precision.",
             "tool:format_text:description": "Format content for downstream processing.",
@@ -547,10 +550,12 @@ def test_signature_agent_tool_candidate_modifies_definitions():
     )
 
     # Context manager application (emulates GEPA adapter)
-    tool_only_candidate = {
-        "tool:format_text:description": "Apply brand voice polishing.",
-        "tool:format_text:param:text": "Source text awaiting adjustments.",
-    }
+    tool_only_candidate = _component_map(
+        {
+            "tool:format_text:description": "Apply brand voice polishing.",
+            "tool:format_text:param:text": "Source text awaiting adjustments.",
+        }
+    )
     with apply_candidate_to_agent(signature_agent, tool_only_candidate):
         _ = signature_agent.run_signature_sync(sig)
         tool_defs = test_model.last_model_request_parameters.function_tools

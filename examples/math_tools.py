@@ -8,8 +8,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Mapping
-
 import logfire
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent, UsageLimits
@@ -19,7 +17,7 @@ from pydantic_evals import Case, Dataset
 from utils import run_python_tool
 
 from pydantic_ai_gepa import InspectionAborted
-from pydantic_ai_gepa.components import normalize_component_text
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
 from pydantic_ai_gepa.adapters import SignatureAgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.evaluation import EvaluationRecord, evaluate_candidate_dataset
@@ -653,7 +651,7 @@ async def run_math_tools_optimization(
     trainset: Sequence[Case[MathProblemInput, MathProblemOutput, MathProblemMetadata]],
     valset: Sequence[Case[MathProblemInput, MathProblemOutput, MathProblemMetadata]],
     reflection_model: Model | KnownModelName | str,
-    seed_candidate: dict[str, str] | None = None,
+    seed_candidate: CandidateMap | None = None,
     *,
     max_evaluations: int = 300,
 ) -> GepaResult:
@@ -772,7 +770,7 @@ def print_result_summary(result: GepaResult, location_message: str) -> None:
 
 def extract_seed_candidate(
     result: GepaResult,
-) -> tuple[dict[str, str], str] | None:
+) -> tuple[CandidateProgram, str] | None:
     """Select the best available candidate payload for seeding future runs."""
 
     candidate_options: list[tuple[str, CandidateProgram | None]] = [
@@ -795,18 +793,14 @@ def extract_seed_candidate(
             descriptor = f"{label} candidate (idx={idx})"
         else:
             descriptor = f"{label} candidate"
-        return candidate.to_dict_str(), descriptor
+        return candidate, descriptor
 
     return None
 
 
-def load_candidate_from_file(path: Path) -> tuple[dict[str, str], str] | None:
+def load_candidate_from_file(path: Path) -> tuple[CandidateProgram, str] | None:
     data = GepaResult.model_validate_json(path.read_text())
     return extract_seed_candidate(data)
-
-
-def _normalize_candidate_texts(candidate: Mapping[str, Any]) -> dict[str, str]:
-    return {name: normalize_component_text(text) for name, text in candidate.items()}
 
 
 def _print_eval_summary(records: list[EvaluationRecord]) -> None:
@@ -838,22 +832,24 @@ async def main(
         target_file = candidate_file
         if target_file is None:
             target_file = latest_result_file(results_dir)
+
         if target_file is None:
             print("No optimization results available to evaluate.")
             return
+
         payload = load_candidate_from_file(target_file)
         if payload is None:
             print(f"No candidate found in {target_file}.")
             return
-        candidate_texts_raw, descriptor = payload
-        candidate_texts = _normalize_candidate_texts(candidate_texts_raw)
+
+        candidate_model, descriptor = payload
         print(f"Evaluating candidate from {target_file} ({descriptor})")
         records = await evaluate_candidate_dataset(
             agent=signature_agent,
             metric=metric,
             input_type=MathProblemInput,
             dataset=dataset.cases,
-            candidate=candidate_texts,
+            candidate=candidate_model.components,
             concurrency=eval_concurrency,
             agent_usage_limits=UsageLimits(tool_calls_limit=5),
         )
@@ -889,7 +885,7 @@ async def main(
         if load_latest and not resume_from_latest:
             return
 
-    seed_candidate: dict[str, str] | None = None
+    seed_candidate: CandidateMap | None = None
     if resume_from_latest:
         if latest_result is None:
             print("Unable to resume because no previous result could be loaded.")
@@ -900,7 +896,8 @@ async def main(
                     "Latest result does not contain any candidates; starting from the default seed."
                 )
             else:
-                seed_candidate, descriptor = seed_payload
+                seed_candidate_model, descriptor = seed_payload
+                seed_candidate = seed_candidate_model.components
                 print(f"Continuing optimization from {descriptor}.")
 
     output_dir = results_dir
