@@ -10,24 +10,32 @@ from pydantic_ai.messages import ModelRequest, ModelResponse, TextPart, UserProm
 from pydantic_ai.models.test import TestModel
 from pydantic_ai.tools import ToolDefinition
 
+from pydantic_evals import Case
+
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter, AgentAdapterTrajectory
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
 from pydantic_ai_gepa.evaluation_models import EvaluationBatch
 from pydantic_ai_gepa.types import (
-    DataInst,
-    DataInstWithPrompt,
     MetricResult,
     RolloutOutput,
 )
 
 
-def _make_adapter() -> AgentAdapter[DataInst]:
+def _candidate_map(text: str) -> CandidateMap:
+    return {"instructions": ComponentValue(name="instructions", text=text)}
+
+
+def _make_adapter() -> AgentAdapter[str, dict[str, Any]]:
     agent = Agent(TestModel(), instructions="Base instructions")
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(
+        case: Case[str, str, dict[str, Any]],
+        output: RolloutOutput[Any],
+    ) -> MetricResult:
         return MetricResult(score=0.5, feedback="feedback")
 
-    return AgentAdapter(agent, metric)
+    return AgentAdapter(agent=agent, metric=metric)
 
 
 def _make_trajectory(
@@ -71,7 +79,7 @@ def _build_batch() -> EvaluationBatch:
 def test_make_reflective_dataset_includes_feedback_and_errors() -> None:
     adapter = _make_adapter()
     dataset = adapter.make_reflective_dataset(
-        candidate={"instructions": "Base instructions"},
+        candidate=_candidate_map("Base instructions"),
         eval_batch=_build_batch(),
         components_to_update=["instructions", "tools"],
     )
@@ -89,7 +97,7 @@ def test_make_reflective_dataset_returns_full_records() -> None:
     adapter = _make_adapter()
     batch = _build_batch()
     dataset = adapter.make_reflective_dataset(
-        candidate={"instructions": "seed"},
+        candidate=_candidate_map("seed"),
         eval_batch=batch,
         components_to_update=["instructions"],
     )
@@ -102,7 +110,7 @@ def test_make_reflective_dataset_handles_missing_trajectories() -> None:
     adapter = _make_adapter()
     batch = EvaluationBatch(outputs=[RolloutOutput.from_success("ok")], scores=[0.5])
     dataset = adapter.make_reflective_dataset(
-        candidate={"instructions": "seed"},
+        candidate=_candidate_map("seed"),
         eval_batch=batch,
         components_to_update=["instructions"],
     )
@@ -148,19 +156,14 @@ async def test_run_with_trace_returns_trajectory_on_usage_limit() -> None:
     agent = Agent(TestModel(), instructions="Base instructions")
 
     adapter = AgentAdapter(
-        agent,
-        metric=lambda data_inst, output: MetricResult(score=0.0, feedback="unused"),
+        agent=agent,
+        metric=lambda case, output: MetricResult(score=0.0, feedback="unused"),
         agent_usage_limits=UsageLimits(request_limit=0),
     )
 
-    data_inst = DataInstWithPrompt(
-        user_prompt=UserPromptPart(content="Hello"),
-        message_history=None,
-        metadata={},
-        case_id="usage-limit-case",
-    )
+    case = Case(name="usage-limit-case", inputs="Hello", metadata={})
 
-    trajectory, output = await adapter._run_with_trace(data_inst, candidate=None)
+    trajectory, output = await adapter._run_with_trace(case, 0, candidate=None)
     assert trajectory is not None
     assert output.success is False
     assert trajectory.error is not None

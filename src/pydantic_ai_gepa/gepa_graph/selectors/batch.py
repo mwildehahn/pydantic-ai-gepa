@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import random
+from typing import Any
+
 from ..datasets import ComparableHashable, DataLoader
 from ..models import GepaState
-from ...types import DataInst
+from pydantic_evals import Case
 
 
 class BatchSampler:
@@ -21,10 +23,10 @@ class BatchSampler:
 
     async def sample(
         self,
-        training_set: DataLoader[ComparableHashable, DataInst],
+        training_set: DataLoader[ComparableHashable, Case[Any, Any, Any]],
         state: GepaState,
         size: int,
-    ) -> list[DataInst]:
+    ) -> list[Case[Any, Any, Any]]:
         """Return a deterministic minibatch of training instances."""
         _ = state  # Reserved for future adaptive policies
         if size <= 0:

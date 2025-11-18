@@ -18,7 +18,7 @@ GEPA (Genetic Evolution with Prompt Adaptation) is an evolutionary optimization 
 - Components can be prompts, instructions, code snippets, or any text
 
 **Data Types**
-- `DataInst`: User-defined input data type (opaque to GEPA)
+- `Case[InputT, OutputT, MetadataT]`: Structured dataset example from `pydantic_evals` containing inputs, optional metadata, and optional expected outputs
 - `Trajectory`: Execution trace capturing intermediate system states
 - `RolloutOutput`: System output (opaque to GEPA)
 - `DataId`: Hashable identifier for data examples (int, str, UUID, tuple, etc.)
@@ -189,10 +189,14 @@ The single integration point between user systems and GEPA.
 ### 3.1 GEPAAdapter Protocol
 
 ```python
-class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
+from pydantic_evals import Case
+
+CaseT = Case[InputT, OutputT, MetadataT]
+
+class GEPAAdapter(Protocol[CaseT, Trajectory, RolloutOutput]):
     def evaluate(
         self,
-        batch: list[DataInst],
+        batch: Sequence[CaseT],
         candidate: dict[str, str],
         capture_traces: bool = False,
     ) -> EvaluationBatch[Trajectory, RolloutOutput]
@@ -309,6 +313,7 @@ class GEPAAdapter(Protocol[DataInst, Trajectory, RolloutOutput]):
 - `batch_sampler`: Training example selection
 - `perfect_score`: Score threshold for skipping
 - `skip_perfect_score`: Whether to skip perfect-scoring batches
+- `skip_perfect_requires_validation`: Only skip when validation averages also meet `perfect_score`
 - `reflection_lm`: LLM for text proposal
 - `reflection_prompt_template`: Custom prompt template
 
@@ -489,7 +494,7 @@ Can implement:
 all_ids() -> Sequence[DataId]
   - Return ordered universe of IDs currently available
 
-fetch(ids: Sequence[DataId]) -> list[DataInst]
+fetch(ids: Sequence[DataId]) -> list[Case[InputT, OutputT, MetadataT]]
   - Materialize payloads for IDs, preserving order
 
 __len__() -> int
@@ -505,7 +510,7 @@ __len__() -> int
 ### 8.2 ListDataLoader
 
 **Simple in-memory implementation**
-- Wraps `Sequence[DataInst]`
+- Wraps `Sequence[Case[InputT, OutputT, MetadataT]]`
 - Uses integer indices as DataId
 - Direct list access
 
@@ -807,9 +812,11 @@ log_metrics(metrics: dict[str, Any], step: int | None = None)
 - `module_selector` - Defaults to "round_robin"
 - `batch_sampler` - Defaults to "epoch_shuffled"
 - `reflection_minibatch_size` - Defaults to reasonable value (3-10)
+- `reflection_model_settings` - Defaults to None; when provided, merged into every reflection model call (e.g., bump temperature)
 - `perfect_score` - Defaults to 1.0
 - `seed` - Defaults to 0
 - `use_merge` - Defaults to False
+- `track_component_hypotheses` - Defaults to False; when True, stores reflection hypotheses alongside each component version and feeds them back into future prompts
 - `val_evaluation_policy` - Defaults to "full_eval"
 
 **Initialization Logic**

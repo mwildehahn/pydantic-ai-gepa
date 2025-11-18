@@ -34,11 +34,25 @@ class ComponentValue(BaseModel):
         return value
 
 
+CandidateMap = dict[str, ComponentValue]
+
+
+def candidate_texts(
+    candidate: Mapping[str, ComponentValue] | None,
+) -> dict[str, str]:
+    """Return a simple mapping of component names to their text content."""
+
+    if not candidate:
+        return {}
+
+    return {name: component.text for name, component in candidate.items()}
+
+
 class CandidateProgram(BaseModel):
     """Structured representation of a candidate prompt/program."""
 
     idx: int
-    components: dict[str, ComponentValue]
+    components: CandidateMap
 
     parent_indices: list[int] = Field(default_factory=list)
     creation_type: Literal["seed", "reflection", "merge"] = "seed"
@@ -70,11 +84,11 @@ class CandidateProgram(BaseModel):
     @classmethod
     def _coerce_components(
         cls, value: Mapping[str, ComponentValue | str] | None
-    ) -> dict[str, ComponentValue]:
+    ) -> CandidateMap:
         if value is None:
             raise ValueError("components must be provided.")
 
-        components: dict[str, ComponentValue] = {}
+        components: CandidateMap = {}
         for name, raw in value.items():
             if isinstance(raw, ComponentValue):
                 comp = raw

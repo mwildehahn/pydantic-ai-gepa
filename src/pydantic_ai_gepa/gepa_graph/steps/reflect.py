@@ -7,6 +7,7 @@ from typing import Any, Mapping, Sequence, cast
 import logfire
 from pydantic_graph.beta import StepContext
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 
 from ...adapter import (
     ComponentReflectiveDataset,
@@ -14,10 +15,11 @@ from ...adapter import (
     SharedReflectiveDataset,
 )
 from ...evaluation_models import EvaluationBatch
-from ...types import DataInst
+from pydantic_evals import Case
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
-from ..models import CandidateProgram, ComponentValue, GepaState
+from ..models import CandidateMap, CandidateProgram, ComponentValue, GepaState
+from ..proposal.instruction import ProposalResult
 from .continue_step import IterationAction
 
 _IMPROVEMENT_EPSILON = 1e-9
@@ -71,7 +73,7 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         state.last_accepted = False
         return "continue"
 
-    if _should_skip_perfect(parent_results.scores, state):
+    if _should_skip_perfect(parent_results.scores, parent, state):
         logfire.info(
             "ReflectStep skipping reflection due to perfect minibatch",
             parent_idx=parent_idx,
@@ -102,20 +104,40 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         components=components,
         model=reflection_model,
     ):
-        proposed_texts = await _propose_new_texts(
+        proposal_result = await _propose_new_texts(
             deps=deps,
             state=state,
             parent=parent,
             reflective_dataset=reflective_dataset,
             components=components,
             model=reflection_model,
+            model_settings=state.config.reflection_model_settings,
         )
+        component_metadata = (
+            proposal_result.component_metadata
+            if state.config.track_component_hypotheses
+            else None
+        )
+        reasoning = proposal_result.reasoning
+        if reasoning is not None:
+            logfire.info(
+                "ReflectStep proposal reasoning",
+                parent_idx=parent_idx,
+                components=components,
+                pattern=reasoning.pattern_discovery,
+                hypothesis=reasoning.creative_hypothesis,
+                approach=reasoning.experimental_approach,
+                edge_insight=reasoning.edge_insight,
+                success_checkpoint=reasoning.success_checkpoint,
+                evolution_moves=reasoning.evolution_moves,
+            )
 
     new_candidate = _create_candidate(
         state=state,
         parent=parent,
         parent_idx=parent_idx,
-        new_texts=proposed_texts,
+        new_texts=proposal_result.texts,
+        metadata=component_metadata,
     )
     logfire.debug(
         "ReflectStep proposed candidate",
@@ -210,7 +232,7 @@ def _select_parent(
 async def _sample_minibatch(
     state: GepaState,
     deps: GepaDeps,
-) -> list[DataInst]:
+) -> list[Case[Any, Any, Any]]:
     loader = state.training_set
     batch = await deps.batch_sampler.sample(
         training_set=loader,
@@ -227,7 +249,7 @@ async def _evaluate_minibatch(
     deps: GepaDeps,
     state: GepaState,
     candidate: CandidateProgram,
-    batch: Sequence[DataInst],
+    batch: Sequence[Case[Any, Any, Any]],
     capture_traces: bool,
 ) -> EvaluationResults[str]:
     return await deps.evaluator.evaluate_batch(
@@ -261,13 +283,19 @@ def _summarize_scores(scores: Sequence[float]) -> tuple[float, float]:
 
 def _should_skip_perfect(
     scores: Sequence[float],
+    candidate: CandidateProgram,
     state: GepaState,
 ) -> bool:
     if not state.config.skip_perfect_score:
         return False
     perfect = state.config.perfect_score
     total = float(sum(scores))
-    return total >= perfect * len(scores)
+    minibatch_perfect = total >= perfect * len(scores)
+    if not minibatch_perfect:
+        return False
+    if state.config.skip_perfect_requires_validation:
+        return candidate.avg_validation_score >= perfect
+    return True
 
 
 def _select_components(
@@ -297,7 +325,7 @@ def _build_reflective_dataset(
     )
 
     raw_dataset = deps.adapter.make_reflective_dataset(
-        candidate=candidate.to_dict_str(),
+        candidate=candidate.components,
         eval_batch=eval_batch,
         components_to_update=components,
     )
@@ -339,7 +367,8 @@ async def _propose_new_texts(
     reflective_dataset: ReflectiveDataset,
     components: Sequence[str],
     model: Model | KnownModelName | str,
-) -> Mapping[str, str]:
+    model_settings: ModelSettings | None = None,
+) -> ProposalResult:
     proposal = deps.proposal_generator
     return await proposal.propose_texts(
         candidate=parent,
@@ -349,6 +378,7 @@ async def _propose_new_texts(
         iteration=state.iteration,
         current_best_score=state.best_score,
         parent_score=parent.avg_validation_score,
+        model_settings=model_settings,
     )
 
 
@@ -358,18 +388,30 @@ def _create_candidate(
     parent: CandidateProgram,
     parent_idx: int,
     new_texts: Mapping[str, str],
+    metadata: Mapping[str, dict[str, Any]] | None = None,
 ) -> CandidateProgram:
-    new_components: dict[str, ComponentValue] = {}
+    new_components: CandidateMap = {}
     for name, value in parent.components.items():
         new_components[name] = ComponentValue(
             name=name,
             text=value.text,
             version=value.version,
+            metadata=None if value.metadata is None else dict(value.metadata),
         )
     for name, text in new_texts.items():
         existing = parent.components.get(name)
         base_version = existing.version if existing is not None else 0
-        new_components[name] = ComponentValue(name=name, text=text, version=base_version + 1)
+        component_metadata = None
+        if metadata and name in metadata:
+            component_metadata = dict(metadata[name])
+            if state.iteration >= 0:
+                component_metadata.setdefault("iteration", state.iteration)
+        new_components[name] = ComponentValue(
+            name=name,
+            text=text,
+            version=base_version + 1,
+            metadata=component_metadata,
+        )
     return CandidateProgram(
         idx=len(state.candidates),
         components=new_components,

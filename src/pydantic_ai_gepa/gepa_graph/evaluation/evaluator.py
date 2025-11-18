@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Generic, Sequence, TypeVar
-
-from ...adapter import Adapter
+from typing import TYPE_CHECKING, Any, Generic, Sequence, TypeVar
 from ...evaluation_models import EvaluationBatch
-from ...types import DataInst, RolloutOutput, Trajectory
-from ..models import CandidateProgram
+from ...types import RolloutOutput, Trajectory
+from pydantic_evals import Case
+from ..models import CandidateMap, CandidateProgram
+
+if TYPE_CHECKING:
+    from ...adapter import Adapter
 
 DataIdT = TypeVar("DataIdT")
-DataInstT = TypeVar("DataInstT", bound=DataInst, contravariant=True)
 
 
 @dataclass(slots=True, kw_only=True)
@@ -48,8 +49,8 @@ class ParallelEvaluator:
         self,
         *,
         candidate: CandidateProgram,
-        batch: Sequence[DataInst],
-        adapter: Adapter[DataInst],
+        batch: Sequence[Case[Any, Any, Any]],
+        adapter: "Adapter[Any, Any, Any]",
         max_concurrent: int = 10,
         capture_traces: bool = False,
     ) -> EvaluationResults[str]:
@@ -63,9 +64,9 @@ class ParallelEvaluator:
             )
 
         semaphore = asyncio.Semaphore(max(1, max_concurrent))
-        candidate_payload = candidate.to_dict_str()
+        candidate_payload = candidate.components
 
-        async def run_one(index: int, instance: DataInst):
+        async def run_one(index: int, instance: Case[Any, Any, Any]):
             async with semaphore:
                 eval_batch = await self._call_adapter(
                     adapter=adapter,
@@ -84,9 +85,9 @@ class ParallelEvaluator:
     async def _call_adapter(
         self,
         *,
-        adapter: Adapter[DataInst],
-        instance: DataInst,
-        candidate_payload: dict[str, str],
+        adapter: "Adapter[Any, Any, Any]",
+        instance: Case[Any, Any, Any],
+        candidate_payload: CandidateMap,
         capture_traces: bool,
     ) -> EvaluationBatch:
         return await adapter.evaluate(
@@ -141,9 +142,8 @@ class ParallelEvaluator:
         )
 
     @staticmethod
-    def _data_id(instance: DataInst, index: int) -> str:
-        case_id = getattr(instance, "case_id", None)
-        return str(case_id) if case_id is not None else str(index)
+    def _data_id(instance: Case[Any, Any, Any], index: int) -> str:
+        return instance.name or f"case-{index}"
 
 
 __all__ = ["EvaluationResults", "ParallelEvaluator"]

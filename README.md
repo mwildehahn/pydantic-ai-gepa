@@ -92,6 +92,38 @@ uv run python examples/classification.py
 uv run python examples/math_tools.py
 ```
 
+### Running the Math Tools Example
+
+The math tools walkthrough is the fastest way to see GEPA optimization in action. It expects API credentials in `.env`, so load them via `--env-file` when running.
+
+```bash
+uv run --env-file .env python examples/math_tools.py --results-dir optimization_results --max-evaluations 25
+
+✅ Optimization result saved to: optimization_results/math_tools_optimization_20251117_181329.json
+   Original score: 0.5417
+   Best score: 0.9167
+   Iterations: 1
+   Metric calls: 44
+   Improvement: 69.23%
+```
+
+After an optimization finishes you can re-run the same script in evaluation mode to benchmark a saved candidate:
+
+```bash
+uv run --env-file .env python examples/math_tools.py --results-dir optimization_results --evaluate-only
+Evaluating candidate from optimization_results/math_tools_optimization_20251117_181329.json (best candidate (idx=1))
+
+Evaluation summary
+   Cases: 29
+   Average score: 0.8931
+   Lowest scores:
+      - empty-range-edge: score=0.0000 | feedback=When the start exceeds the stop in a range, the result is an empty sequence. The sum of an empty sequence is zero. Answer 165.0 deviates from target 0.0 by 165; verify the computation logic and any rounding. A reliable approach uses: `sum(range(20, 10))`.
+      - degenerate-average: score=0.0000 | feedback=Only one multiple exists in this narrow range. Ensure you handle single-element averages correctly. Answer 0.0 deviates from target 105.0 by 105; verify the computation logic and any rounding. A reliable approach uses: `sum(range(105, 106, 7)) / max(len(range(105, 106, 7)), 1)`.
+      - between-1-2-empty: score=0.0000 | feedback=The next tool call(s) would exceed the tool_calls_limit of 5 (tool_calls=6).
+      - between-10-11-empty: score=0.9000 | feedback=Exact match within tolerance. Used `run_python` 2 times; consolidate into a single sandbox execution when possible.
+      - sign-heavy-expression: score=1.0000 | feedback=Exact match within tolerance.
+```
+
 ## How It Works
 
 ### GEPA Graph Architecture
@@ -248,6 +280,7 @@ config = GepaConfig(
 
     # Reflection settings
     reflection_model="openai:gpt-4o",
+    reflection_model_settings={"temperature": 0.8},
     minibatch_size=5,
 
     # Parallelism

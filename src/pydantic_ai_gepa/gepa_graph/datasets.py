@@ -16,7 +16,7 @@ from typing import (
     cast,
 )
 
-from ..types import DataInst
+from pydantic_evals import Case, Dataset
 
 
 class ComparableHashable(Hashable, Protocol):
@@ -32,41 +32,48 @@ class ComparableHashable(Hashable, Protocol):
 
 
 DataIdT = TypeVar("DataIdT", bound=ComparableHashable)
-DataInstT = TypeVar("DataInstT", bound=DataInst)
+CaseT = TypeVar("CaseT", bound=Case[Any, Any, Any])
 
-DatasetPayload: TypeAlias = Sequence[DataInst] | "DataLoader[Any, DataInst]"
+DatasetPayload: TypeAlias = (
+    Sequence[Case[Any, Any, Any]] | "DataLoader[Any, Case[Any, Any, Any]]"
+)
 DatasetFactory: TypeAlias = Callable[[], DatasetPayload | Awaitable[DatasetPayload]]
-DatasetInput: TypeAlias = DatasetPayload | DatasetFactory | Awaitable[DatasetPayload] | "DatasetLoader[DataInst]"
+DatasetInput: TypeAlias = (
+    DatasetPayload
+    | DatasetFactory
+    | Awaitable[DatasetPayload]
+    | "DatasetLoader[Case[Any, Any, Any]]"
+    | Dataset[Any, Any, Any]
+)
 
 
-def data_id_for_instance(instance: DataInst, index: int) -> str:
+def data_id_for_instance(case: Case[Any, Any, Any], index: int) -> str:
     """Return the identifier used for evaluation bookkeeping."""
 
-    case_id = getattr(instance, "case_id", None)
-    return str(case_id) if case_id is not None else str(index)
+    return case.name or f"case-{index}"
 
 
 @runtime_checkable
-class DataLoader(Protocol[DataIdT, DataInstT]):
+class DataLoader(Protocol[DataIdT, CaseT]):
     """Interface for retrieving dataset instances by opaque identifiers."""
 
     async def all_ids(self) -> Sequence[DataIdT]: ...
 
-    async def fetch(self, ids: Sequence[DataIdT]) -> list[DataInstT]: ...
+    async def fetch(self, ids: Sequence[DataIdT]) -> list[CaseT]: ...
 
     def __len__(self) -> int: ...
 
 
-class MutableDataLoader(DataLoader[DataIdT, DataInstT], Protocol):
+class MutableDataLoader(DataLoader[DataIdT, CaseT], Protocol):
     """Data loader variant that supports appending new items."""
 
-    async def add_items(self, items: Sequence[DataInstT]) -> None: ...
+    async def add_items(self, items: Sequence[CaseT]) -> None: ...
 
 
-class ListDataLoader(MutableDataLoader[ComparableHashable, DataInst]):
+class ListDataLoader(MutableDataLoader[ComparableHashable, Case[Any, Any, Any]]):
     """In-memory loader backed by a concrete list of instances."""
 
-    def __init__(self, items: Sequence[DataInst]) -> None:
+    def __init__(self, items: Sequence[Case[Any, Any, Any]]) -> None:
         self._items = list(items)
         self._ids: list[ComparableHashable] = []
         self._index_by_id: dict[ComparableHashable, int] = {}
@@ -75,8 +82,8 @@ class ListDataLoader(MutableDataLoader[ComparableHashable, DataInst]):
     async def all_ids(self) -> Sequence[ComparableHashable]:
         return list(self._ids)
 
-    async def fetch(self, ids: Sequence[ComparableHashable]) -> list[DataInst]:
-        batch: list[DataInst] = []
+    async def fetch(self, ids: Sequence[ComparableHashable]) -> list[Case[Any, Any, Any]]:
+        batch: list[Case[Any, Any, Any]] = []
         for data_id in ids:
             idx = self._index_by_id.get(data_id)
             if idx is None:
@@ -87,7 +94,7 @@ class ListDataLoader(MutableDataLoader[ComparableHashable, DataInst]):
     def __len__(self) -> int:
         return len(self._items)
 
-    async def add_items(self, items: Sequence[DataInst]) -> None:
+    async def add_items(self, items: Sequence[Case[Any, Any, Any]]) -> None:
         for item in items:
             self._append_item(item)
 
@@ -97,7 +104,12 @@ class ListDataLoader(MutableDataLoader[ComparableHashable, DataInst]):
         for idx, item in enumerate(self._items):
             self._append_item(item, explicit_index=idx)
 
-    def _append_item(self, item: DataInst, *, explicit_index: int | None = None) -> None:
+    def _append_item(
+        self,
+        item: Case[Any, Any, Any],
+        *,
+        explicit_index: int | None = None,
+    ) -> None:
         idx = explicit_index if explicit_index is not None else len(self._items)
         if explicit_index is None:
             self._items.append(item)
@@ -115,19 +127,21 @@ class ListDataLoader(MutableDataLoader[ComparableHashable, DataInst]):
 
 
 @runtime_checkable
-class DatasetLoader(Protocol[DataInstT]):
+class DatasetLoader(Protocol[CaseT]):
     """Async factory that materializes a dataset on demand."""
 
-    async def load(self) -> Sequence[DataInstT] | DataLoader[Any, DataInstT]: ...
+    async def load(self) -> Sequence[CaseT] | DataLoader[Any, CaseT]: ...
 
 
-def ensure_loader(data_or_loader: DatasetPayload) -> DataLoader[Any, DataInst]:
+def ensure_loader(
+    data_or_loader: DatasetPayload,
+) -> DataLoader[Any, Case[Any, Any, Any]]:
     """Return a DataLoader regardless of whether a sequence or loader was provided."""
 
     if isinstance(data_or_loader, DataLoader):
-        return cast(DataLoader[Any, DataInst], data_or_loader)
+        return cast(DataLoader[Any, Case[Any, Any, Any]], data_or_loader)
     if _is_sequence_like(data_or_loader):
-        return ListDataLoader(cast(Sequence[DataInst], data_or_loader))
+        return ListDataLoader(cast(Sequence[Case[Any, Any, Any]], data_or_loader))
     raise TypeError(f"Unable to coerce {type(data_or_loader)!r} into a DataLoader.")
 
 
@@ -135,7 +149,7 @@ async def resolve_dataset(
     dataset: DatasetInput,
     *,
     name: str,
-) -> DataLoader[Any, DataInst]:
+) -> DataLoader[Any, Case[Any, Any, Any]]:
     """Materialize ``dataset`` into a concrete :class:`DataLoader`."""
 
     resolved = await _materialize_dataset(dataset, name=name)
@@ -154,13 +168,16 @@ async def _materialize_dataset(
         raise ValueError(f"{name} is required.")
 
     if isinstance(dataset, DataLoader):
-        return cast(DataLoader[Any, DataInst], dataset)
+        return cast(DataLoader[Any, Case[Any, Any, Any]], dataset)
 
     if isinstance(dataset, DatasetLoader):
         return await dataset.load()
 
+    if isinstance(dataset, Dataset):
+        return cast(Sequence[Case[Any, Any, Any]], dataset.cases)
+
     if _is_sequence_like(dataset):
-        return cast(Sequence[DataInst], dataset)
+        return cast(Sequence[Case[Any, Any, Any]], dataset)
 
     if inspect.isawaitable(dataset):
         awaited = await cast(Awaitable[DatasetPayload], dataset)

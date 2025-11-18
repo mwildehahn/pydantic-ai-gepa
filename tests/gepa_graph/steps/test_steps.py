@@ -7,7 +7,7 @@ from typing import Sequence, cast
 
 import pytest
 from pydantic_graph.beta import StepContext
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
@@ -15,6 +15,7 @@ from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.evaluation import ParallelEvaluator, ParetoFrontManager
 from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
     CandidateProgram,
     ComponentValue,
     GepaConfig,
@@ -28,7 +29,7 @@ from pydantic_ai_gepa.gepa_graph.steps import (
     reflect_step,
     start_step,
 )
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
@@ -40,13 +41,8 @@ from pydantic_ai_gepa.gepa_graph.proposal import (
 )
 
 
-def _make_data_inst(case_id: str) -> DataInstWithPrompt:
-    return DataInstWithPrompt(
-        user_prompt=UserPromptPart(content=f"prompt-{case_id}"),
-        message_history=None,
-        metadata={},
-        case_id=case_id,
-    )
+def _make_data_inst(case_id: str) -> Case[str, str, dict[str, str]]:
+    return Case(name=case_id, inputs=f"prompt-{case_id}", metadata={})
 
 
 def _make_state(
@@ -80,10 +76,10 @@ class _FakeAdapter:
         self.reflection_sampler = None
 
     async def evaluate(self, batch, candidate, capture_traces):
-        case_id = batch[0].case_id
-        score = self.scores.get(case_id, 0.5)
+        case_name = batch[0].name or "unnamed"
+        score = self.scores.get(case_name, 0.5)
         return _FakeEvaluationBatch(
-            outputs=[RolloutOutput.from_success(candidate["instructions"])],
+            outputs=[RolloutOutput.from_success(candidate["instructions"].text)],
             scores=[score],
         )
 
@@ -96,8 +92,8 @@ class _FakeAdapter:
     ) -> SharedReflectiveDataset:
         return SharedReflectiveDataset(records=[])
 
-    def get_components(self) -> dict[str, str]:
-        return {"instructions": "seed"}
+    def get_components(self) -> CandidateMap:
+        return {"instructions": ComponentValue(name="instructions", text="seed")}
 
 
 class _HydratingAdapter(_FakeAdapter):
@@ -110,20 +106,20 @@ class _HydratingAdapter(_FakeAdapter):
         self._include_tool = True
         return result
 
-    def get_components(self) -> dict[str, str]:
+    def get_components(self) -> CandidateMap:
         components = super().get_components()
         if self._include_tool:
-            hydrated = dict(components)
-            hydrated["tool:new"] = "desc"
+            hydrated = {name: value.model_copy() for name, value in components.items()}
+            hydrated["tool:new"] = ComponentValue(name="tool:new", text="desc")
             return hydrated
         return components
 
 
 def _make_deps(
-    seed_candidate: dict[str, str] | None = None,
-) -> GepaDeps[DataInst]:
+    seed_candidate: CandidateMap | None = None,
+) -> GepaDeps:
     return GepaDeps(
-        adapter=cast(Adapter[DataInst], _FakeAdapter()),
+        adapter=cast(Adapter[str, str, dict[str, str]], _FakeAdapter()),
         evaluator=ParallelEvaluator(),
         pareto_manager=ParetoFrontManager(),
         candidate_selector=CurrentBestCandidateSelector(),
@@ -136,14 +132,20 @@ def _make_deps(
     )
 
 
-def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, GepaDeps[DataInst], None]:
+def _ctx(
+    state: GepaState, deps: GepaDeps
+) -> StepContext[GepaState, GepaDeps, None]:
     return StepContext(state=state, deps=deps, inputs=None)
 
 
 @pytest.mark.asyncio
 async def test_start_step_adds_seed_candidate_from_deps() -> None:
     state = _make_state()
-    deps = _make_deps(seed_candidate={"instructions": "hello world"})
+    deps = _make_deps(
+        seed_candidate={
+            "instructions": ComponentValue(name="instructions", text="hello world"),
+        }
+    )
     ctx = _ctx(state, deps)
 
     await start_step(ctx)
@@ -157,7 +159,11 @@ async def test_start_step_adds_seed_candidate_from_deps() -> None:
 @pytest.mark.asyncio
 async def test_start_step_is_idempotent_when_candidates_exist() -> None:
     state = _make_state()
-    deps = _make_deps(seed_candidate={"instructions": "hello"})
+    deps = _make_deps(
+        seed_candidate={
+            "instructions": ComponentValue(name="instructions", text="hello"),
+        }
+    )
     state.add_candidate(
         CandidateProgram(
             idx=0,
@@ -188,7 +194,9 @@ async def test_start_step_uses_adapter_snapshot_when_seed_missing() -> None:
     assert len(state.candidates) == 1
     candidate = state.candidates[0]
     assert candidate.components["instructions"].text == "seed"
-    assert deps.seed_candidate == {"instructions": "seed"}
+    assert deps.seed_candidate == {
+        "instructions": ComponentValue(name="instructions", text="seed"),
+    }
 
 
 @pytest.mark.asyncio
@@ -225,7 +233,7 @@ async def test_evaluate_step_hydrates_new_components() -> None:
         discovered_at_evaluation=0,
     )
     state.add_candidate(candidate)
-    adapter = cast(Adapter[DataInst], _HydratingAdapter())
+    adapter = cast(Adapter[str, str, dict[str, str]], _HydratingAdapter())
     deps = _make_deps()
     deps.adapter = adapter
     ctx = _ctx(state, deps)
@@ -235,7 +243,7 @@ async def test_evaluate_step_hydrates_new_components() -> None:
     assert "tool:new" in candidate.components
     assert candidate.components["tool:new"].text == "desc"
     assert deps.seed_candidate is not None
-    assert deps.seed_candidate["tool:new"] == "desc"
+    assert deps.seed_candidate["tool:new"].text == "desc"
 
 
 @pytest.mark.asyncio

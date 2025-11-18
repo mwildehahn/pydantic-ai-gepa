@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager
 from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 from pydantic_ai.agent.wrapper import WrapperAgent
 
+from .gepa_graph.models import CandidateMap, ComponentValue
 from .signature import InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
 from .tool_components import get_tool_optimizer
@@ -17,18 +18,30 @@ if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
 
 
-def normalize_component_text(value: Any) -> str:
-    """Normalize component text values to strings."""
-    if value is None:
-        return ""
+def ensure_component_values(
+    candidate: Mapping[str, ComponentValue | str] | None,
+) -> CandidateMap:
+    """Coerce raw values into ComponentValue instances."""
+    if not candidate:
+        return {}
+    result: CandidateMap = {}
+    for name, value in candidate.items():
+        if isinstance(value, ComponentValue):
+            result[name] = value
+        else:
+            result[name] = ComponentValue(name=name, text=str(value))
+    return result
+
+
+def _stringify_component_value(value: Any) -> str:
+    """Render arbitrary component content as a string."""
     if isinstance(value, str):
         return value
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
-        return "\n\n".join(str(part) for part in value if part)
+        return "\n".join(str(part) for part in value)
     return str(value)
 
-
-def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
+def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> CandidateMap:
     """Extract the current prompts from an agent as a GEPA candidate.
 
     Args:
@@ -38,7 +51,7 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
         A dictionary mapping component names to their text values.
         - 'instructions': The effective instructions (combining literal and functions)
     """
-    candidate: dict[str, str] = {}
+    candidate: CandidateMap = {}
 
     target_agent = agent
     if isinstance(agent, WrapperAgent):
@@ -47,20 +60,27 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
     # Extract instructions
     # Note: In v1, we extract the literal instructions only, not the dynamic ones
     # The dynamic instructions from functions will be disabled during optimization
-    if hasattr(target_agent, "_instructions") and target_agent._instructions:  # type: ignore[attr-defined]
-        candidate["instructions"] = normalize_component_text(
-            target_agent._instructions  # type: ignore[attr-defined]
+    raw_instructions = getattr(target_agent, "_instructions", None)
+    if raw_instructions:
+        candidate["instructions"] = ComponentValue(
+            name="instructions",
+            text=_stringify_component_value(raw_instructions),
         )
     else:
-        candidate["instructions"] = ""
+        candidate["instructions"] = ComponentValue(
+            name="instructions",
+            text="",
+        )
 
     if isinstance(agent, SignatureAgent):
         if agent.optimize_tools:
-            candidate.update(agent.get_tool_components())
+            for key, text in agent.get_tool_components().items():
+                candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
     else:
         optimizer = get_tool_optimizer(agent)
         if optimizer:
-            candidate.update(optimizer.get_seed_components())
+            for key, text in optimizer.get_seed_components().items():
+                candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
 
     return candidate
 
@@ -68,7 +88,7 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> dict[str, str]:
 @contextmanager
 def apply_candidate_to_agent(
     agent: AbstractAgent[Any, Any],
-    candidate: dict[str, str] | None,
+    candidate: CandidateMap | None,
 ) -> Iterator[None]:
     """Apply a GEPA candidate to an agent via override().
 
@@ -82,10 +102,16 @@ def apply_candidate_to_agent(
     Returns:
         A context manager for the temporary override.
     """
-    instructions_raw = candidate.get("instructions") if candidate else None
-    instructions = (
-        normalize_component_text(instructions_raw) if instructions_raw else None
-    )
+    candidate_map: CandidateMap
+    if candidate is None:
+        candidate_map = {}
+    elif isinstance(candidate, dict):
+        candidate_map = candidate
+    else:
+        candidate_map = dict(candidate)
+
+    instructions_value = candidate_map.get("instructions")
+    instructions = instructions_value.text if instructions_value else None
 
     target_agent = agent
     if isinstance(agent, WrapperAgent):
@@ -95,7 +121,7 @@ def apply_candidate_to_agent(
 
     with ExitStack() as stack:
         if optimizer:
-            stack.enter_context(optimizer.candidate_context(candidate))
+            stack.enter_context(optimizer.candidate_context(candidate_map))
         if instructions:
             stack.enter_context(target_agent.override(instructions=instructions))
         yield
@@ -160,7 +186,7 @@ def validate_components(
 def extract_seed_candidate_with_input_type(
     agent: AbstractAgent[Any, Any],
     input_type: InputSpec[BaseModel] | None = None,
-) -> dict[str, str]:
+) -> CandidateMap:
     """Extract prompts from an agent and optional input specification as a GEPA candidate.
 
     Args:
@@ -170,7 +196,7 @@ def extract_seed_candidate_with_input_type(
     Returns:
         Combined dictionary of all components and their initial text.
     """
-    candidate: dict[str, str] = {}
+    candidate: CandidateMap = {}
 
     # Extract from agent
     candidate.update(extract_seed_candidate(agent))
@@ -178,14 +204,15 @@ def extract_seed_candidate_with_input_type(
     # Extract from signature if provided
     if input_type:
         spec = build_input_spec(input_type)
-        candidate.update(spec.get_gepa_components())
+        for key, text in spec.get_gepa_components().items():
+            candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
 
     return candidate
 
 
 @contextmanager
 def apply_candidate_to_agent_and_input_type(
-    candidate: dict[str, str] | None,
+    candidate: CandidateMap | None,
     agent: AbstractAgent[Any, Any],
     input_type: InputSpec[BaseModel] | None = None,
 ) -> Iterator[None]:
@@ -211,7 +238,9 @@ def apply_candidate_to_agent_and_input_type(
         # Apply to input specification if provided
         if input_type:
             spec = build_input_spec(input_type)
-            stack.enter_context(spec.apply_candidate(candidate))
+            candidate_map = candidate if candidate is not None else {}
+            stack.enter_context(
+                spec.apply_candidate(candidate_map)
+            )
 
         yield
-

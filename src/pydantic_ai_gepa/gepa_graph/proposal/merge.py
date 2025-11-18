@@ -8,9 +8,9 @@ import random
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Sequence
 
-from ...types import DataInst
+from pydantic_evals import Case
 from ..datasets import DataLoader, data_id_for_instance
-from ..models import CandidateProgram, ComponentValue, GepaState
+from ..models import CandidateMap, CandidateProgram, ComponentValue, GepaState
 
 _SCORE_EPSILON = 1e-6
 
@@ -95,7 +95,7 @@ class MergeProposalBuilder:
         parent1_score = parent1.avg_validation_score
         parent2_score = parent2.avg_validation_score
 
-        merged_components: dict[str, ComponentValue] = {}
+        merged_components: CandidateMap = {}
         for name in parent1.components:
             merged_components[name] = self._choose_component(
                 component=name,
@@ -120,7 +120,7 @@ class MergeProposalBuilder:
         state: GepaState,
         parent1_idx: int,
         parent2_idx: int,
-    ) -> list[tuple[str, DataInst]]:
+    ) -> list[tuple[str, Case[Any, Any, Any]]]:
         """Return a stratified subsample of shared validation instances."""
         parent1 = state.candidates[parent1_idx]
         parent2 = state.candidates[parent2_idx]
@@ -150,7 +150,7 @@ class MergeProposalBuilder:
             selected_ids.extend(self._sample(remaining, needed))
 
         lookup = await self._build_validation_lookup(state.validation_set)
-        subsample: list[tuple[str, DataInst]] = []
+        subsample: list[tuple[str, Case[Any, Any, Any]]] = []
         for data_id in selected_ids:
             instance = lookup.get(data_id)
             if instance is not None:
@@ -190,13 +190,13 @@ class MergeProposalBuilder:
 
     async def _build_validation_lookup(
         self,
-        validation_set: DataLoader[Any, DataInst] | None,
-    ) -> dict[str, DataInst]:
+        validation_set: DataLoader[Any, Case[Any, Any, Any]] | None,
+    ) -> dict[str, Case[Any, Any, Any]]:
         if validation_set is None or len(validation_set) == 0:
             return {}
         ids = list(await validation_set.all_ids())
         batch = await validation_set.fetch(ids)
-        lookup: dict[str, DataInst] = {}
+        lookup: dict[str, Case[Any, Any, Any]] = {}
         for idx, instance in enumerate(batch):
             lookup[data_id_for_instance(instance, idx)] = instance
         return lookup

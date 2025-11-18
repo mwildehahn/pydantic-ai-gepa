@@ -4,9 +4,11 @@ from typing import Any
 
 import pytest
 from inline_snapshot import snapshot
+from pydantic import BaseModel
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelRequest, UserPromptPart
+from pydantic_ai.messages import ModelRequest
 from pydantic_ai.models.test import TestModel
+from pydantic_evals import Case, Dataset
 import time_machine
 
 import pydantic_ai_gepa.adapters.agent_adapter as agent_adapter_module
@@ -15,13 +17,14 @@ from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
+from pydantic_ai_gepa.signature_agent import SignatureAgent
+from pydantic_ai_gepa.evaluation import evaluate_candidate_dataset
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.types import (
-    DataInst,
-    DataInstWithPrompt,
     MetricResult,
     RolloutOutput,
 )
+from pydantic_ai_gepa.gepa_graph.models import ComponentValue
 
 
 def test_extract_seed_candidate():
@@ -33,8 +36,56 @@ def test_extract_seed_candidate():
 
     candidate = extract_seed_candidate(agent)
 
-    assert candidate["instructions"] == "Be helpful"
+    assert candidate["instructions"].text == "Be helpful"
     assert len(candidate) == 1
+
+
+@pytest.mark.asyncio
+async def test_evaluate_candidate_dataset_helper() -> None:
+    base_agent = Agent(TestModel(custom_output_text="alpha"), instructions="Seed")
+
+    dataset = Dataset(
+        cases=[
+            Case(name="case-0", inputs={"text": "a"}, expected_output="alpha"),
+            Case(name="case-1", inputs={"text": "b"}, expected_output="beta"),
+        ]
+    )
+
+    class InputModel(BaseModel):
+        text: str
+
+    def metric(
+        case: Case[InputModel, str, dict[str, str] | None],
+        output: RolloutOutput[Any],
+    ) -> MetricResult:
+        predicted = (
+            str(output.result).strip()
+            if output.success and output.result is not None
+            else ""
+        )
+        expected = str(case.expected_output or "")
+        score = 1.0 if predicted == expected else 0.0
+        return MetricResult(score=score, feedback="match" if score else "mismatch")
+
+    agent = SignatureAgent(base_agent, input_type=InputModel, optimize_tools=False)
+
+    records = await evaluate_candidate_dataset(
+        agent=agent,
+        metric=metric,
+        input_type=InputModel,
+        dataset=dataset,
+        candidate={
+            "instructions": ComponentValue(
+                name="instructions", text="Always answer alpha"
+            )
+        },
+        concurrency=2,
+    )
+
+    assert len(records) == 2
+    scores = {record.case_id: record.score for record in records}
+    assert scores["case-0"] == pytest.approx(1.0)
+    assert scores["case-1"] == pytest.approx(0.0)
 
 
 def test_get_component_names():
@@ -51,27 +102,21 @@ def test_get_component_names():
 
 
 @pytest.mark.asyncio
-async def test_process_data_instance():
-    """Test processing a single data instance."""
+async def test_process_case():
+    """Test processing a single case."""
     agent = Agent(
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
         if output.success:
             return MetricResult(score=0.8, feedback="Good")
         return MetricResult(score=0.0, feedback="Failed")
 
-    adapter = AgentAdapter(agent, metric)
+    adapter = AgentAdapter(agent=agent, metric=metric)
 
-    # Test without traces
-    data_inst = DataInstWithPrompt(
-        user_prompt=UserPromptPart(content="Hello"),
-        message_history=None,
-        metadata={},
-        case_id="test-4",
-    )
-    result = await adapter.process_data_instance(data_inst, capture_traces=False)
+    case = Case(name="test-4", inputs="Hello", metadata={})
+    result = await adapter.process_case(case, 0, capture_traces=False)
 
     assert "output" in result
     assert "score" in result
@@ -80,8 +125,10 @@ async def test_process_data_instance():
     assert "trajectory" not in result
 
     # Test with traces
-    result_with_trace = await adapter.process_data_instance(
-        data_inst, capture_traces=True
+    result_with_trace = await adapter.process_case(
+        case,
+        0,
+        capture_traces=True,
     )
 
     assert "output" in result_with_trace
@@ -93,7 +140,7 @@ async def test_process_data_instance():
 
 
 @pytest.mark.asyncio
-async def test_process_data_instance_captures_messages_on_tool_error():
+async def test_process_case_captures_messages_on_tool_error():
     """Ensure traces include prompt/response history even when tools fail."""
     agent = Agent(TestModel(), instructions="Be helpful")
 
@@ -101,18 +148,13 @@ async def test_process_data_instance_captures_messages_on_tool_error():
     async def broken_tool(ctx, code: str) -> str:
         raise ValueError("boom")
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
         return MetricResult(score=0.0, feedback="failed")
 
-    adapter = AgentAdapter(agent, metric)
-    data_inst = DataInstWithPrompt(
-        user_prompt=UserPromptPart(content="Hello"),
-        message_history=None,
-        metadata={},
-        case_id="tool-error",
-    )
+    adapter = AgentAdapter(agent=agent, metric=metric)
+    case = Case(name="tool-error", inputs="Hello", metadata={})
 
-    result = await adapter.process_data_instance(data_inst, capture_traces=True)
+    result = await adapter.process_case(case, 0, capture_traces=True)
 
     assert result["output"].success is False
     assert result["output"].error_kind == "tool"
@@ -122,7 +164,7 @@ async def test_process_data_instance_captures_messages_on_tool_error():
 
 
 @pytest.mark.asyncio
-async def test_process_data_instance_skips_system_error_trajectory(monkeypatch):
+async def test_process_case_skips_system_error_trajectory(monkeypatch):
     """System/library errors should not be surfaced to reflection trajectories."""
     agent = Agent(TestModel(), instructions="Be helpful")
 
@@ -130,20 +172,15 @@ async def test_process_data_instance_skips_system_error_trajectory(monkeypatch):
     async def broken_tool(ctx, code: str) -> str:
         raise ValueError("boom")
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
         return MetricResult(score=0.0, feedback="failed")
 
-    adapter = AgentAdapter(agent, metric)
-    data_inst = DataInstWithPrompt(
-        user_prompt=UserPromptPart(content="Hello"),
-        message_history=None,
-        metadata={},
-        case_id="system-error",
-    )
+    adapter = AgentAdapter(agent=agent, metric=metric)
+    case = Case(name="system-error", inputs="Hello", metadata={})
 
     monkeypatch.setattr(agent_adapter_module, "_classify_exception", lambda exc: "system")
 
-    result = await adapter.process_data_instance(data_inst, capture_traces=True)
+    result = await adapter.process_case(case, 0, capture_traces=True)
 
     assert result["output"].success is False
     assert result["output"].error_kind == "system"
@@ -158,21 +195,16 @@ async def test_make_reflective_dataset():
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(data_inst: DataInst, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
         if output.success:
             return MetricResult(score=0.8, feedback="Good")
         return MetricResult(score=0.0, feedback="Failed")
 
-    adapter = AgentAdapter(agent, metric)
+    adapter = AgentAdapter(agent=agent, metric=metric)
     candidate = extract_seed_candidate(agent)
 
-    data_inst = DataInstWithPrompt(
-        user_prompt=UserPromptPart(content="Hello"),
-        message_history=None,
-        metadata={},
-        case_id="test-4",
-    )
-    result = await adapter.evaluate([data_inst], candidate, capture_traces=True)
+    case = Case(name="test-4", inputs="Hello", metadata={})
+    result = await adapter.evaluate([case], candidate, capture_traces=True)
 
     reflective_dataset = adapter.make_reflective_dataset(
         candidate=candidate,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.models import (
@@ -15,17 +15,11 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     AllComponentSelector,
     RoundRobinComponentSelector,
 )
-from pydantic_ai_gepa.types import DataInstWithPrompt
 
 
 def _make_state() -> GepaState:
     training = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"prompt-{idx}"),
-            message_history=None,
-            metadata={},
-            case_id=str(idx),
-        )
+        Case(name=f"case-{idx}", inputs=f"prompt-{idx}", metadata={})
         for idx in range(2)
     ]
     state = GepaState(config=GepaConfig(), training_set=ListDataLoader(training))

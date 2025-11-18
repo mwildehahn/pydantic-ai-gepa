@@ -15,8 +15,10 @@ from pydantic import (
     model_validator,
 )
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 
-from ...types import DataInst, RolloutOutput
+from ...types import RolloutOutput
+from pydantic_evals import Case
 from ..datasets import DataLoader, ensure_loader
 from ...reflection import ReflectionSampler
 from .candidate import CandidateProgram
@@ -101,6 +103,13 @@ class GepaConfig(BaseModel):
         default=True,
         description="Whether to stop reflecting once a candidate meets or exceeds perfect_score.",
     )
+    skip_perfect_requires_validation: bool = Field(
+        default=False,
+        description=(
+            "When True, only skip reflection on a perfect minibatch if the candidate's average validation score "
+            "also meets the perfect_score threshold."
+        ),
+    )
     reflection_model: Model | KnownModelName | str | None = Field(
         default=None,
         description="LLM used to propose new component text during reflection.",
@@ -112,6 +121,14 @@ class GepaConfig(BaseModel):
     reflection_sampler_max_records: int = Field(
         default=10,
         description="Maximum records passed to the reflection sampler/model per component.",
+    )
+    track_component_hypotheses: bool = Field(
+        default=False,
+        description="Persist reasoning metadata for component updates and surface it in future reflections.",
+    )
+    reflection_model_settings: ModelSettings | None = Field(
+        default=None,
+        description="Default model settings applied to every reflection model call (e.g., temperature, top_p).",
     )
 
     # Component selection
@@ -272,10 +289,10 @@ class GepaState(BaseModel):
         ..., description="Immutable configuration that governs the optimization run."
     )
 
-    training_set: DataLoader[Any, DataInst] = Field(
+    training_set: DataLoader[Any, Case[Any, Any, Any]] = Field(
         ..., exclude=True, description="Training dataset used to evaluate candidates."
     )
-    validation_set: DataLoader[Any, DataInst] | None = Field(
+    validation_set: DataLoader[Any, Case[Any, Any, Any]] | None = Field(
         default=None,
         exclude=True,
         description="Optional validation dataset; defaults to the training data when omitted.",
@@ -286,8 +303,11 @@ class GepaState(BaseModel):
     @field_validator("training_set", mode="before")
     @classmethod
     def _coerce_training_set(
-        cls, value: DataLoader[Any, DataInst] | Sequence[DataInst] | None
-    ) -> DataLoader[Any, DataInst]:
+        cls,
+        value: DataLoader[Any, Case[Any, Any, Any]]
+        | Sequence[Case[Any, Any, Any]]
+        | None,
+    ) -> DataLoader[Any, Case[Any, Any, Any]]:
         if value is None:
             raise ValueError("training_set is required.")
         loader = ensure_loader(value)
@@ -298,8 +318,11 @@ class GepaState(BaseModel):
     @field_validator("validation_set", mode="before")
     @classmethod
     def _coerce_validation_set(
-        cls, value: DataLoader[Any, DataInst] | Sequence[DataInst] | None
-    ) -> DataLoader[Any, DataInst] | None:
+        cls,
+        value: DataLoader[Any, Case[Any, Any, Any]]
+        | Sequence[Case[Any, Any, Any]]
+        | None,
+    ) -> DataLoader[Any, Case[Any, Any, Any]] | None:
         if value is None:
             return None
         loader = ensure_loader(value)

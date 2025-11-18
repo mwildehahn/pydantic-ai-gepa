@@ -3,33 +3,36 @@
 from __future__ import annotations
 
 from types import NoneType
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic_graph.beta import Graph, GraphBuilder, StepContext
 from pydantic_graph.beta.util import TypeExpression
 
 from .deps import GepaDeps
 from .models import GepaConfig, GepaResult, GepaState
-from .steps import (
-    StopSignal,
-    continue_step as continue_step_fn,
-    evaluate_step as evaluate_step_fn,
-    merge_step as merge_step_fn,
-    reflect_step as reflect_step_fn,
-    start_step as start_step_fn,
-)
+if TYPE_CHECKING:
+    from .steps import StopSignal
 
 
 def create_gepa_graph(
     *,
     config: GepaConfig,
-) -> Graph[GepaState, GepaDeps[Any], None, GepaResult]:
+) -> Graph[GepaState, GepaDeps, None, GepaResult]:
     """Create the GEPA graph definition based on the provided configuration."""
+
+    from .steps import (
+        StopSignal,
+        continue_step as continue_step_fn,
+        evaluate_step as evaluate_step_fn,
+        merge_step as merge_step_fn,
+        reflect_step as reflect_step_fn,
+        start_step as start_step_fn,
+    )
 
     builder = GraphBuilder(
         name="gepa_graph",
         state_type=GepaState,
-        deps_type=GepaDeps[Any],
+        deps_type=GepaDeps,
         input_type=NoneType,
         output_type=GepaResult,
     )
@@ -81,7 +84,7 @@ def create_gepa_graph(
 
 
 def _iteration_decision(
-    builder: GraphBuilder[Any, Any, Any, Any],
+    builder: GraphBuilder[GepaState, GepaDeps, NoneType, GepaResult],
     evaluate_step,
     continue_step,
     *,
@@ -103,13 +106,13 @@ def _iteration_decision(
 
 
 def _stop_signal_to_result(
-    ctx: StepContext[GepaState, GepaDeps[Any], StopSignal]
+    ctx: StepContext[GepaState, GepaDeps, "StopSignal"]
 ) -> GepaResult:
     return ctx.inputs.result
 
 
 def _drop_input(
-    ctx: StepContext[GepaState, GepaDeps[Any], object]
+    ctx: StepContext[GepaState, GepaDeps, object]
 ) -> None:
     return None
 

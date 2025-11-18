@@ -6,7 +6,8 @@ from inline_snapshot import snapshot
 import pytest
 import time_machine
 from pydantic_ai import Agent
-from pydantic_ai.messages import ModelResponse, TextPart, UserPromptPart
+from pydantic_ai.messages import ModelResponse, TextPart
+from pydantic_evals import Case
 from pydantic_ai.models.function import FunctionModel
 
 from pydantic_ai_gepa.adapter import (
@@ -16,7 +17,7 @@ from pydantic_ai_gepa.adapter import (
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue
 from pydantic_ai_gepa.gepa_graph.proposal import InstructionProposalGenerator
-from pydantic_ai_gepa.types import DataInstWithPrompt, MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import MetricResult, RolloutOutput
 
 
 def _make_candidate() -> CandidateProgram:
@@ -120,13 +121,57 @@ async def test_llm_generator_updates_components() -> None:
         model=model,
     )
 
-    assert result == {
+    assert result.texts == {
         "instructions": "Improved instructions",
         "tools": "Better tools",
     }
     assert "## Components to update" in prompts[-1]
     assert "### Component: `instructions`" in prompts[-1]
     assert "### Component: `tools`" in prompts[-1]
+
+
+@pytest.mark.asyncio
+async def test_llm_generator_returns_metadata_when_enabled() -> None:
+    candidate = _make_candidate()
+    reflective_data = ComponentReflectiveDataset(
+        records_by_component={
+            "instructions": [_make_reflective_record()],
+        }
+    )
+
+    async def fake_model(messages, agent_info):
+        content = """{
+            "reasoning": {
+                "pattern_discovery": "Repeated boundary errors",
+                "creative_hypothesis": "Teach explicit range mapping",
+                "experimental_approach": "Add a checklist with translations",
+                "edge_insight": "Still mislabeling exclusive ranges",
+                "success_checkpoint": "Zero range mistakes on validation minibatch",
+                "evolution_moves": ["Checklist", "Edge Reasoning: ranges"]
+            },
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator(include_hypothesis_metadata=True)
+    model = FunctionModel(function=fake_model)
+    result = await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions"],
+        model=model,
+    )
+
+    assert result.texts["instructions"] == "Improved instructions"
+    metadata = result.component_metadata["instructions"]
+    assert metadata["hypothesis"] == "Teach explicit range mapping"
+    assert metadata["pattern"] == "Repeated boundary errors"
+    assert metadata["approach"].startswith("Add a checklist")
+    assert metadata["edge_insight"] == "Still mislabeling exclusive ranges"
+    assert metadata["checkpoint"] == "Zero range mistakes on validation minibatch"
+    assert metadata["moves"] == ["Checklist", "Edge Reasoning: ranges"]
 
 
 @pytest.mark.asyncio
@@ -164,8 +209,8 @@ async def test_llm_generator_skips_components_without_records() -> None:
         model=model,
     )
 
-    assert result["instructions"] == "Improved instructions"
-    assert result["tools"] == "Seed tools"
+    assert result.texts["instructions"] == "Improved instructions"
+    assert result.texts["tools"] == "Seed tools"
 
 
 @pytest.mark.asyncio
@@ -190,7 +235,7 @@ async def test_llm_generator_returns_existing_text_on_agent_failure() -> None:
         model=model,
     )
 
-    assert result == {
+    assert result.texts == {
         "instructions": "Seed instructions",
         "tools": "Seed tools",
     }
@@ -289,6 +334,52 @@ async def test_catalog_tools_fall_back_when_no_reflective_records() -> None:
 
 
 @pytest.mark.asyncio
+async def test_prompt_includes_stored_hypothesis_metadata() -> None:
+    candidate = _make_candidate()
+    candidate.components["instructions"].metadata = {
+        "pattern": "Boundary confusion",
+        "hypothesis": "Spell out range rules",
+        "approach": "Add checklist",
+        "iteration": 4,
+    }
+    reflective_data = ComponentReflectiveDataset(
+        records_by_component={"instructions": [_make_reflective_record()]}
+    )
+
+    captured_prompt: str | None = None
+
+    async def fake_model(messages, agent_info):
+        nonlocal captured_prompt
+        captured_prompt = messages[-1].parts[0].content
+        content = """{
+            "reasoning": {
+                "pattern_discovery": "Boundary confusion",
+                "creative_hypothesis": "Spell out range rules",
+                "experimental_approach": "Add checklist"
+            },
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator(include_hypothesis_metadata=True)
+    model = FunctionModel(function=fake_model)
+    await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions"],
+        model=model,
+    )
+
+    assert captured_prompt is not None
+    assert "## Stored hypotheses from previous reflections" in captured_prompt
+    assert "Components: `instructions`" in captured_prompt
+    assert "  - Hypothesis: Spell out range rules" in captured_prompt
+    assert "  - Iteration: 4" in captured_prompt
+
+
+@pytest.mark.asyncio
 async def test_llm_generator_skips_entire_call_when_no_records() -> None:
     candidate = _make_candidate()
     reflective_data = ComponentReflectiveDataset(
@@ -312,7 +403,7 @@ async def test_llm_generator_skips_entire_call_when_no_records() -> None:
         model=model,
     )
 
-    assert result["instructions"] == "Seed instructions"
+    assert result.texts["instructions"] == "Seed instructions"
     assert call_count == 0
 
 
@@ -347,7 +438,7 @@ async def test_llm_generator_handles_shared_dataset() -> None:
         model=model,
     )
 
-    assert result == snapshot(
+    assert result.texts == snapshot(
         {"instructions": 'Improved instructions', "tools": 'Improved tools'}
     )
     prompt = prompts[-1]
@@ -535,7 +626,7 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
         return f"Weather in {location}: Sunny, 72°F"
 
     # Set up adapter with a simple metric
-    def metric(data_inst: DataInstWithPrompt, output: RolloutOutput[Any]) -> MetricResult:
+    def metric(case: Case[str, str, dict[str, str]], output: RolloutOutput[Any]) -> MetricResult:
         # Score based on whether it used the tool
         success = output.success and output.result is not None
         return MetricResult(
@@ -543,22 +634,12 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
             feedback="Good use of tools" if success else "Failed to use tools",
         )
 
-    adapter = AgentAdapter(agent, metric, optimize_tools=True)
+    adapter = AgentAdapter(agent=agent, metric=metric, optimize_tools=True)
 
     # Create test data with multiple runs
     test_data = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content="What's the weather in San Francisco?"),
-            message_history=None,
-            metadata={},
-            case_id="weather_1",
-        ),
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content="What's the weather in New York?"),
-            message_history=None,
-            metadata={},
-            case_id="weather_2",
-        ),
+        Case(name="weather_1", inputs="What's the weather in San Francisco?", metadata={}),
+        Case(name="weather_2", inputs="What's the weather in New York?", metadata={}),
     ]
 
     # Run evaluation with traces
@@ -585,8 +666,8 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
     candidate_program = CandidateProgram(
         idx=0,
         components={
-            name: ComponentValue(name=name, text=text)
-            for name, text in candidate.items()
+            name: value if isinstance(value, ComponentValue) else ComponentValue(name=name, text=value)
+            for name, value in candidate.items()
         },
         creation_type="seed",
         discovered_at_iteration=0,
@@ -628,10 +709,10 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
     )
 
     # Verify the result includes updated instructions and tool components
-    assert result["instructions"] == "Improved instructions with tool guidance"
+    assert result.texts["instructions"] == "Improved instructions with tool guidance"
     for tool_comp in tool_components:
-        assert tool_comp in result
-        assert "Improved" in result[tool_comp]
+        assert tool_comp in result.texts
+        assert "Improved" in result.texts[tool_comp]
 
     # Verify the complete prompt with snapshot
     assert captured_prompt == snapshot("""\

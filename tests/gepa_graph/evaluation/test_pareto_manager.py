@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
 from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationResults, ParetoFrontManager
@@ -13,18 +13,13 @@ from pydantic_ai_gepa.gepa_graph.models import (
     GepaConfig,
     GepaState,
 )
-from pydantic_ai_gepa.types import DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput
 
 
 def _make_state() -> GepaState:
     config = GepaConfig()
     training = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"prompt-{idx}"),
-            message_history=None,
-            metadata={},
-            case_id=str(idx),
-        )
+        Case(name=f"case-{idx}", inputs=f"prompt-{idx}", metadata={})
         for idx in range(3)
     ]
     return GepaState(config=config, training_set=ListDataLoader(training))

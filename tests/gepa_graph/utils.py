@@ -3,13 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.gepa_graph.proposal import ProposalResult
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
+from pydantic_ai_gepa.types import RolloutOutput
 
 __all__ = [
     "AdapterStub",
@@ -20,14 +22,13 @@ __all__ = [
 ]
 
 
-def make_dataset(size: int = 3) -> list[DataInstWithPrompt]:
+def make_dataset(size: int = 3) -> list[Case[str, str, dict[str, Any]]]:
     """Return a simple dataset for GEPA tests."""
     return [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"prompt-{idx}"),
-            message_history=None,
-            metadata={},
-            case_id=str(idx),
+        Case(
+            name=f"case-{idx}",
+            inputs=f"prompt-{idx}",
+            metadata={"label": "stub"},
         )
         for idx in range(size)
     ]
@@ -50,12 +51,12 @@ class AdapterStub:
         self.input_spec = None
 
     async def evaluate(self, batch, candidate, capture_traces):
-        text = candidate["instructions"]
+        text = candidate["instructions"].text
         base = 0.85 if text.startswith("improved") else 0.4
 
         outputs = [
-            RolloutOutput.from_success(f"{text}-{instance.case_id}")
-            for instance in batch
+            RolloutOutput.from_success(f"{text}-{case.name}")
+            for case in batch
         ]
         trajectories = (
             [
@@ -89,8 +90,8 @@ class AdapterStub:
         ]
         return SharedReflectiveDataset(records=records)
 
-    def get_components(self) -> dict[str, str]:
-        return {"instructions": "seed instructions"}
+    def get_components(self) -> CandidateMap:
+        return {"instructions": ComponentValue(name="instructions", text="seed instructions")}
 
 
 class ProposalGeneratorStub:
@@ -109,6 +110,7 @@ class ProposalGeneratorStub:
         iteration: int | None = None,
         current_best_score: float | None = None,
         parent_score: float | None = None,
+        model_settings=None,
     ):
         self.calls += 1
         updates: dict[str, str] = {}
@@ -117,9 +119,9 @@ class ProposalGeneratorStub:
                 updates[component] = f"improved {component}"
             else:
                 updates[component] = candidate.components[component].text
-        return updates
+        return ProposalResult(texts=updates, component_metadata={}, reasoning=None)
 
 
-def make_adapter_stub() -> Adapter[DataInst]:
+def make_adapter_stub() -> Adapter[str, str, dict[str, Any]]:
     """Return the adapter stub typed as a PydanticAIGEPAAdapter."""
-    return cast(Adapter[DataInst], AdapterStub())
+    return cast(Adapter[str, str, dict[str, Any]], AdapterStub())

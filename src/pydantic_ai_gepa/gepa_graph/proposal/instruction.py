@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from collections.abc import Mapping, Sequence
 from typing import Any
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 
 from pydantic_ai_gepa.inspection import InspectionAborted
 
@@ -17,27 +19,26 @@ from ...adapter import (
     ReflectiveDataset,
     SharedReflectiveDataset,
 )
-from ..models import CandidateProgram
+from ..models import CandidateProgram, ComponentValue
 
-DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover innovative instruction formats that unlock better performance.
+DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover instruction formats that measurably improve the student agent's performance.
 
 ## The Creative Challenge
 
-You have execution traces showing how a student agent performed various tasks. Some succeeded, some failed, some revealed interesting patterns. Your challenge: invent instructions that would lead to better outcomes.
-
-Think like an explorer discovering new territory. Each trace is a clue, each pattern a potential breakthrough. There's no predetermined formula - just evidence waiting to inspire creative solutions.
+You have execution traces showing how a student agent performed various tasks. Some succeeded, some failed, some revealed interesting patterns. Treat every trace as actionable evidence when inventing new instructions.
 
 ## Experimental Mindset
 
 Approach this with curiosity and creativity:
-- What fascinating patterns emerge from the traces?
-- What unexpected approaches might address them?
-- How can instructions be crafted in novel ways?
-- What would happen if you tried something completely different?
+- Which patterns keep repeating across traces?
+- What hypotheses explain those patterns?
+- Which alternative instruction styles could address the gaps?
+- How can you test new ideas without discarding what already works?
 
 ## Rich Design Space
 
-You can experiment with any format or approach:
+You can experiment with any format or approach. In particular, we see high leverage from **example banks** that juxtapose "do this" and "avoid this" snippets tied to the observed traces. Use these contrastive examples to distill the domain knowledge you observe (e.g., how certain phrases, cues, or tool-usage patterns translate into concrete actions) so the student internalizes the underlying rules, not just the surface wording.
+When you add example banks, append them as a clearly labeled final section (e.g., "Example Bank" or "Few-Shot Reference") so the student sees the canonical examples right after the core instructions.
 
 **Teaching Styles**
 - Learning by example
@@ -52,6 +53,7 @@ You can experiment with any format or approach:
 - Recipes for success
 - Maps through problem space
 - Guardrails and guidelines
+- Contrastive example banks
 - Mental models
 - Thinking tools
 
@@ -62,13 +64,37 @@ You can experiment with any format or approach:
 - Memorable frameworks
 - Unexpected metaphors
 
-## Evidence as Inspiration
+## Evolution Mandate
 
-Let the traces spark creative insights:
-- Failures reveal what's missing
-- Successes show what resonates
-- Patterns suggest new possibilities
-- Edge cases inspire robust solutions
+Plateaus occur when every reflection reiterates the same playbook. Break that loop explicitly:
+- Each proposal must name at least **two** "Evolution Moves"—concrete levers you are changing relative to the previous iteration (e.g., a new planning scaffold, a scratchpad ritual, a self-check loop, a tool-handshake rewrite, an evaluation rubric, a persona shift).
+- Write those move names in the scratchpad so the next reflection sees what changed (e.g., "Move: Planning scaffold + Tool handshake").
+- For every move, explain how it alters the student's cognitive workflow and why it should generalize beyond the current dataset.
+- If you keep an existing move, state why it still matters; otherwise, mark it as retired.
+- When traces show that a failure category (e.g., domain-specific correctness, semantic interpretations, unit handling, edge-condition validation) survived the last few updates, dedicate **at least one** Evolution Move to that domain reasoning gap instead of repeating the same tool-budget fixes.
+
+### Edge-Case Forcing Function
+
+- In every iteration, highlight one "Edge Insight"—a concise description of a domain logic error pattern still present in the traces (e.g., misreading boundary language, mishandling descending sequences, forgetting to verify invariants or preconditions).
+- Design one Evolution Move called `Edge Reasoning: <name>` that injects new thinking tools around that insight (stress-test tables, double-check rituals, alternate formulations, etc.).
+- Capture the Edge Insight in the scratchpad so future reflections can retire it once metrics confirm it's solved.
+
+### Evolution Move Menu (pick different pairings often)
+- **Planning scaffolds:** multi-step checklists, state-management cues, or scratchpad summaries before coding.
+- **Self-check loops:** instructions that require the student to verify ranges, recompute with alternate reasoning, or reconcile tool output before finalizing.
+- **Tool handshake rewrites:** new phrasing that changes how the student calls tools (e.g., explicit stop rules, timeout budgets, fallback paths).
+- **Meta-cognition prompts:** guiding the student to reflect on uncertainties, name assumptions, or note TODOs.
+- **Persona / tone shifts:** framing the student as a specific role (auditor, coach, researcher) to unlock different behavior.
+- **Example re-lensing:** reorganizing evidence into tables, failure galleries, or short stories that highlight different contrasts.
+- **Data abstractions:** turning repeated trace motifs into reusable formulas, heuristics, or quick diagnostics the student can quote.
+
+## Evidence to Leverage
+
+Use the traces as concrete backing for each idea:
+- Failures highlight missing guardrails
+- Successes show proven behaviors to preserve
+- Cross-run patterns suggest reusable structures
+- Edge cases reveal robustness requirements
 
 ## Analysis Framework
 
@@ -80,22 +106,40 @@ For each set of traces, discover:
 - **Efficiency opportunities:** How could tasks be done better?
 - **Structural insights:** What systemic issues appear?
 
-## Output Excellence
+## Scratchpad Relay Protocol
+
+The "Pattern Discovery", "Creative Hypothesis", and "Experimental Approach" fields act as a multi-step scratchpad. Treat them like a baton pass to the next reflection:
+- Start each field with labels such as `Keep:`, `Change:`, `Experiment:` so lineage is obvious.
+- Cite the evidence (trace IDs, failure themes) that motivated each bullet.
+- Explicitly connect your listed Evolution Moves to the text you will rewrite.
+- End the Experimental Approach with a checkpoint describing how to measure whether the move worked (what behaviors or metrics should improve next time).
+- Reserve one bullet for the Edge Insight noted above and specify how you'll know it's resolved (e.g., "Expect zero range-direction mistakes on validation minibatch").
+
+## Output Requirements
 
 Your updated components should:
 - Address specific patterns from the traces
-- Feel fresh and inventive
+- Introduce concise, testable hypotheses
 - Match the complexity to the evidence
 - Balance clarity with creativity
 - Work together as a unified system
+- Whenever feasible, include a short bank of positive vs. negative examples (or success vs. failure traces) that encode the domain knowledge extracted from the traces—spell out the interpretation rule, then show the matching and mismatching code. Place this example bank at the end of the instructions so it reads like a few-shot appendix the student can reference quickly.
+- Highlight where the new Evolution Moves appear (e.g., "Planning Scaffold" subsection, "Self-check loop" checklist) so evaluators can trace the experiment.
 
-## The Art of Instruction Design
+## Instruction Design Goal
 
-Great instructions aren't just correct - they're inspiring, clear, and memorable. They help the student see patterns, avoid pitfalls, and discover solutions.
+Produce instructions that are clear, memorable, and grounded in observed behavior. Help the student see patterns, avoid pitfalls, and execute reliable solutions. Let the evidence steer you toward new hypotheses instead of repeating boilerplate. Favor ideas that raise the student's ability to reason about *any* domain, not just the current dataset.
 
-Your goal: Create instructions so effective they feel inevitable in hindsight, yet so creative they surprise in the moment.
+## Hypothesis Scratchpad Discipline
 
-Let the evidence guide you toward unexpected discoveries."""
+- Before proposing new instructions, reread the stored hypotheses above the configuration and explicitly state how you are extending or revising them.
+- Tie each hypothesis directly to the traces and components it informed—cite successes, failures, or surprises.
+- Call out which parts of the hypothesis stay valid, which parts need tweaks, and which parts you are discarding.
+- Keep it concise and component-aware so the next reflection can quickly inherit the right mental model.
+- Whenever you introduce an Evolution Move, record it in the scratchpad with a short justification ("Experiment: Self-check loop to eliminate tool-call churn on edge cases").
+- If an Edge Insight persists across two iterations, escalate: require the student instructions to include a distinct section (tables, checklists, step-by-step tests) devoted to that edge behavior until the traces confirm it's fixed.
+
+Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
 
 
 class TrajectoryAnalysis(BaseModel):
@@ -109,6 +153,18 @@ class TrajectoryAnalysis(BaseModel):
     )
     experimental_approach: str = Field(
         description="What specific instructional format or style will you try? How does it differ from conventional approaches?",
+    )
+    edge_insight: str = Field(
+        default="",
+        description="Name the most stubborn domain-specific error pattern still present (the 'Edge Insight') and why it persists.",
+    )
+    evolution_moves: list[str] = Field(
+        default_factory=list,
+        description="List the concrete Evolution Moves you're introducing, e.g., planning scaffold, edge reasoning ritual, persona shift.",
+    )
+    success_checkpoint: str = Field(
+        default="",
+        description="Define how we'll know this experiment worked (metrics, qualitative behavior, or trace-level signal).",
     )
 
 
@@ -135,14 +191,31 @@ class InstructionProposalOutput(BaseModel):
     )
 
 
+@dataclass(slots=True)
+class ProposalResult:
+    """Resolved results from the instruction proposal call."""
+
+    texts: dict[str, str]
+    component_metadata: dict[str, dict[str, Any]]
+    reasoning: TrajectoryAnalysis | None
+
+
 class InstructionProposalGenerator:
     """Generate improved component texts via a structured agent call."""
 
-    def __init__(self, instructions: str | None = None) -> None:
+    def __init__(
+        self,
+        instructions: str | None = None,
+        *,
+        include_hypothesis_metadata: bool = False,
+        model_settings: ModelSettings | None = None,
+    ) -> None:
         self._agent = Agent(
             instructions=instructions or DEFAULT_AGENT_INSTRUCTIONS,
             output_type=InstructionProposalOutput,
         )
+        self._include_hypothesis_metadata = include_hypothesis_metadata
+        self._default_model_settings = model_settings
 
     async def propose_texts(
         self,
@@ -154,7 +227,8 @@ class InstructionProposalGenerator:
         iteration: int | None = None,  # Kept for backwards compatibility but not used
         current_best_score: float | None = None,  # Kept for backwards compatibility but not used
         parent_score: float | None = None,  # Kept for backwards compatibility but not used
-    ) -> dict[str, str]:
+        model_settings: ModelSettings | None = None,
+    ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
 
         Args:
@@ -167,7 +241,7 @@ class InstructionProposalGenerator:
             parent_score: (Deprecated) No longer used - kept for backwards compatibility
         """
         if not components:
-            return {}
+            return ProposalResult(texts={}, component_metadata={}, reasoning=None)
 
         untouched: dict[str, str] = {}
         actionable: list[str] = []
@@ -182,7 +256,11 @@ class InstructionProposalGenerator:
                 untouched[component] = candidate.components[component].text
 
         if not actionable:
-            return untouched
+            return ProposalResult(
+                texts=untouched,
+                component_metadata={},
+                reasoning=None,
+            )
 
         prompt = self._build_user_prompt(
             candidate=candidate,
@@ -191,18 +269,28 @@ class InstructionProposalGenerator:
         )
 
         try:
-            result = await self._agent.run(prompt, model=model)
+            resolved_settings = model_settings or self._default_model_settings
+            result = await self._agent.run(
+                prompt,
+                model=model,
+                model_settings=resolved_settings,
+            )
         except InspectionAborted:
             raise
         except Exception:
             # Fall back to the existing component texts when the agent fails.
-            return {
+            fallback = {
                 **untouched,
                 **{
                     component: candidate.components[component].text
                     for component in actionable
                 },
             }
+            return ProposalResult(
+                texts=fallback,
+                component_metadata={},
+                reasoning=None,
+            )
 
         updates = {
             update.component_name: update.optimized_value
@@ -215,7 +303,16 @@ class InstructionProposalGenerator:
             updated[component] = updates.get(
                 component, candidate.components[component].text
             )
-        return updated
+        metadata = self._build_component_metadata(
+            reasoning=result.output.reasoning if self._include_hypothesis_metadata else None,
+            components=actionable,
+        )
+
+        return ProposalResult(
+            texts=updated,
+            component_metadata=metadata,
+            reasoning=result.output.reasoning,
+        )
 
     def _build_user_prompt(
         self,
@@ -237,6 +334,74 @@ class InstructionProposalGenerator:
             "- We've collected traces from real production runs",
             "- Your job is to improve specific components so the student agent performs better",
             "",
+        ])
+
+        catalog_tool_defs = self._build_tool_definitions_from_candidate(candidate)
+
+        metadata_groups: list[dict[str, Any]] = []
+        metadata_components: list[list[str]] = []
+        metadata_index: dict[tuple[tuple[str, str], ...], int] = {}
+        target_components = {component for component in components}
+
+        component_sections: list[str] = []
+
+        # Show non-tool components in the candidate (tools are shown via JSON Schema below)
+        for component_name, component_value in candidate.components.items():
+            if component_name.startswith("tool:"):
+                continue  # Skip tool components, they're shown in JSON Schema
+            component_sections.append(f"**`{component_name}` given to student:**")
+            component_sections.append("```")
+            component_sections.append(component_value.text.strip())
+            component_sections.append("```")
+            component_sections.append("")
+
+            if self._include_hypothesis_metadata and component_name in target_components:
+                metadata_entry = self._extract_component_metadata(component_value)
+                if metadata_entry:
+                    signature = self._metadata_signature(metadata_entry)
+                    idx = metadata_index.get(signature)
+                    if idx is None:
+                        idx = len(metadata_groups)
+                        metadata_index[signature] = idx
+                        metadata_groups.append(metadata_entry)
+                        metadata_components.append([component_name])
+                    else:
+                        metadata_components[idx].append(component_name)
+
+        if metadata_groups:
+            lines.extend([
+                "## Stored hypotheses from previous reflections",
+                "",
+            ])
+            for metadata_entry, component_list in zip(metadata_groups, metadata_components):
+                component_names = ", ".join(f"`{name}`" for name in component_list)
+                lines.append(f"- Components: {component_names}")
+                iteration = metadata_entry.get("iteration")
+                if iteration is not None:
+                    lines.append(f"  - Iteration: {iteration}")
+                if "pattern" in metadata_entry:
+                    lines.append(f"  - Pattern: {metadata_entry['pattern']}")
+                if "hypothesis" in metadata_entry:
+                    lines.append(f"  - Hypothesis: {metadata_entry['hypothesis']}")
+                if "approach" in metadata_entry:
+                    lines.append(f"  - Plan: {metadata_entry['approach']}")
+                moves = metadata_entry.get("moves")
+                if moves:
+                    joined_moves = ", ".join(str(move) for move in moves)
+                    lines.append(f"  - Moves: {joined_moves}")
+                elif iteration is not None:
+                    lines.append("  - Moves: (not provided)")
+                if "edge_insight" in metadata_entry:
+                    lines.append(f"  - Edge insight: {metadata_entry['edge_insight']}")
+                elif iteration is not None:
+                    lines.append("  - Edge insight: (not provided)")
+                if "checkpoint" in metadata_entry:
+                    lines.append(f"  - Checkpoint: {metadata_entry['checkpoint']}")
+                elif iteration is not None:
+                    lines.append("  - Checkpoint: (not provided)")
+                lines.append("")
+
+        lines.extend([
             "---",
             "",
             "## Full student agent configuration",
@@ -245,17 +410,7 @@ class InstructionProposalGenerator:
             "",
         ])
 
-        catalog_tool_defs = self._build_tool_definitions_from_candidate(candidate)
-
-        # Show non-tool components in the candidate (tools are shown via JSON Schema below)
-        for component_name, component_value in candidate.components.items():
-            if component_name.startswith("tool:"):
-                continue  # Skip tool components, they're shown in JSON Schema
-            lines.append(f"**`{component_name}` given to student:**")
-            lines.append("```")
-            lines.append(component_value.text.strip())
-            lines.append("```")
-            lines.append("")
+        lines.extend(component_sections)
 
         # Collect and show tools if present in evidence
         tools = self._collect_tools(reflective_data)
@@ -389,6 +544,77 @@ class InstructionProposalGenerator:
                     lines.append("")
 
         return "\n".join(lines)
+
+    def _build_component_metadata(
+        self,
+        *,
+        reasoning: TrajectoryAnalysis | None,
+        components: Sequence[str],
+    ) -> dict[str, dict[str, Any]]:
+        if not self._include_hypothesis_metadata or reasoning is None:
+            return {}
+
+        base: dict[str, Any] = {
+            "pattern": reasoning.pattern_discovery.strip(),
+            "hypothesis": reasoning.creative_hypothesis.strip(),
+            "approach": reasoning.experimental_approach.strip(),
+        }
+        edge_insight = reasoning.edge_insight.strip()
+        if edge_insight:
+            base["edge_insight"] = edge_insight
+        checkpoint = reasoning.success_checkpoint.strip()
+        if checkpoint:
+            base["checkpoint"] = checkpoint
+        moves = [move.strip() for move in reasoning.evolution_moves if move.strip()]
+        if moves:
+            base["moves"] = moves
+        filtered = {key: value for key, value in base.items() if value}
+        if not filtered:
+            return {}
+
+        return {component: dict(filtered) for component in components}
+
+    def _extract_component_metadata(self, component_value: ComponentValue) -> dict[str, Any]:
+        metadata = component_value.metadata or {}
+        if not isinstance(metadata, dict) or not metadata:
+            return {}
+
+        hypothesis = str(metadata.get("hypothesis", "")).strip()
+        pattern = str(metadata.get("pattern", "")).strip()
+        approach = str(metadata.get("approach", "")).strip()
+        edge_insight = str(metadata.get("edge_insight", "")).strip()
+        checkpoint = str(metadata.get("checkpoint", "")).strip()
+        raw_moves = metadata.get("moves")
+        moves: list[str] = []
+        if isinstance(raw_moves, list):
+            moves = [str(move).strip() for move in raw_moves if str(move).strip()]
+        iteration = metadata.get("iteration")
+
+        if not any([hypothesis, pattern, approach, edge_insight, checkpoint, moves, iteration]):
+            return {}
+
+        entry: dict[str, Any] = {}
+        if iteration is not None:
+            entry["iteration"] = iteration
+        if pattern:
+            entry["pattern"] = pattern
+        if hypothesis:
+            entry["hypothesis"] = hypothesis
+        if approach:
+            entry["approach"] = approach
+        if edge_insight:
+            entry["edge_insight"] = edge_insight
+        if checkpoint:
+            entry["checkpoint"] = checkpoint
+        if moves:
+            entry["moves"] = moves
+        return entry
+
+    def _metadata_signature(self, metadata: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+        return tuple(
+            (key, str(value))
+            for key, value in sorted(metadata.items(), key=lambda item: item[0])
+        )
 
     def _collect_tools(
         self, reflective_data: ReflectiveDataset

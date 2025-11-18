@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Any, Generic, Protocol, TypeVar
+
+from pydantic_evals import Case
 
 from .evaluation_models import EvaluationBatch
-from .types import DataInstT
+from .gepa_graph.models import CandidateMap, ComponentValue
+
+InputT = TypeVar("InputT")
+OutputT = TypeVar("OutputT")
+MetadataT = TypeVar("MetadataT")
 
 
 @dataclass(slots=True)
@@ -28,13 +34,13 @@ ReflectiveDataset = SharedReflectiveDataset | ComponentReflectiveDataset
 
 
 
-class Adapter(Protocol[DataInstT]):
+class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
     """Protocol describing the minimal surface required by the GEPA engine."""
 
     async def evaluate(
         self,
-        batch: Sequence[DataInstT],
-        candidate: dict[str, str],
+        batch: Sequence[Case[InputT, OutputT, MetadataT]],
+        candidate: CandidateMap,
         capture_traces: bool,
     ) -> EvaluationBatch:
         ...
@@ -42,13 +48,13 @@ class Adapter(Protocol[DataInstT]):
     def make_reflective_dataset(
         self,
         *,
-        candidate: dict[str, str],
+        candidate: CandidateMap,
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
     ) -> ReflectiveDataset:
         ...
 
-    def get_components(self) -> dict[str, str]:
+    def get_components(self) -> CandidateMap:
         """Return the adapter's current candidate component mapping."""
         ...
 

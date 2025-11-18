@@ -13,7 +13,7 @@
 
 ## Coding Style & Naming Conventions
 - Follow PEP 8 with 4-space indents and snake_case for functions, module-level symbols, and filenames; keep classes in PascalCase.
-- Preserve the existing type-hinted style—public APIs pass strongly-typed sequences (`Sequence[DataInst]`) and explicit `Model | KnownModelName` unions.
+- Preserve the existing type-hinted style—public APIs pass strongly-typed sequences (e.g., `Sequence[Case[InputT, OutputT, MetadataT]]`) and explicit `Model | KnownModelName` unions.
 - Module docstrings summarize purpose; add short comments only where control flow is non-obvious (see `runner.py` contextmanagers for tone).
 
 ## Testing Guidelines

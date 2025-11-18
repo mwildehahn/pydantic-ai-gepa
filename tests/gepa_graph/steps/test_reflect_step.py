@@ -7,7 +7,7 @@ from typing import Any, Sequence, cast
 
 import pytest
 from pydantic_graph.beta import StepContext
-from pydantic_ai.messages import UserPromptPart
+from pydantic_evals import Case
 
 from pydantic_ai_gepa.adapter import (
     Adapter,
@@ -24,6 +24,7 @@ from pydantic_ai_gepa.gepa_graph.evaluation import (
     ParetoFrontManager,
 )
 from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
     CandidateProgram,
     ComponentValue,
     GepaConfig,
@@ -33,22 +34,18 @@ from pydantic_ai_gepa.gepa_graph.steps import reflect_step
 from pydantic_ai_gepa.gepa_graph.proposal import (
     InstructionProposalGenerator,
     MergeProposalBuilder,
+    ProposalResult,
 )
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
     RoundRobinComponentSelector,
 )
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt, RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput
 
 
-def _make_data(case_id: str) -> DataInstWithPrompt:
-    return DataInstWithPrompt(
-        user_prompt=UserPromptPart(content=f"prompt-{case_id}"),
-        message_history=None,
-        metadata={},
-        case_id=case_id,
-    )
+def _make_data(case_id: str) -> Case[str, str, dict[str, str]]:
+    return Case(name=case_id, inputs=f"prompt-{case_id}", metadata={})
 
 
 def _make_state(
@@ -87,10 +84,10 @@ def _make_state(
     return state
 
 
-async def _training_examples(state: GepaState) -> list[DataInstWithPrompt]:
+async def _training_examples(state: GepaState) -> list[Case[str, str, dict[str, str]]]:
     loader = state.training_set
     ids = await loader.all_ids()
-    return cast(list[DataInstWithPrompt], await loader.fetch(ids))
+    return cast(list[Case[str, str, dict[str, str]]], await loader.fetch(ids))
 
 
 @dataclass
@@ -144,8 +141,8 @@ class _StubAdapter:
         }
         return ComponentReflectiveDataset(records_by_component=data)
 
-    def get_components(self) -> dict[str, str]:
-        return {"instructions": "seed"}
+    def get_components(self) -> CandidateMap:
+        return {"instructions": ComponentValue(name="instructions", text="seed")}
 
 
 class _StubBatchSampler(BatchSampler):
@@ -160,9 +157,15 @@ class _StubBatchSampler(BatchSampler):
 
 
 class _StubProposalGenerator(InstructionProposalGenerator):
-    def __init__(self, updates: dict[str, str]) -> None:
+    def __init__(
+        self,
+        updates: dict[str, str],
+        *,
+        metadata: dict[str, dict[str, Any]] | None = None,
+    ) -> None:
         super().__init__()
         self._updates = updates
+        self._metadata = metadata or {}
         self.calls = 0
         self.last_reflective_data: ReflectiveDataset | None = None
 
@@ -176,15 +179,26 @@ class _StubProposalGenerator(InstructionProposalGenerator):
         iteration=None,
         current_best_score=None,
         parent_score=None,
+        model_settings=None,
     ):
         self.calls += 1
         self.last_reflective_data = reflective_data
-        return {
+        updates = {
             component: self._updates.get(
                 component, candidate.components[component].text
             )
             for component in components
         }
+        component_metadata = {
+            component: self._metadata[component]
+            for component in components
+            if component in self._metadata
+        }
+        return ProposalResult(
+            texts=updates,
+            component_metadata=component_metadata,
+            reasoning=None,
+        )
 
 
 class _StubEvaluator(ParallelEvaluator):
@@ -201,12 +215,12 @@ class _StubEvaluator(ParallelEvaluator):
 
 def _make_deps(
     *,
-    adapter: Adapter[DataInst],
+    adapter: Adapter[str, str, dict[str, str]],
     evaluator: ParallelEvaluator,
     batch_sampler: BatchSampler,
     proposal_generator: InstructionProposalGenerator,
     reflection_model: str | None = "reflection-model",
-) -> GepaDeps[DataInst]:
+) -> GepaDeps:
     return GepaDeps(
         adapter=adapter,
         evaluator=evaluator,
@@ -220,7 +234,10 @@ def _make_deps(
     )
 
 
-def _ctx(state: GepaState, deps: GepaDeps[DataInst]) -> StepContext[GepaState, GepaDeps[DataInst], None]:
+def _ctx(
+    state: GepaState,
+    deps: GepaDeps,
+) -> StepContext[GepaState, GepaDeps, None]:
     return StepContext(state=state, deps=deps, inputs=None)
 
 
@@ -231,7 +248,7 @@ async def test_reflect_step_accepts_strict_improvement() -> None:
     evaluator = _StubEvaluator([_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
-    adapter = cast(Adapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[str, str, dict[str, str]], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Improved text"})
     deps = _make_deps(
         adapter=adapter,
@@ -260,6 +277,43 @@ async def test_reflect_step_accepts_strict_improvement() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reflect_step_tracks_hypothesis_metadata_when_enabled() -> None:
+    config = GepaConfig(
+        max_evaluations=100,
+        minibatch_size=2,
+        merges_per_accept=1,
+        perfect_score=1.0,
+        skip_perfect_score=True,
+        track_component_hypotheses=True,
+    )
+    state = _make_state(config=config)
+    minibatch = await _training_examples(state)
+    evaluator = _StubEvaluator([_eval_results([0.4, 0.6]), _eval_results([0.7, 0.8])])
+    batch_sampler = _StubBatchSampler(minibatch)
+    stub_adapter = _StubAdapter()
+    adapter = cast(Adapter[str, str, dict[str, str]], stub_adapter)
+    generator = _StubProposalGenerator(
+        {"instructions": "Improved text"},
+        metadata={"instructions": {"hypothesis": "Fix boundary errors"}},
+    )
+    deps = _make_deps(
+        adapter=adapter,
+        evaluator=evaluator,
+        batch_sampler=batch_sampler,
+        proposal_generator=generator,
+    )
+    ctx = _ctx(state, deps)
+
+    await reflect_step(ctx)
+
+    assert len(state.candidates) == 2
+    new_metadata = state.candidates[-1].components["instructions"].metadata
+    assert new_metadata is not None
+    assert new_metadata["hypothesis"] == "Fix boundary errors"
+    assert new_metadata["iteration"] == state.iteration
+
+
+@pytest.mark.asyncio
 async def test_reflect_step_applies_config_sampler() -> None:
     sampler_calls: list[tuple[int, int]] = []
 
@@ -284,7 +338,7 @@ async def test_reflect_step_applies_config_sampler() -> None:
     batch_sampler = _StubBatchSampler(minibatch)
     dataset = {"instructions": [{"feedback": "a"}, {"feedback": "b"}]}
     stub_adapter = _StubAdapter(dataset=dataset)
-    adapter = cast(Adapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[str, str, dict[str, str]], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Improved text"})
     deps = _make_deps(
         adapter=adapter,
@@ -308,7 +362,7 @@ async def test_reflect_step_rejects_when_not_improved() -> None:
     evaluator = _StubEvaluator([_eval_results([0.6, 0.6]), _eval_results([0.6, 0.6])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
-    adapter = cast(Adapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[str, str, dict[str, str]], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Same text"})
     deps = _make_deps(
         adapter=adapter,
@@ -334,7 +388,7 @@ async def test_reflect_step_skips_when_batch_is_perfect() -> None:
     evaluator = _StubEvaluator([_eval_results([1.0, 1.0])])
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
-    adapter = cast(Adapter[DataInst], stub_adapter)
+    adapter = cast(Adapter[str, str, dict[str, str]], stub_adapter)
     generator = _StubProposalGenerator({"instructions": "Unused"})
     deps = _make_deps(
         adapter=adapter,
@@ -356,12 +410,54 @@ async def test_reflect_step_skips_when_batch_is_perfect() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reflect_step_does_not_skip_perfect_batch_when_validation_not_perfect() -> None:
+    config = GepaConfig(
+        max_evaluations=100,
+        minibatch_size=2,
+        merges_per_accept=1,
+        perfect_score=1.0,
+        skip_perfect_score=True,
+        skip_perfect_requires_validation=True,
+    )
+    state = _make_state(config=config)
+    seed = state.candidates[0]
+    seed.record_validation(
+        data_id="case-validation",
+        score=0.75,
+        output=RolloutOutput.from_success("ok"),
+    )
+    minibatch = await _training_examples(state)
+    evaluator = _StubEvaluator([
+        _eval_results([1.0, 1.0]),
+        _eval_results([0.8, 0.9]),
+    ])
+    batch_sampler = _StubBatchSampler(minibatch)
+    stub_adapter = _StubAdapter()
+    adapter = cast(Adapter[str, str, dict[str, str]], stub_adapter)
+    generator = _StubProposalGenerator({"instructions": "Updated"})
+    deps = _make_deps(
+        adapter=adapter,
+        evaluator=evaluator,
+        batch_sampler=batch_sampler,
+        proposal_generator=generator,
+    )
+    ctx = _ctx(state, deps)
+
+    result = await reflect_step(ctx)
+
+    assert result == "continue"
+    assert generator.calls == 1  # reflection still attempted
+    assert stub_adapter.dataset_calls == 1
+    assert evaluator.calls == 2
+
+
+@pytest.mark.asyncio
 async def test_reflect_step_requires_reflection_model() -> None:
     state = _make_state()
     minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.3, 0.4])])
     batch_sampler = _StubBatchSampler(minibatch)
-    adapter = cast(Adapter[DataInst], _StubAdapter())
+    adapter = cast(Adapter[str, str, dict[str, str]], _StubAdapter())
     generator = _StubProposalGenerator({"instructions": "Improved"})
     deps = _make_deps(
         adapter=adapter,

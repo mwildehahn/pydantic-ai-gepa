@@ -9,13 +9,12 @@ import pytest
 
 from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph import GepaConfig, optimize
-from pydantic_ai_gepa.types import DataInst
 from tests.gepa_graph.utils import AdapterStub, make_dataset
 
 
 @pytest.mark.asyncio
 async def test_optimize_completes_successfully() -> None:
-    adapter = cast(Adapter[DataInst], AdapterStub())
+    adapter = cast(Adapter[str, str, dict[str, str]], AdapterStub())
     config = GepaConfig(
         max_evaluations=30,
         minibatch_size=2,
@@ -39,7 +38,7 @@ async def test_optimize_completes_successfully() -> None:
 
 @pytest.mark.asyncio
 async def test_optimize_supports_async_dataset_loader() -> None:
-    adapter = cast(Adapter[DataInst], AdapterStub())
+    adapter = cast(Adapter[str, str, dict[str, str]], AdapterStub())
     config = GepaConfig(
         max_evaluations=20,
         minibatch_size=1,

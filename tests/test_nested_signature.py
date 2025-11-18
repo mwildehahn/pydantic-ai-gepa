@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
 from pydantic_ai_gepa.signature import (
     apply_candidate_to_input_model,
     generate_system_instructions,
@@ -33,6 +34,10 @@ class SimpleQuery(BaseModel):
     question: str = Field(description='The question to answer')
 
 
+def _candidate_map(entries: dict[str, str]) -> CandidateMap:
+    return {name: ComponentValue(name=name, text=value) for name, value in entries.items()}
+
+
 def test_signature_component_extraction_with_nested_models():
     """Test that nested models don't cause key collisions."""
     # Extract components from CustomerQuery
@@ -57,12 +62,14 @@ def test_signature_component_extraction_with_nested_models():
 def test_apply_candidate_with_class_specific_keys():
     """Test that candidates are applied correctly with class-specific keys."""
     # Create a candidate with optimized text
-    candidate = {
-        'signature:CustomerQuery:instructions': 'OPTIMIZED: Handle customer issues professionally',
-        'signature:CustomerQuery:customer_name:desc': 'OPTIMIZED: Customer full legal name',
-        'signature:SimpleQuery:instructions': 'OPTIMIZED: Answer concisely',
-        'signature:SimpleQuery:question:desc': 'OPTIMIZED: The user question',
-    }
+    candidate = _candidate_map(
+        {
+            'signature:CustomerQuery:instructions': 'OPTIMIZED: Handle customer issues professionally',
+            'signature:CustomerQuery:customer_name:desc': 'OPTIMIZED: Customer full legal name',
+            'signature:SimpleQuery:instructions': 'OPTIMIZED: Answer concisely',
+            'signature:SimpleQuery:question:desc': 'OPTIMIZED: The user question',
+        }
+    )
 
     # Apply to CustomerQuery
     original_customer_doc = CustomerQuery.__doc__

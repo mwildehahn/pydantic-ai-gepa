@@ -7,18 +7,25 @@ from typing import Any
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import DataInst, AgentAdapter, MetricResult, SignatureAgent
+from pydantic_ai_gepa import AgentAdapter, MetricResult, SignatureAgent, SignatureAgentAdapter
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
+    ComponentValue,
+    candidate_texts,
+)
 from pydantic_ai_gepa.signature import (
     apply_candidate_to_input_model,
     generate_system_instructions,
     generate_user_content,
     get_gepa_components,
 )
-from pydantic_ai_gepa.types import DataInstWithInput
+from pydantic_evals import Case
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
+def _instructions_candidate(text: str) -> CandidateMap:
+    return {"instructions": ComponentValue(name="instructions", text=text)}
 
 
 class EmailSender(BaseModel):
@@ -310,19 +317,31 @@ def test_gepa_adapter_with_signatures():
     )
 
     # Define a simple metric
-    def support_metric(data_inst: DataInst, output: Any) -> MetricResult:
+    def support_metric(
+        case: Case[EmailSupportSignature, SupportResponse, dict[str, Any] | None],
+        output: Any,
+    ) -> MetricResult:
         return MetricResult(score=0.8, feedback="Good response")
 
     # Create adapter with signatures
-    adapter = AgentAdapter(
-        agent=agent,
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=EmailSupportSignature,
+        output_type=SupportResponse,
+    )
+    adapter = SignatureAgentAdapter[
+        EmailSupportSignature,
+        SupportResponse,
+        dict[str, Any] | None,
+    ](
+        agent=signature_agent,
         metric=support_metric,
         input_type=EmailSupportSignature,
     )
 
     assert adapter.input_spec is not None
     assert adapter.input_spec.model_cls is EmailSupportSignature
-    assert adapter.agent == agent
+    assert adapter.agent == signature_agent
     assert adapter.metric == support_metric
 
 
@@ -347,9 +366,14 @@ async def test_agent_adapter_applies_candidate_to_signature_agent():
         output_type=SupportResponse,
     )
 
-    adapter = AgentAdapter(
+    adapter = SignatureAgentAdapter[
+        EmailSupportSignature,
+        SupportResponse,
+        dict[str, Any],
+    ](
         agent=signature_agent,
-        metric=lambda data_inst, output: MetricResult(score=1.0, feedback=None),
+        metric=lambda case, output: MetricResult(score=1.0, feedback=None),
+        input_type=EmailSupportSignature,
     )
 
     sig_input = EmailSupportSignature(
@@ -365,14 +389,13 @@ async def test_agent_adapter_applies_candidate_to_signature_agent():
         previous_interactions=None,
         company_policies="Policy",
     )
-    instance = DataInstWithInput(
-        input=sig_input,
-        message_history=None,
+    instance = Case(
+        name="case-1",
+        inputs=sig_input,
         metadata={},
-        case_id="case-1",
     )
 
-    candidate = {"instructions": "Reflected instructions"}
+    candidate = _instructions_candidate("Reflected instructions")
     batch = await adapter.evaluate(
         [instance],
         candidate=candidate,
@@ -383,7 +406,7 @@ async def test_agent_adapter_applies_candidate_to_signature_agent():
     trajectory = batch.trajectories[0]
     assert trajectory is not None
     assert trajectory.instructions is not None
-    assert trajectory.instructions.splitlines()[0] == candidate["instructions"]
+    assert trajectory.instructions.splitlines()[0] == candidate["instructions"].text
 
 
 def test_extract_seed_candidate_with_signatures():
@@ -401,7 +424,7 @@ def test_extract_seed_candidate_with_signatures():
     )
 
     # Should have components from both agent and signature
-    assert candidate == snapshot(
+    assert candidate_texts(candidate) == snapshot(
         {
             "instructions": "Be helpful and professional.",
             "signature:EmailSupportSignature:instructions": "Analyze customer support emails and generate appropriate responses.",

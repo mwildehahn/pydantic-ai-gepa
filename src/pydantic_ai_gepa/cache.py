@@ -3,27 +3,26 @@
 from __future__ import annotations
 
 import hashlib
-import logging
 from dataclasses import is_dataclass
 from pathlib import Path
 from typing import Any, Callable, TypeVar
 
 import cloudpickle
+import logfire
 
+from pydantic_evals import Case
+
+from .gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
 from .types import (
-    DataInst,
-    DataInstWithPrompt,
-    DataInstWithInput,
+    MetadataWithMessageHistory,
     MetricResult,
     RolloutOutput,
     Trajectory,
 )
 
-logger = logging.getLogger(__name__)
-
-# Type variable for the DataInst type
-DataInstT = TypeVar("DataInstT", bound=DataInst)
-
+CaseInputT = TypeVar("CaseInputT")
+CaseOutputT = TypeVar("CaseOutputT")
+CaseMetadataT = TypeVar("CaseMetadataT")
 
 class CacheManager:
     """Manages caching of metric evaluation results for GEPA optimization.
@@ -62,7 +61,10 @@ class CacheManager:
         if self.enabled:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
             if self.verbose:
-                logger.info(f"Cache enabled at: {self.cache_dir}")
+                logfire.info(
+                    "Cache enabled",
+                    cache_dir=str(self.cache_dir),
+                )
 
     @staticmethod
     def _serialize_for_key(obj: Any) -> str:
@@ -114,9 +116,27 @@ class CacheManager:
             # Fallback to string representation
             return str(obj)
 
+    @staticmethod
+    def _extract_message_history(
+        case: Case[Any, Any, Any]
+    ) -> list[Any] | None:
+        metadata = case.metadata
+        if isinstance(metadata, MetadataWithMessageHistory):
+            return metadata.message_history
+        return None
+
+    @staticmethod
+    def _case_label(case: Case[Any, Any, Any], case_index: int | None) -> str:
+        if case.name:
+            return case.name
+        if case_index is not None:
+            return f"case-{case_index}"
+        return "case-unknown"
+
     def _generate_cache_key(
         self,
-        data_inst: DataInst,
+        case: Case[Any, Any, Any],
+        case_index: int | None,
         output: RolloutOutput[Any] | None,
         candidate: dict[str, str],
         key_type: str = "metric",
@@ -126,7 +146,7 @@ class CacheManager:
 
         The key is based on:
         - The key type ("metric" or "agent_run")
-        - The data instance (prompt/signature, metadata, case_id)
+        - The case inputs/metadata/name (prompt or structured signature)
         - The output from the agent run (if provided, for metric caching)
         - The candidate prompts being evaluated
         """
@@ -138,22 +158,19 @@ class CacheManager:
                 f"model:{self._serialize_for_key(resolved_model_identifier)}"
             )
 
-        # Add data instance information
-        if isinstance(data_inst, DataInstWithPrompt):
-            serialized_prompt = self._serialize_for_key(data_inst.user_prompt)
-            key_parts.append(f"prompt:{serialized_prompt}")
-        elif isinstance(data_inst, DataInstWithInput):
-            key_parts.append(f"signature:{self._serialize_for_key(data_inst.input)}")
+        case_name = self._case_label(case, case_index)
+        key_parts.append(f"case_name:{case_name}")
 
-        # Add metadata and case_id
-        serialized_metadata = self._serialize_for_key(data_inst.metadata)
+        serialized_inputs = self._serialize_for_key(case.inputs)
+        key_parts.append(f"inputs:{serialized_inputs}")
+
+        serialized_metadata = self._serialize_for_key(case.metadata)
         key_parts.append(f"metadata:{serialized_metadata}")
-        key_parts.append(f"case_id:{data_inst.case_id}")
 
-        # Add message history if present
-        if data_inst.message_history:
+        message_history = self._extract_message_history(case)
+        if message_history:
             key_parts.append(
-                f"history:{self._serialize_for_key(data_inst.message_history)}"
+                f"history:{self._serialize_for_key(message_history)}"
             )
 
         # Add output information (only for metric caching)
@@ -177,15 +194,17 @@ class CacheManager:
 
     def get_cached_metric_result(
         self,
-        data_inst: DataInst,
+        case: Case[Any, Any, Any],
+        case_index: int | None,
         output: RolloutOutput[Any],
-        candidate: dict[str, str],
+        candidate: CandidateMap,
         model_identifier: str | None = None,
     ) -> MetricResult | None:
         """Get cached metric result if available.
 
         Args:
-            data_inst: The data instance being evaluated.
+            case: The case being evaluated.
+            case_index: Optional stable index for logging/cache keys when the case has no name.
             output: The output from the agent run.
             candidate: The candidate prompts being evaluated.
             model_identifier: Optional override for the model identifier to use when
@@ -197,10 +216,13 @@ class CacheManager:
         if not self.enabled:
             return None
 
+        case_label = self._case_label(case, case_index)
+        candidate_text = candidate_texts(candidate)
         cache_key = self._generate_cache_key(
-            data_inst,
+            case,
+            case_index,
             output,
-            candidate,
+            candidate_text,
             "metric",
             model_identifier=model_identifier,
         )
@@ -212,32 +234,40 @@ class CacheManager:
                     cached_result: MetricResult = cloudpickle.load(f)
 
                 if self.verbose:
-                    logger.info(
-                        f"Cache hit for case {data_inst.case_id}: score={cached_result.score}"
+                    logfire.info(
+                        "Cache hit for metric",
+                        case_label=case_label,
+                        score=cached_result.score,
                     )
 
                 return cached_result
             except Exception as e:
-                logger.warning(f"Failed to load cache file {cache_file}: {e}")
+                logfire.warn(
+                    "Failed to load metric cache file",
+                    cache_file=str(cache_file),
+                    exception=e,
+                )
                 return None
 
         if self.verbose:
-            logger.debug(f"Cache miss for case {data_inst.case_id}")
+            logfire.debug("Cache miss for metric", case_label=case_label)
 
         return None
 
     def cache_metric_result(
         self,
-        data_inst: DataInst,
+        case: Case[Any, Any, Any],
+        case_index: int | None,
         output: RolloutOutput[Any],
-        candidate: dict[str, str],
+        candidate: CandidateMap,
         metric_result: MetricResult,
         model_identifier: str | None = None,
     ) -> None:
         """Cache a metric evaluation result.
 
         Args:
-            data_inst: The data instance that was evaluated.
+            case: The case that was evaluated.
+            case_index: Optional index associated with the case.
             output: The output from the agent run.
             candidate: The candidate prompts that were evaluated.
             metric_result: The computed metric result.
@@ -245,10 +275,12 @@ class CacheManager:
         if not self.enabled:
             return
 
+        candidate_text = candidate_texts(candidate)
         cache_key = self._generate_cache_key(
-            data_inst,
+            case,
+            case_index,
             output,
-            candidate,
+            candidate_text,
             "metric",
             model_identifier=model_identifier,
         )
@@ -259,11 +291,13 @@ class CacheManager:
                 cloudpickle.dump(metric_result, f)
 
             if self.verbose:
-                logger.debug(
-                    f"Cached result for case {data_inst.case_id}: score={metric_result.score}"
+                logfire.debug(
+                    "Cached metric result",
+                    case_label=self._case_label(case, case_index),
+                    score=metric_result.score,
                 )
         except Exception as e:
-            logger.warning(f"Failed to cache result: {e}")
+            logfire.warn("Failed to cache metric result", exception=e)
 
     def clear_cache(self) -> None:
         """Clear all cached results."""
@@ -275,22 +309,28 @@ class CacheManager:
                 try:
                     cache_file.unlink()
                 except Exception as e:
-                    logger.warning(f"Failed to delete cache file {cache_file}: {e}")
+                    logfire.warn(
+                        "Failed to delete cache file",
+                        cache_file=str(cache_file),
+                        exception=e,
+                    )
 
             if self.verbose:
-                logger.info("Cache cleared")
+                logfire.info("Cache cleared", cache_dir=str(self.cache_dir))
 
     def get_cached_agent_run(
         self,
-        data_inst: DataInst,
-        candidate: dict[str, str],
+        case: Case[Any, Any, Any],
+        case_index: int | None,
+        candidate: CandidateMap,
         capture_traces: bool,
         model_identifier: str | None = None,
     ) -> tuple[Trajectory | None, RolloutOutput[Any]] | None:
         """Get cached agent run result if available.
 
         Args:
-            data_inst: The data instance being evaluated.
+            case: The case being evaluated.
+            case_index: Optional index associated with the case.
             candidate: The candidate prompts being evaluated.
             capture_traces: Whether traces were captured.
 
@@ -300,10 +340,12 @@ class CacheManager:
         if not self.enabled:
             return None
 
+        candidate_text = candidate_texts(candidate)
         cache_key = self._generate_cache_key(
-            data_inst,
+            case,
+            case_index,
             None,
-            candidate,
+            candidate_text,
             "agent_run",
             model_identifier=model_identifier,
         )
@@ -317,22 +359,33 @@ class CacheManager:
                     cached_result = cloudpickle.load(f)
 
                 if self.verbose:
-                    logger.info(f"Cache hit for agent run on case {data_inst.case_id}")
+                    logfire.info(
+                        "Cache hit for agent run",
+                        case_label=self._case_label(case, case_index),
+                    )
 
                 return cached_result
             except Exception as e:
-                logger.warning(f"Failed to load cache file {cache_file}: {e}")
+                logfire.warn(
+                    "Failed to load agent run cache file",
+                    cache_file=str(cache_file),
+                    exception=e,
+                )
                 return None
 
         if self.verbose:
-            logger.debug(f"Cache miss for agent run on case {data_inst.case_id}")
+            logfire.debug(
+                "Cache miss for agent run",
+                case_label=self._case_label(case, case_index),
+            )
 
         return None
 
     def cache_agent_run(
         self,
-        data_inst: DataInst,
-        candidate: dict[str, str],
+        case: Case[Any, Any, Any],
+        case_index: int | None,
+        candidate: CandidateMap,
         trajectory: Trajectory | None,
         output: RolloutOutput[Any],
         capture_traces: bool,
@@ -341,7 +394,8 @@ class CacheManager:
         """Cache an agent run result.
 
         Args:
-            data_inst: The data instance that was evaluated.
+            case: The case that was evaluated.
+            case_index: Optional index associated with the case.
             candidate: The candidate prompts that were evaluated.
             trajectory: The execution trajectory (if captured).
             output: The output from the agent run.
@@ -350,10 +404,12 @@ class CacheManager:
         if not self.enabled:
             return
 
+        candidate_text = candidate_texts(candidate)
         cache_key = self._generate_cache_key(
-            data_inst,
+            case,
+            case_index,
             None,
-            candidate,
+            candidate_text,
             "agent_run",
             model_identifier=model_identifier,
         )
@@ -366,9 +422,12 @@ class CacheManager:
                 cloudpickle.dump((trajectory, output), f)
 
             if self.verbose:
-                logger.debug(f"Cached agent run for case {data_inst.case_id}")
+                logfire.debug(
+                    "Cached agent run",
+                    case_label=self._case_label(case, case_index),
+                )
         except Exception as e:
-            logger.warning(f"Failed to cache agent run: {e}")
+            logfire.warn("Failed to cache agent run", exception=e)
 
     def get_cache_stats(self) -> dict[str, Any]:
         """Get statistics about the cache.
@@ -392,19 +451,19 @@ class CacheManager:
 
 
 def create_cached_metric(
-    metric: Callable[[DataInstT, RolloutOutput[Any]], MetricResult],
+    metric: Callable[[Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]], MetricResult],
     cache_manager: CacheManager,
-    candidate: dict[str, str],
+    candidate: CandidateMap,
     *,
     model_identifier: str | None = None,
-) -> Callable[[DataInstT, RolloutOutput[Any]], MetricResult]:
+) -> Callable[[Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]], MetricResult]:
     """Create a cached version of a metric function.
 
     This wrapper function checks the cache before calling the actual metric,
     and caches the result afterward.
 
     Args:
-        metric: The original metric function.
+        metric: The original metric function that accepts a Case.
         cache_manager: The cache manager to use.
         candidate: The current candidate being evaluated.
         model_identifier: Optional override for the model identifier. When not
@@ -415,12 +474,13 @@ def create_cached_metric(
     """
 
     def cached_metric(
-        data_inst: DataInstT,
+        case: Case[CaseInputT, CaseOutputT, CaseMetadataT],
         output: RolloutOutput[Any],
     ) -> MetricResult:
         # Check cache first
         cached_result = cache_manager.get_cached_metric_result(
-            data_inst,
+            case,
+            None,
             output,
             candidate,
             model_identifier=model_identifier,
@@ -430,11 +490,12 @@ def create_cached_metric(
             return cached_result
 
         # Call the actual metric
-        metric_result = metric(data_inst, output)
+        metric_result = metric(case, output)
 
         # Cache the result
         cache_manager.cache_metric_result(
-            data_inst,
+            case,
+            None,
             output,
             candidate,
             metric_result,

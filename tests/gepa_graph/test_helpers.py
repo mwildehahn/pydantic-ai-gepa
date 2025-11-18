@@ -7,11 +7,15 @@ import random
 
 import pytest
 
+from pydantic_evals import Case
+
 from pydantic_ai_gepa.adapter import Adapter, SharedReflectiveDataset
 from pydantic_ai_gepa.gepa_graph import create_deps
 from pydantic_ai_gepa.gepa_graph.deps import GepaDeps
 from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
     CandidateSelectorStrategy,
+    ComponentValue,
     GepaConfig,
     GepaState,
 )
@@ -23,8 +27,6 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     ParetoCandidateSelector,
     RoundRobinComponentSelector,
 )
-from pydantic_ai_gepa.types import DataInst, DataInstWithPrompt
-from pydantic_ai.messages import UserPromptPart
 
 
 class _AgentStub:
@@ -49,22 +51,17 @@ class _AdapterStub:
     ) -> SharedReflectiveDataset:  # pragma: no cover
         return SharedReflectiveDataset(records=[])
 
-    def get_components(self) -> dict[str, str]:  # pragma: no cover
-        return {"instructions": "seed"}
+    def get_components(self) -> CandidateMap:  # pragma: no cover
+        return {"instructions": ComponentValue(name="instructions", text="seed")}
 
 
-def _make_adapter() -> Adapter[DataInst]:
-    return cast(Adapter[DataInst], _AdapterStub())
+def _make_adapter() -> Adapter[str, str, dict[str, str]]:
+    return cast(Adapter[str, str, dict[str, str]], _AdapterStub())
 
 
 def _make_state(config: GepaConfig) -> GepaState:
     dataset = [
-        DataInstWithPrompt(
-            user_prompt=UserPromptPart(content=f"prompt-{idx}"),
-            message_history=None,
-            metadata={},
-            case_id=str(idx),
-        )
+        Case(name=f"case-{idx}", inputs=f"prompt-{idx}", metadata={"label": "stub"})
         for idx in range(3)
     ]
     return GepaState(
