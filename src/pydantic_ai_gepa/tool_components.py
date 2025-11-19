@@ -6,7 +6,7 @@ import contextvars
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, replace
-from typing import Any, Iterable, Iterator, cast
+from typing import Any, Iterable, Iterator, Mapping, cast
 
 from pydantic_ai._run_context import RunContext
 from pydantic_ai.agent import AbstractAgent
@@ -31,6 +31,10 @@ def _description_key(tool_name: str) -> str:
     return f"tool:{tool_name}:description"
 
 
+def _output_description_key(tool_name: str) -> str:
+    return f"output:{tool_name}:description"
+
+
 def _format_path(path: tuple[str, ...]) -> str:
     formatted: list[str] = []
     for segment in path:
@@ -46,6 +50,10 @@ def _format_path(path: tuple[str, ...]) -> str:
 
 def _parameter_key(tool_name: str, path: tuple[str, ...]) -> str:
     return f"tool:{tool_name}:param:{_format_path(path)}"
+
+
+def _output_parameter_key(tool_name: str, path: tuple[str, ...]) -> str:
+    return f"output:{tool_name}:param:{_format_path(path)}"
 
 
 def _iter_schema_descriptions(
@@ -163,6 +171,33 @@ class ToolComponentCatalog:
         return self._metadata.get(tool_name)
 
 
+class OutputToolComponentCatalog(ToolComponentCatalog):
+    """Catalog for output tool components (mirrors ToolComponentCatalog)."""
+
+    def _describe_tool(self, tool_def: ToolDefinition) -> ToolMetadata | None:  # type: ignore[override]
+        # Reuse the same metadata structure but with output-prefixed keys
+        description_key: str | None = None
+        parameter_paths: dict[str, tuple[str, ...]] = {}
+
+        if isinstance(tool_def.description, str) and tool_def.description.strip():
+            description_key = _output_description_key(tool_def.name)
+            self._seed_components.setdefault(description_key, tool_def.description)
+
+        for path, desc in _iter_schema_descriptions(tool_def.parameters_json_schema):
+            key = _output_parameter_key(tool_def.name, path)
+            parameter_paths[key] = path
+            self._seed_components.setdefault(key, desc)
+
+        if not description_key and not parameter_paths:
+            return None
+
+        return ToolMetadata(
+            name=tool_def.name,
+            description_key=description_key,
+            parameter_paths=parameter_paths,
+        )
+
+
 class ToolOptimizationManager:
     """Manage tool component extraction and candidate application."""
 
@@ -221,9 +256,9 @@ class ToolOptimizationManager:
             self._candidate_var.reset(token)
 
     def _normalize_candidate(
-        self, candidate: CandidateMap | dict[str, str] | None
+        self, candidate: CandidateMap | Mapping[str, ComponentValue | str] | None
     ) -> CandidateMap:
-        if not candidate:
+        if candidate is None:
             return {}
         if isinstance(candidate, dict) and all(
             isinstance(value, ComponentValue) for value in candidate.values()
@@ -246,6 +281,146 @@ class ToolOptimizationManager:
             return None
         filtered = {
             key: value for key, value in candidate.items() if key.startswith("tool:")
+        }
+        return filtered or None
+
+    async def _prepare_wrapper(
+        self, ctx: RunContext[Any], tool_defs: list[ToolDefinition]
+    ) -> list[ToolDefinition] | None:
+        prepared = tool_defs
+        if self._base_prepare:
+            prepared_result = await self._base_prepare(ctx, tool_defs)
+            if prepared_result is None:
+                return None
+            prepared = prepared_result
+
+        self._catalog.ingest(prepared)
+
+        candidate = self._candidate_var.get()
+        if not candidate:
+            return prepared
+
+        modified: list[ToolDefinition] = []
+        changed = False
+        for tool_def in prepared:
+            new_def = self._apply_candidate_to_tool(tool_def, candidate)
+            if new_def is not tool_def:
+                changed = True
+            modified.append(new_def)
+
+        return modified if changed else prepared
+
+    def _apply_candidate_to_tool(
+        self, tool_def: ToolDefinition, candidate: ToolCandidate
+    ) -> ToolDefinition:
+        metadata = self._catalog.metadata_for(tool_def.name)
+        if metadata is None:
+            return tool_def
+
+        updates: dict[str, Any] = {}
+
+        if metadata.description_key:
+            raw_value = candidate.get(metadata.description_key)
+            if raw_value is not None:
+                new_description = str(raw_value)
+                if tool_def.description != new_description:
+                    updates["description"] = new_description
+
+        schema_copy: dict[str, Any] | None = None
+        schema_changed = False
+
+        for key, path in metadata.parameter_paths.items():
+            if key not in candidate:
+                continue
+            raw_value = candidate[key]
+            if raw_value is None:
+                continue
+            new_description = str(raw_value)
+            if schema_copy is None:
+                schema_copy = deepcopy(tool_def.parameters_json_schema)
+            if _set_schema_description(schema_copy, path, new_description):
+                schema_changed = True
+
+        if schema_changed and schema_copy is not None:
+            updates["parameters_json_schema"] = schema_copy
+
+        if updates:
+            return replace(tool_def, **updates)
+        return tool_def
+
+
+class OutputToolOptimizationManager:
+    """Manage output tool component extraction and candidate application."""
+
+    def __init__(self, agent: AbstractAgent[Any, Any]) -> None:
+        self._base_agent = _unwrap_agent(agent)
+        self._base_prepare = getattr(self._base_agent, "_prepare_output_tools", None)
+        self._candidate_var: contextvars.ContextVar[ToolCandidate | None] = (
+            contextvars.ContextVar("gepa_output_tool_candidate", default=None)
+        )
+        self._catalog = OutputToolComponentCatalog()
+
+        if getattr(self._base_agent, "_gepa_output_tool_prepare_wrapper", None) is None:
+            setattr(
+                self._base_agent,
+                "_gepa_output_tool_prepare_wrapper",
+                self._prepare_wrapper,
+            )
+            self._base_agent._prepare_output_tools = self._prepare_wrapper  # type: ignore[assignment]
+
+    def get_seed_components(self) -> dict[str, str]:
+        return self._catalog.seed_snapshot()
+
+    def get_component_keys(self) -> list[str]:
+        return self._catalog.component_keys()
+
+    def record_model_request(
+        self,
+        *,
+        output_tools: Iterable[ToolDefinition] | None = None,
+    ) -> None:
+        if output_tools:
+            self._catalog.ingest(output_tools)
+
+    def candidate_context(self, candidate: CandidateMap | None):
+        candidate_map = self._normalize_candidate(candidate)
+        filtered_candidate = self._filter_candidate(candidate_texts(candidate_map))
+        token = self._candidate_var.set(filtered_candidate)
+
+        @contextmanager
+        def _ctx():
+            try:
+                yield
+            finally:
+                self._candidate_var.reset(token)
+
+        return _ctx()
+
+    def _normalize_candidate(
+        self, candidate: CandidateMap | Mapping[str, ComponentValue | str] | None
+    ) -> CandidateMap:
+        if candidate is None:
+            return {}
+        if isinstance(candidate, dict) and all(
+            isinstance(v, ComponentValue) for v in candidate.values()
+        ):
+            return cast(CandidateMap, candidate)
+
+        normalized: CandidateMap = {}
+        for name, value in candidate.items():
+            if isinstance(value, ComponentValue):
+                normalized[name] = value
+            else:
+                normalized[name] = ComponentValue(name=name, text=str(value))
+        return normalized
+
+    def _filter_candidate(
+        self, candidate: dict[str, str] | None
+    ) -> ToolCandidate | None:
+        if not candidate:
+            return None
+        filtered = {
+            key: value for key, value in candidate.items() if key.startswith("output:")
         }
         return filtered or None
 
@@ -339,6 +514,37 @@ def get_or_create_tool_optimizer(
     initial = _collect_registered_tool_defs(base_agent)
     if initial:
         manager.record_model_request(function_tools=initial)
+    return manager
+
+
+def get_output_tool_optimizer(
+    agent: AbstractAgent[Any, Any],
+) -> OutputToolOptimizationManager | None:
+    """Return the installed output-tool optimization manager for an agent, if any."""
+    base_agent = _unwrap_agent(agent)
+    manager = getattr(base_agent, "_gepa_output_tool_optimizer", None)
+    if isinstance(manager, OutputToolOptimizationManager):
+        return manager
+    return None
+
+
+def get_or_create_output_tool_optimizer(
+    agent: AbstractAgent[Any, Any],
+) -> OutputToolOptimizationManager:
+    """Retrieve or attach an output-tool optimization manager to an agent."""
+    base_agent = _unwrap_agent(agent)
+    manager = getattr(base_agent, "_gepa_output_tool_optimizer", None)
+    if isinstance(manager, OutputToolOptimizationManager):
+        return manager
+
+    manager = OutputToolOptimizationManager(base_agent)
+    setattr(base_agent, "_gepa_output_tool_optimizer", manager)
+
+    # Seed from existing output toolset when available
+    toolset = getattr(base_agent, "_output_toolset", None)
+    tool_defs = getattr(toolset, "_tool_defs", None)
+    if tool_defs:
+        manager.record_model_request(output_tools=tool_defs)
     return manager
 
 

@@ -40,4 +40,5 @@ dev = [
 ]
 
 [tool.inline-snapshot]
-format-command = ["ruff", "format", "--stdin-filename", "{filename}", "-"]
+# Inline-snapshot expects a format string; provide ruff invocation with filename placeholder.
+format-command = "ruff format --stdin-filename {filename} -"
