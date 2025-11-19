@@ -52,7 +52,9 @@ async def _map_messages(
     return [
         {
             "role": "user",
-            "content": part.content if isinstance(part.content, str) else str(part.content),
+            "content": part.content
+            if isinstance(part.content, str)
+            else str(part.content),
         }
         for message in messages
         for part in message.parts

@@ -9,7 +9,7 @@ from contextlib import (
     asynccontextmanager,
     nullcontext,
 )
-from typing import TYPE_CHECKING, Any, overload, cast
+from typing import TYPE_CHECKING, Any, overload
 
 from typing_extensions import Never
 
@@ -264,7 +264,6 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             input_instance, input_spec, candidate
         )
 
-
         if candidate and "instructions" in candidate:
             base_instructions = candidate["instructions"]
         else:
@@ -296,9 +295,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             return user_prompt
         return (user_prompt,)
 
-    def _tool_candidate_context(
-        self, candidate: dict[str, str] | None
-    ):
+    def _tool_candidate_context(self, candidate: dict[str, str] | None):
         """Context manager that applies tool candidate overrides if enabled."""
         if not self._tool_optimizer or candidate is None:
             return nullcontext()
@@ -412,7 +409,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             stack.enter_context(self._tool_candidate_context(candidate))
 
             if instructions_override is not None:
-                stack.enter_context(self.wrapped.override(instructions=instructions_override))
+                stack.enter_context(
+                    self.wrapped.override(instructions=instructions_override)
+                )
 
             return await self.wrapped.run(
                 user_prompt=normalized_user_prompt,
@@ -538,7 +537,9 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             stack.enter_context(self._tool_candidate_context(candidate))
 
             if instructions_override is not None:
-                stack.enter_context(self.wrapped.override(instructions=instructions_override))
+                stack.enter_context(
+                    self.wrapped.override(instructions=instructions_override)
+                )
 
             return self.wrapped.run_sync(
                 user_prompt=normalized_user_prompt,

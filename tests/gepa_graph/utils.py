@@ -54,10 +54,7 @@ class AdapterStub:
         text = candidate["instructions"].text
         base = 0.85 if text.startswith("improved") else 0.4
 
-        outputs = [
-            RolloutOutput.from_success(f"{text}-{case.name}")
-            for case in batch
-        ]
+        outputs = [RolloutOutput.from_success(f"{text}-{case.name}") for case in batch]
         trajectories = (
             [
                 AgentAdapterTrajectory(
@@ -91,7 +88,11 @@ class AdapterStub:
         return SharedReflectiveDataset(records=records)
 
     def get_components(self) -> CandidateMap:
-        return {"instructions": ComponentValue(name="instructions", text="seed instructions")}
+        return {
+            "instructions": ComponentValue(
+                name="instructions", text="seed instructions"
+            )
+        }
 
 
 class ProposalGeneratorStub:

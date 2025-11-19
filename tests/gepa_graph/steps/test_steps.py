@@ -25,8 +25,6 @@ from pydantic_ai_gepa.gepa_graph.steps import (
     StopSignal,
     continue_step,
     evaluate_step,
-    merge_step,
-    reflect_step,
     start_step,
 )
 from pydantic_ai_gepa.types import RolloutOutput
@@ -132,9 +130,7 @@ def _make_deps(
     )
 
 
-def _ctx(
-    state: GepaState, deps: GepaDeps
-) -> StepContext[GepaState, GepaDeps, None]:
+def _ctx(state: GepaState, deps: GepaDeps) -> StepContext[GepaState, GepaDeps, None]:
     return StepContext(state=state, deps=deps, inputs=None)
 
 

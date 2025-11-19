@@ -17,7 +17,7 @@ from pydantic_evals import Case, Dataset
 from utils import run_python_tool
 
 from pydantic_ai_gepa import InspectionAborted
-from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue
+from pydantic_ai_gepa.gepa_graph.models import CandidateMap
 from pydantic_ai_gepa.adapters import SignatureAgentAdapter
 from pydantic_ai_gepa.cache import CacheManager
 from pydantic_ai_gepa.evaluation import EvaluationRecord, evaluate_candidate_dataset
@@ -569,7 +569,6 @@ agent = Agent(
 signature_agent: SignatureAgent[None, MathProblemOutput] = SignatureAgent(
     agent,
     input_type=MathProblemInput,
-    output_type=MathProblemOutput,
     optimize_tools=True,
 )
 

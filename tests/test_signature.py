@@ -26,7 +26,9 @@ from pydantic_ai.models.test import TestModel
 
 
 def _candidate_map(entries: dict[str, str]) -> CandidateMap:
-    return {name: ComponentValue(name=name, text=value) for name, value in entries.items()}
+    return {
+        name: ComponentValue(name=name, text=value) for name, value in entries.items()
+    }
 
 
 class Email(BaseModel):

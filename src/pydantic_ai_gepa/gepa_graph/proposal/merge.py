@@ -90,7 +90,9 @@ class MergeProposalBuilder:
         ancestor = state.candidates[ancestor_idx]
 
         if set(parent1.components) != set(parent2.components):
-            raise ValueError("Merge requires parents to share identical component sets.")
+            raise ValueError(
+                "Merge requires parents to share identical component sets."
+            )
 
         parent1_score = parent1.avg_validation_score
         parent2_score = parent2.avg_validation_score
@@ -125,7 +127,9 @@ class MergeProposalBuilder:
         parent1 = state.candidates[parent1_idx]
         parent2 = state.candidates[parent2_idx]
 
-        shared_ids = list(set(parent1.validation_scores) & set(parent2.validation_scores))
+        shared_ids = list(
+            set(parent1.validation_scores) & set(parent2.validation_scores)
+        )
         if not shared_ids:
             return []
 
@@ -145,7 +149,9 @@ class MergeProposalBuilder:
             selected_ids.extend(self._sample(bucket, to_take))
 
         if len(selected_ids) < target:
-            remaining = [data_id for data_id in shared_ids if data_id not in selected_ids]
+            remaining = [
+                data_id for data_id in shared_ids if data_id not in selected_ids
+            ]
             needed = target - len(selected_ids)
             selected_ids.extend(self._sample(remaining, needed))
 
@@ -244,7 +250,9 @@ class MergeProposalBuilder:
         parent2_score: float,
     ) -> ComponentValue:
         if parent1 is None or parent2 is None or ancestor is None:
-            raise ValueError(f"Component '{component}' is missing from ancestor or parents.")
+            raise ValueError(
+                f"Component '{component}' is missing from ancestor or parents."
+            )
 
         text_ancestor = ancestor.text
         text1 = parent1.text

@@ -12,7 +12,10 @@ from pydantic_ai.agent.wrapper import WrapperAgent
 from .gepa_graph.models import CandidateMap, ComponentValue
 from .input_type import InputSpec, build_input_spec
 from .signature_agent import SignatureAgent
-from .tool_components import get_tool_optimizer
+from .tool_components import (
+    get_tool_optimizer,
+    get_output_tool_optimizer,
+)
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -41,7 +44,10 @@ def _stringify_component_value(value: Any) -> str:
         return "\n".join(str(part) for part in value)
     return str(value)
 
-def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> CandidateMap:
+
+def extract_seed_candidate(
+    agent: AbstractAgent[Any, Any], *, optimize_output_type: bool = False
+) -> CandidateMap:
     """Extract the current prompts from an agent as a GEPA candidate.
 
     Args:
@@ -75,12 +81,24 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> CandidateMap:
     if isinstance(agent, SignatureAgent):
         if agent.optimize_tools:
             for key, text in agent.get_tool_components().items():
-                candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
+                candidate[key] = ComponentValue(
+                    name=key, text=_stringify_component_value(text)
+                )
     else:
         optimizer = get_tool_optimizer(agent)
         if optimizer:
             for key, text in optimizer.get_seed_components().items():
-                candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
+                candidate[key] = ComponentValue(
+                    name=key, text=_stringify_component_value(text)
+                )
+
+    if optimize_output_type:
+        output_optimizer = get_output_tool_optimizer(agent)
+        if output_optimizer:
+            for key, text in output_optimizer.get_seed_components().items():
+                candidate[key] = ComponentValue(
+                    name=key, text=_stringify_component_value(text)
+                )
 
     return candidate
 
@@ -118,16 +136,21 @@ def apply_candidate_to_agent(
         target_agent = agent.wrapped
 
     optimizer = get_tool_optimizer(agent)
+    output_optimizer = get_output_tool_optimizer(agent)
 
     with ExitStack() as stack:
         if optimizer:
             stack.enter_context(optimizer.candidate_context(candidate_map))
+        if output_optimizer:
+            stack.enter_context(output_optimizer.candidate_context(candidate_map))
         if instructions:
             stack.enter_context(target_agent.override(instructions=instructions))
         yield
 
 
-def get_component_names(agent: AbstractAgent[Any, Any]) -> list[str]:
+def get_component_names(
+    agent: AbstractAgent[Any, Any], *, optimize_output_type: bool = False
+) -> list[str]:
     """Get the list of optimizable component names for an agent.
 
     Args:
@@ -145,6 +168,11 @@ def get_component_names(agent: AbstractAgent[Any, Any]) -> list[str]:
     if optimizer:
         components.extend(optimizer.get_component_keys())
 
+    if optimize_output_type:
+        output_optimizer = get_output_tool_optimizer(agent)
+        if output_optimizer:
+            components.extend(output_optimizer.get_component_keys())
+
     # Preserve order but ensure uniqueness
     seen: set[str] = set()
     deduped: list[str] = []
@@ -157,7 +185,10 @@ def get_component_names(agent: AbstractAgent[Any, Any]) -> list[str]:
 
 
 def validate_components(
-    agent: AbstractAgent[Any, Any], components: Sequence[str]
+    agent: AbstractAgent[Any, Any],
+    components: Sequence[str],
+    *,
+    optimize_output_type: bool = False,
 ) -> list[str]:
     """Validate that the requested components exist in the agent.
 
@@ -171,7 +202,9 @@ def validate_components(
     Raises:
         ValueError: If any component doesn't exist in the agent.
     """
-    available = set(get_component_names(agent))
+    available = set(
+        get_component_names(agent, optimize_output_type=optimize_output_type)
+    )
     requested = set(components)
 
     invalid = requested - available
@@ -186,6 +219,8 @@ def validate_components(
 def extract_seed_candidate_with_input_type(
     agent: AbstractAgent[Any, Any],
     input_type: InputSpec[BaseModel] | None = None,
+    *,
+    optimize_output_type: bool = False,
 ) -> CandidateMap:
     """Extract prompts from an agent and optional input specification as a GEPA candidate.
 
@@ -199,13 +234,17 @@ def extract_seed_candidate_with_input_type(
     candidate: CandidateMap = {}
 
     # Extract from agent
-    candidate.update(extract_seed_candidate(agent))
+    candidate.update(
+        extract_seed_candidate(agent, optimize_output_type=optimize_output_type)
+    )
 
     # Extract from signature if provided
     if input_type:
         spec = build_input_spec(input_type)
         for key, text in spec.get_gepa_components().items():
-            candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
+            candidate[key] = ComponentValue(
+                name=key, text=_stringify_component_value(text)
+            )
 
     return candidate
 
@@ -239,8 +278,6 @@ def apply_candidate_to_agent_and_input_type(
         if input_type:
             spec = build_input_spec(input_type)
             candidate_map = candidate if candidate is not None else {}
-            stack.enter_context(
-                spec.apply_candidate(candidate_map)
-            )
+            stack.enter_context(spec.apply_candidate(candidate_map))
 
         yield

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from .deps import GepaDeps
 from .evaluation import ParallelEvaluator, ParetoFrontManager
-from .models import CandidateMap, CandidateSelectorStrategy, ComponentValue, GepaConfig
+from .models import CandidateMap, CandidateSelectorStrategy, GepaConfig
 from .selectors import (
     AllComponentSelector,
     BatchSampler,
@@ -19,7 +19,6 @@ from .selectors import (
 
 if TYPE_CHECKING:
     from ..adapter import Adapter
-    from .proposal import InstructionProposalGenerator, MergeProposalBuilder
 
 
 def create_deps(

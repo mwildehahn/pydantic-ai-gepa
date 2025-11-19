@@ -15,17 +15,19 @@ if str(EXAMPLES_DIR) not in sys.path:
 
 os.environ.setdefault("OPENAI_API_KEY", "test-key")
 
-import math_tools  # type: ignore[import-not-found]
-from pydantic_evals import Case
+import math_tools  # type: ignore[import-not-found]  # noqa: E402
+from pydantic_evals import Case  # noqa: E402
 
-from pydantic_ai_gepa.types import RolloutOutput
+from pydantic_ai_gepa.types import RolloutOutput  # noqa: E402
 
 
-def _make_case() -> Case[
-    math_tools.MathProblemInput,
-    math_tools.MathProblemOutput,
-    math_tools.MathProblemMetadata,
-]:
+def _make_case() -> (
+    Case[
+        math_tools.MathProblemInput,
+        math_tools.MathProblemOutput,
+        math_tools.MathProblemMetadata,
+    ]
+):
     return Case(
         name="penalty-case",
         inputs=math_tools.MathProblemInput(problem="Compute 2 + 2."),
@@ -50,15 +52,11 @@ def test_metric_penalizes_multiple_run_python_invocations() -> None:
     case = _make_case()
     baseline = math_tools.metric(
         case,
-        RolloutOutput.from_success(
-            _make_output(), usage=_usage.RunUsage(tool_calls=1)
-        ),
+        RolloutOutput.from_success(_make_output(), usage=_usage.RunUsage(tool_calls=1)),
     )
     penalized = math_tools.metric(
         case,
-        RolloutOutput.from_success(
-            _make_output(), usage=_usage.RunUsage(tool_calls=3)
-        ),
+        RolloutOutput.from_success(_make_output(), usage=_usage.RunUsage(tool_calls=3)),
     )
 
     assert baseline.score == pytest.approx(1.0)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Any, cast
 
 import pytest
 from pydantic_graph.beta import StepContext
@@ -39,6 +39,7 @@ from pydantic_ai_gepa.gepa_graph.proposal import (
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
+    AllComponentSelector,
     RoundRobinComponentSelector,
 )
 from pydantic_ai_gepa.types import RolloutOutput
@@ -317,7 +318,9 @@ async def test_reflect_step_tracks_hypothesis_metadata_when_enabled() -> None:
 async def test_reflect_step_applies_config_sampler() -> None:
     sampler_calls: list[tuple[int, int]] = []
 
-    def sampler(records: list[dict[str, object]], max_records: int) -> list[dict[str, object]]:
+    def sampler(
+        records: list[dict[str, object]], max_records: int
+    ) -> list[dict[str, object]]:
         sampler_calls.append((len(records), max_records))
         return records[:max_records]
 
@@ -332,9 +335,7 @@ async def test_reflect_step_applies_config_sampler() -> None:
     )
     state = _make_state(config=config)
     minibatch = await _training_examples(state)
-    evaluator = _StubEvaluator(
-        [_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])]
-    )
+    evaluator = _StubEvaluator([_eval_results([0.4, 0.5]), _eval_results([0.6, 0.7])])
     batch_sampler = _StubBatchSampler(minibatch)
     dataset = {"instructions": [{"feedback": "a"}, {"feedback": "b"}]}
     stub_adapter = _StubAdapter(dataset=dataset)
@@ -410,7 +411,9 @@ async def test_reflect_step_skips_when_batch_is_perfect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reflect_step_does_not_skip_perfect_batch_when_validation_not_perfect() -> None:
+async def test_reflect_step_does_not_skip_perfect_batch_when_validation_not_perfect() -> (
+    None
+):
     config = GepaConfig(
         max_evaluations=100,
         minibatch_size=2,
@@ -427,10 +430,12 @@ async def test_reflect_step_does_not_skip_perfect_batch_when_validation_not_perf
         output=RolloutOutput.from_success("ok"),
     )
     minibatch = await _training_examples(state)
-    evaluator = _StubEvaluator([
-        _eval_results([1.0, 1.0]),
-        _eval_results([0.8, 0.9]),
-    ])
+    evaluator = _StubEvaluator(
+        [
+            _eval_results([1.0, 1.0]),
+            _eval_results([0.8, 0.9]),
+        ]
+    )
     batch_sampler = _StubBatchSampler(minibatch)
     stub_adapter = _StubAdapter()
     adapter = cast(Adapter[str, str, dict[str, str]], stub_adapter)
@@ -470,3 +475,62 @@ async def test_reflect_step_requires_reflection_model() -> None:
 
     with pytest.raises(ValueError, match="reflection_model"):
         await reflect_step(ctx)
+
+
+@pytest.mark.asyncio
+async def test_reflect_step_preserves_shared_dataset_with_all_selector() -> None:
+    class _SharedAdapter:
+        def __init__(self) -> None:
+            self.dataset_calls = 0
+            self.records = [{"messages": [], "feedback": "shared"}]
+
+        async def evaluate(self, batch, candidate, capture_traces):  # pragma: no cover
+            raise RuntimeError("evaluate should not be called in ReflectStep tests")
+
+        def make_reflective_dataset(
+            self,
+            *,
+            candidate,
+            eval_batch,
+            components_to_update,
+        ) -> SharedReflectiveDataset:
+            self.dataset_calls += 1
+            return SharedReflectiveDataset(records=list(self.records))
+
+        def get_components(self) -> CandidateMap:
+            return {"instructions": ComponentValue(name="instructions", text="seed")}
+
+    config = GepaConfig(
+        max_evaluations=100,
+        minibatch_size=2,
+        merges_per_accept=2,
+        perfect_score=1.0,
+        skip_perfect_score=True,
+        component_selector="all",
+    )
+    state = _make_state(config=config)
+    minibatch = await _training_examples(state)
+    evaluator = _StubEvaluator([_eval_results([0.4, 0.6]), _eval_results([0.7, 0.9])])
+    batch_sampler = _StubBatchSampler(minibatch)
+    shared_adapter = _SharedAdapter()
+    adapter = cast(Adapter[str, str, dict[str, str]], shared_adapter)
+    generator = _StubProposalGenerator({"instructions": "Improved text"})
+
+    deps = GepaDeps(
+        adapter=adapter,
+        evaluator=evaluator,
+        pareto_manager=ParetoFrontManager(),
+        candidate_selector=CurrentBestCandidateSelector(),
+        component_selector=AllComponentSelector(),
+        batch_sampler=batch_sampler,
+        proposal_generator=generator,
+        merge_builder=MergeProposalBuilder(),
+        reflection_model="reflection-model",
+    )
+    ctx = _ctx(state, deps)
+
+    await reflect_step(ctx)
+
+    assert isinstance(generator.last_reflective_data, SharedReflectiveDataset)
+    assert generator.calls == 1
+    assert shared_adapter.dataset_calls == 1

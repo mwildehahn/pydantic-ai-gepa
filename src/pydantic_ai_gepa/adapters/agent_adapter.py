@@ -48,11 +48,12 @@ from ..components import (
     extract_seed_candidate_with_input_type,
 )
 from ..evaluation_models import EvaluationBatch
-from ..gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
+from ..gepa_graph.models import CandidateMap, candidate_texts
 from ..inspection import InspectionAborted
 from ..input_type import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
 from ..tool_components import get_or_create_tool_optimizer
+from ..tool_components import get_or_create_output_tool_optimizer
 from ..types import (
     MetadataWithMessageHistory,
     MetricResult,
@@ -570,6 +571,7 @@ class _BaseAgentAdapter(
         input_spec: BoundInputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
+        optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
     ) -> None:
@@ -585,20 +587,34 @@ class _BaseAgentAdapter(
         ):
             self.cache_manager.set_model_identifier(self._model_identifier)
         self.optimize_tools = optimize_tools
+        self.optimize_output_type = optimize_output_type
         self.agent_usage_limits = agent_usage_limits
         self._gepa_usage_limits = gepa_usage_limits
         self._gepa_usage = _usage.RunUsage()
         self._gepa_usage_lock = asyncio.Lock()
         if optimize_tools:
             self._configure_tool_optimizer()
+        if optimize_output_type:
+            self._configure_output_tool_optimizer()
 
     def _configure_tool_optimizer(self) -> None:
         """Install tool optimization support for plain agents when requested."""
         try:
             get_or_create_tool_optimizer(self.agent)
-        except Exception as e:
+        except Exception:
             logfire.debug(
                 "Tool optimization not available for agent",
+                agent_name=getattr(self.agent, "name", self.agent.__class__.__name__),
+                exc_info=True,
+            )
+
+    def _configure_output_tool_optimizer(self) -> None:
+        """Install output tool optimization via prepare_output_tools when requested."""
+        try:
+            get_or_create_output_tool_optimizer(self.agent)
+        except Exception:
+            logfire.debug(
+                "Output tool optimization not available for agent",
                 agent_name=getattr(self.agent, "name", self.agent.__class__.__name__),
                 exc_info=True,
             )
@@ -1112,6 +1128,7 @@ class _BaseAgentAdapter(
         return extract_seed_candidate_with_input_type(
             agent=self.agent,
             input_type=self.input_spec,
+            optimize_output_type=self.optimize_output_type,
         )
 
 
@@ -1130,6 +1147,7 @@ class AgentAdapter(
         ],
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
+        optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
     ) -> None:
@@ -1139,6 +1157,7 @@ class AgentAdapter(
             input_spec=None,
             cache_manager=cache_manager,
             optimize_tools=optimize_tools,
+            optimize_output_type=optimize_output_type,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
         )
@@ -1200,6 +1219,7 @@ class SignatureAgentAdapter(
         input_type: InputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
+        optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
     ) -> None:
@@ -1216,6 +1236,7 @@ class SignatureAgentAdapter(
             input_spec=bound_spec,
             cache_manager=cache_manager,
             optimize_tools=optimize_tools,
+            optimize_output_type=optimize_output_type,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
         )
@@ -1254,6 +1275,7 @@ def create_adapter(
     agent: "AbstractAgent[Any, Any]",
     metric: Callable[[Case[Any, Any, MetadataT], RolloutOutput[Any]], MetricResult],
     input_type: InputSpec[BaseModel] | None = None,
+    optimize_output_type: bool = False,
     **kwargs: Any,
 ) -> AgentAdapter[Any, MetadataT] | SignatureAgentAdapter[Any, Any, MetadataT]:
     """Create an adapter suited for the provided agent."""
@@ -1262,10 +1284,16 @@ def create_adapter(
             agent=agent,
             metric=metric,
             input_type=input_type,
+            optimize_output_type=optimize_output_type,
             **kwargs,
         )
     if input_type is not None:
         raise TypeError(
             "input_type can only be provided when agent is a SignatureAgent"
         )
-    return AgentAdapter(agent=agent, metric=metric, **kwargs)
+    return AgentAdapter(
+        agent=agent,
+        metric=metric,
+        optimize_output_type=optimize_output_type,
+        **kwargs,
+    )

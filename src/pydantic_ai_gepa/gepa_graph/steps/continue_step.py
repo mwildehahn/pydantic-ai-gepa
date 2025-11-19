@@ -23,7 +23,7 @@ class StopSignal:
 
 
 async def continue_step(
-    ctx: StepContext[GepaState, GepaDeps, None]
+    ctx: StepContext[GepaState, GepaDeps, None],
 ) -> StopSignal | ContinueAction:
     """Decision point for the GEPA optimization loop."""
 
@@ -49,7 +49,10 @@ def _should_stop(state: GepaState) -> bool:
         state.stop_reason = "Max evaluations reached"
         return True
 
-    if state.config.max_iterations is not None and state.iteration >= state.config.max_iterations:
+    if (
+        state.config.max_iterations is not None
+        and state.iteration >= state.config.max_iterations
+    ):
         state.stop_reason = "Max iterations reached"
         return True
 

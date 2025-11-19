@@ -7,13 +7,14 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.models import KnownModelName, Model
 
-from .models import CandidateMap, ComponentValue
+from .models import CandidateMap
 from .evaluation import ParallelEvaluator, ParetoFrontManager
 from .selectors import BatchSampler, CandidateSelector, ComponentSelector
 
 if TYPE_CHECKING:
     from ..adapter import Adapter
     from .proposal import InstructionProposalGenerator, MergeProposalBuilder
+
 
 @dataclass(slots=True)
 class GepaDeps:

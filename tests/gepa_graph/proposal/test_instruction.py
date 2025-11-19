@@ -66,7 +66,11 @@ def _make_reflective_record() -> dict[str, Any]:
             {
                 "kind": "request",
                 "parts": [
-                    {"type": "system_prompt", "role": "system", "content": "You are a helpful assistant."},
+                    {
+                        "type": "system_prompt",
+                        "role": "system",
+                        "content": "You are a helpful assistant.",
+                    },
                     {"type": "user_prompt", "role": "user", "content": "Hello"},
                 ],
             },
@@ -172,6 +176,166 @@ async def test_llm_generator_returns_metadata_when_enabled() -> None:
     assert metadata["edge_insight"] == "Still mislabeling exclusive ranges"
     assert metadata["checkpoint"] == "Zero range mistakes on validation minibatch"
     assert metadata["moves"] == ["Checklist", "Edge Reasoning: ranges"]
+
+
+@pytest.mark.asyncio
+async def test_llm_generator_uses_shared_dataset_once() -> None:
+    candidate = _make_candidate()
+    reflective_data = SharedReflectiveDataset(
+        records=[
+            {
+                "messages": [
+                    {
+                        "kind": "request",
+                        "parts": [{"type": "user_prompt", "content": "u1"}],
+                    }
+                ],
+                "score": 0.5,
+                "user_prompt": "trace1",
+            },
+            {
+                "messages": [
+                    {
+                        "kind": "request",
+                        "parts": [{"type": "user_prompt", "content": "u2"}],
+                    }
+                ],
+                "score": 0.9,
+                "user_prompt": "trace2",
+            },
+        ]
+    )
+
+    captured_prompt: list[str] = []
+
+    async def fake_model(messages, agent_info):
+        prompt = messages[-1].parts[0].content
+        captured_prompt.append(prompt)
+        content = """{
+            "reasoning": {
+                "pattern_discovery": "Patterns",
+                "creative_hypothesis": "Hyp",
+                "experimental_approach": "Approach"
+            },
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"},
+                {"component_name": "tools", "optimized_value": "Improved tools"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator()
+    model = FunctionModel(function=fake_model)
+    await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=["instructions", "tools"],
+        model=model,
+    )
+
+    prompt = captured_prompt[-1]
+    assert prompt == snapshot("""\
+# Creative Instruction Design Challenge
+
+Transform the student agent's performance through innovative instruction formats.
+
+## Context
+- A student agent has been running with the configuration shown below
+- We've collected traces from real production runs
+- Your job is to improve specific components so the student agent performs better
+
+---
+
+## Full student agent configuration
+
+This is the complete configuration the student agent was running with:
+
+**`instructions` given to student:**
+```
+Seed instructions
+```
+
+**`tools` given to student:**
+```
+Seed tools
+```
+
+---
+
+## Production traces from student agent runs
+
+Each trace contains:
+- `messages`: Full conversation history with system prompts, user inputs, assistant responses, tool calls, and tool returns
+- `tools`: Tool definitions that were available (if any)
+- `score`: Performance score (0.0-1.0, higher is better)
+- `success`: Whether the run completed successfully
+- `feedback`: Evaluator feedback on this specific run
+
+**Use these traces to optimize the components listed below:**
+
+### Trace 1: trace1
+- **Score:** 0.5
+
+- **Messages:**
+```json
+[
+  {
+    "kind": "request",
+    "parts": [
+      {
+        "type": "user_prompt",
+        "content": "u1"
+      }
+    ]
+  }
+]
+```
+
+### Trace 2: trace2
+- **Score:** 0.9
+
+- **Messages:**
+```json
+[
+  {
+    "kind": "request",
+    "parts": [
+      {
+        "type": "user_prompt",
+        "content": "u2"
+      }
+    ]
+  }
+]
+```
+
+
+### Analysis guidance
+- What failure patterns repeat across runs?
+- Are components misaligned (e.g., instructions referencing tools that don't exist)?
+- Which successful patterns should be preserved or extended?
+- What domain knowledge should be codified in the prompts?
+- Are there patterns of inefficient tool usage (redundant calls, speculative calls, lack of planning)?
+- How can prompts guide the student to gather what's needed in fewer, well-targeted tool calls?
+
+---
+
+## Components to update
+
+Rewrite these components as a coordinated update based on the evidence above:
+
+### Component: `instructions`
+Current value:
+```
+Seed instructions
+```
+
+### Component: `tools`
+Current value:
+```
+Seed tools
+```
+""")
 
 
 @pytest.mark.asyncio
@@ -292,7 +456,7 @@ async def test_prompt_includes_output_tool_details() -> None:
 
     assert captured_prompt is not None
     assert "final_result" in captured_prompt
-    assert "kind\": \"output\"" in captured_prompt
+    assert 'kind": "output"' in captured_prompt
     assert "Teach the student to call the appropriate output tool" in captured_prompt
 
 
@@ -439,7 +603,7 @@ async def test_llm_generator_handles_shared_dataset() -> None:
     )
 
     assert result.texts == snapshot(
-        {"instructions": 'Improved instructions', "tools": 'Improved tools'}
+        {"instructions": "Improved instructions", "tools": "Improved tools"}
     )
     prompt = prompts[-1]
     assert prompt == snapshot("""\
@@ -566,8 +730,8 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
 
         # Check if there's a tool return in the messages
         has_tool_return = any(
-            isinstance(msg, ModelRequest) and
-            any(isinstance(part, ToolReturnPart) for part in msg.parts)
+            isinstance(msg, ModelRequest)
+            and any(isinstance(part, ToolReturnPart) for part in msg.parts)
             for msg in messages
         )
 
@@ -581,8 +745,18 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
                             # Parse the tool return to get location
                             content = part.content
                             if isinstance(content, str) and ":" in content:
-                                location = content.split(":")[0].replace("Weather in", "").strip()
-                                return ModelResponse(parts=[TextPart(content=f"The weather in {location} is sunny and 72°F.")])
+                                location = (
+                                    content.split(":")[0]
+                                    .replace("Weather in", "")
+                                    .strip()
+                                )
+                                return ModelResponse(
+                                    parts=[
+                                        TextPart(
+                                            content=f"The weather in {location} is sunny and 72°F."
+                                        )
+                                    ]
+                                )
             return ModelResponse(parts=[TextPart(content="It's sunny and 72°F.")])
         else:
             # First call: extract location from user prompt and call tool
@@ -590,7 +764,7 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
             for msg in messages:
                 if isinstance(msg, ModelRequest):
                     for part in msg.parts:
-                        if hasattr(part, 'content'):
+                        if hasattr(part, "content"):
                             content = str(part.content)
                             if "San Francisco" in content:
                                 location = "San Francisco"
@@ -626,7 +800,9 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
         return f"Weather in {location}: Sunny, 72°F"
 
     # Set up adapter with a simple metric
-    def metric(case: Case[str, str, dict[str, str]], output: RolloutOutput[Any]) -> MetricResult:
+    def metric(
+        case: Case[str, str, dict[str, str]], output: RolloutOutput[Any]
+    ) -> MetricResult:
         # Score based on whether it used the tool
         success = output.success and output.result is not None
         return MetricResult(
@@ -638,7 +814,9 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
 
     # Create test data with multiple runs
     test_data = [
-        Case(name="weather_1", inputs="What's the weather in San Francisco?", metadata={}),
+        Case(
+            name="weather_1", inputs="What's the weather in San Francisco?", metadata={}
+        ),
         Case(name="weather_2", inputs="What's the weather in New York?", metadata={}),
     ]
 
@@ -666,7 +844,9 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
     candidate_program = CandidateProgram(
         idx=0,
         components={
-            name: value if isinstance(value, ComponentValue) else ComponentValue(name=name, text=value)
+            name: value
+            if isinstance(value, ComponentValue)
+            else ComponentValue(name=name, text=value)
             for name, value in candidate.items()
         },
         creation_type="seed",
@@ -682,20 +862,31 @@ async def test_end_to_end_with_real_agent_and_tools() -> None:
         captured_prompt = messages[-1].parts[0].content
         # Return a dummy response with updates for all components
         updated = [
-            {"component_name": "instructions", "optimized_value": "Improved instructions with tool guidance"}
+            {
+                "component_name": "instructions",
+                "optimized_value": "Improved instructions with tool guidance",
+            }
         ]
         for tool_comp in tool_components:
-            updated.append({"component_name": tool_comp, "optimized_value": f"Improved {tool_comp}"})
+            updated.append(
+                {
+                    "component_name": tool_comp,
+                    "optimized_value": f"Improved {tool_comp}",
+                }
+            )
 
         import json
-        content = json.dumps({
-            "reasoning": {
-                "pattern_discovery": "Tool usage patterns were good",
-                "creative_hypothesis": "Could be more explicit",
-                "experimental_approach": "Add more guidance about when to use tools"
-            },
-            "updated_components": updated
-        })
+
+        content = json.dumps(
+            {
+                "reasoning": {
+                    "pattern_discovery": "Tool usage patterns were good",
+                    "creative_hypothesis": "Could be more explicit",
+                    "experimental_approach": "Add more guidance about when to use tools",
+                },
+                "updated_components": updated,
+            }
+        )
         return ModelResponse(parts=[TextPart(content=content)])
 
     # Run the proposal generator

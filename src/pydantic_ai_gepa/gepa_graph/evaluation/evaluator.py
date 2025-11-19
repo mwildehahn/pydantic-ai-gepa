@@ -39,7 +39,9 @@ class EvaluationResults(Generic[DataIdT]):
         return iter(zip(self.data_ids, self.scores, self.outputs))
 
     def has_trajectories(self) -> bool:
-        return bool(self.trajectories) and any(trace is not None for trace in self.trajectories)
+        return bool(self.trajectories) and any(
+            trace is not None for trace in self.trajectories
+        )
 
 
 class ParallelEvaluator:

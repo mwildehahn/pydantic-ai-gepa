@@ -66,7 +66,9 @@ def test_cache_manager_basic():
 
         output = RolloutOutput.from_success("Test result")
         candidate = {
-            "instructions": ComponentValue(name="instructions", text="Test instructions"),
+            "instructions": ComponentValue(
+                name="instructions", text="Test instructions"
+            ),
         }
 
         # Initially, cache should miss
@@ -89,7 +91,9 @@ def test_cache_manager_basic():
 
         # Different candidate should miss
         different_candidate = {
-            "instructions": ComponentValue(name="instructions", text="Different instructions"),
+            "instructions": ComponentValue(
+                name="instructions", text="Different instructions"
+            ),
         }
         result = cache.get_cached_metric_result(
             case,
@@ -132,7 +136,9 @@ def test_cache_scopes_entries_by_model():
         )
         output = RolloutOutput.from_success("positive")
         candidate = {
-            "instructions": ComponentValue(name="instructions", text="Classify sentiment"),
+            "instructions": ComponentValue(
+                name="instructions", text="Classify sentiment"
+            ),
         }
 
         result_a = MetricResult(score=0.9, feedback="model-a")
@@ -217,7 +223,9 @@ def test_cache_manager_with_signature():
 
         output = RolloutOutput.from_success("positive")
         candidate = {
-            "instructions": ComponentValue(name="instructions", text="Classify the text"),
+            "instructions": ComponentValue(
+                name="instructions", text="Classify the text"
+            ),
             "signature:TestSignature:text:desc": ComponentValue(
                 name="signature:TestSignature:text:desc",
                 text="Input text",
@@ -452,9 +460,13 @@ def test_cache_agent_runs():
         )
 
         output = RolloutOutput.from_success("Agent result")
-        trajectory = AgentAdapterTrajectory(messages=[], final_output="Agent result", error=None)
+        trajectory = AgentAdapterTrajectory(
+            messages=[], final_output="Agent result", error=None
+        )
         candidate = {
-            "instructions": ComponentValue(name="instructions", text="Test instructions"),
+            "instructions": ComponentValue(
+                name="instructions", text="Test instructions"
+            ),
         }
 
         # Initially, cache should miss

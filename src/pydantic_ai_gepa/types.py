@@ -27,8 +27,7 @@ class Trajectory(Protocol):
     metric_feedback: str | None
     final_output: Any | None
 
-    def to_reflective_record(self) -> dict[str, Any]:
-        ...
+    def to_reflective_record(self) -> dict[str, Any]: ...
 
 
 @dataclass

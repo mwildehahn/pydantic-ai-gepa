@@ -132,7 +132,9 @@ def _build_lineage(state: GepaState) -> tuple[int, int, int]:
     return ancestor.idx, parent1.idx, parent2.idx
 
 
-async def _validation_instances(state: GepaState) -> list[Case[str, str, dict[str, str]]]:
+async def _validation_instances(
+    state: GepaState,
+) -> list[Case[str, str, dict[str, str]]]:
     loader = state.validation_set
     assert loader is not None
     ids = await loader.all_ids()

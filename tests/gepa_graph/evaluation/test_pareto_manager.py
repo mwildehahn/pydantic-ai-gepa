@@ -90,14 +90,26 @@ def test_find_dominators_filters_dominated_candidates() -> None:
     cand_b = _candidate(1, "B", 1)
     cand_c = _candidate(2, "C", 2)
 
-    cand_a.record_validation(data_id="0", score=0.9, output=RolloutOutput.from_success("a0"))
-    cand_a.record_validation(data_id="1", score=0.4, output=RolloutOutput.from_success("a1"))
+    cand_a.record_validation(
+        data_id="0", score=0.9, output=RolloutOutput.from_success("a0")
+    )
+    cand_a.record_validation(
+        data_id="1", score=0.4, output=RolloutOutput.from_success("a1")
+    )
 
-    cand_b.record_validation(data_id="0", score=0.7, output=RolloutOutput.from_success("b0"))
-    cand_b.record_validation(data_id="1", score=0.8, output=RolloutOutput.from_success("b1"))
+    cand_b.record_validation(
+        data_id="0", score=0.7, output=RolloutOutput.from_success("b0")
+    )
+    cand_b.record_validation(
+        data_id="1", score=0.8, output=RolloutOutput.from_success("b1")
+    )
 
-    cand_c.record_validation(data_id="0", score=0.6, output=RolloutOutput.from_success("c0"))
-    cand_c.record_validation(data_id="1", score=0.3, output=RolloutOutput.from_success("c1"))
+    cand_c.record_validation(
+        data_id="0", score=0.6, output=RolloutOutput.from_success("c0")
+    )
+    cand_c.record_validation(
+        data_id="1", score=0.3, output=RolloutOutput.from_success("c1")
+    )
 
     state.add_candidate(cand_a, auto_assign_idx=False)
     state.add_candidate(cand_b, auto_assign_idx=False)

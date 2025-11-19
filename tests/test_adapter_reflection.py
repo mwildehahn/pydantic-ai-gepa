@@ -135,7 +135,9 @@ def test_reflective_record_includes_output_tool_metadata() -> None:
     )
     trajectory = AgentAdapterTrajectory(
         messages=[
-            ModelRequest(parts=[UserPromptPart(content="Hi")], instructions="Base instructions"),
+            ModelRequest(
+                parts=[UserPromptPart(content="Hi")], instructions="Base instructions"
+            ),
             ModelResponse(parts=[TextPart(content="Hello")]),
         ],
         final_output="Hello",
@@ -146,7 +148,9 @@ def test_reflective_record_includes_output_tool_metadata() -> None:
     record = trajectory.to_reflective_record()
     tools = record.get("tools")
     assert tools is not None
-    matching = [tool for tool in tools if tool.get("function", {}).get("name") == "final_result"]
+    matching = [
+        tool for tool in tools if tool.get("function", {}).get("name") == "final_result"
+    ]
     assert matching, "Expected serialized output tool merged into tools list"
     assert matching[0]["kind"] == "output"
 
@@ -168,9 +172,9 @@ async def test_run_with_trace_returns_trajectory_on_usage_limit() -> None:
     assert output.success is False
     assert trajectory.error is not None
     assert trajectory.messages, "usage-limit trajectories should capture prompts"
-    assert any(isinstance(message, ModelRequest) for message in trajectory.messages), (
-        "expected to capture the synthesized user request"
-    )
+    assert any(
+        isinstance(message, ModelRequest) for message in trajectory.messages
+    ), "expected to capture the synthesized user request"
     record = trajectory.to_reflective_record()
     assert record["messages"], "reflective record should include serialized messages"
     assert "request_limit" in (record["error"] or "")

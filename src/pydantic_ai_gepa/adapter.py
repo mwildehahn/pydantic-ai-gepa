@@ -9,7 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 from pydantic_evals import Case
 
 from .evaluation_models import EvaluationBatch
-from .gepa_graph.models import CandidateMap, ComponentValue
+from .gepa_graph.models import CandidateMap
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -33,7 +33,6 @@ class ComponentReflectiveDataset:
 ReflectiveDataset = SharedReflectiveDataset | ComponentReflectiveDataset
 
 
-
 class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
     """Protocol describing the minimal surface required by the GEPA engine."""
 
@@ -42,8 +41,7 @@ class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
         batch: Sequence[Case[InputT, OutputT, MetadataT]],
         candidate: CandidateMap,
         capture_traces: bool,
-    ) -> EvaluationBatch:
-        ...
+    ) -> EvaluationBatch: ...
 
     def make_reflective_dataset(
         self,
@@ -51,8 +49,7 @@ class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
         candidate: CandidateMap,
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
-    ) -> ReflectiveDataset:
-        ...
+    ) -> ReflectiveDataset: ...
 
     def get_components(self) -> CandidateMap:
         """Return the adapter's current candidate component mapping."""

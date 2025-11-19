@@ -6,7 +6,12 @@ import pytest
 from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.datasets import ListDataLoader
-from pydantic_ai_gepa.gepa_graph.models import CandidateProgram, ComponentValue, GepaConfig, GepaState
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateProgram,
+    ComponentValue,
+    GepaConfig,
+    GepaState,
+)
 from pydantic_ai_gepa.gepa_graph.proposal import MergeProposalBuilder
 from pydantic_ai_gepa.types import RolloutOutput
 
@@ -47,7 +52,9 @@ def _add_candidate(
     candidate = CandidateProgram(
         idx=idx,
         components={
-            "instructions": ComponentValue(name="instructions", text=instructions, version=iteration),
+            "instructions": ComponentValue(
+                name="instructions", text=instructions, version=iteration
+            ),
             "tools": ComponentValue(name="tools", text=tools, version=iteration),
         },
         creation_type=creation_type,
@@ -68,7 +75,9 @@ def _populate_scores(candidate: CandidateProgram, scores: list[float]) -> None:
         )
 
 
-def _build_lineage(state: GepaState) -> tuple[CandidateProgram, CandidateProgram, CandidateProgram]:
+def _build_lineage(
+    state: GepaState,
+) -> tuple[CandidateProgram, CandidateProgram, CandidateProgram]:
     ancestor = _add_candidate(
         state,
         instructions="Seed instructions",
@@ -158,7 +167,10 @@ def test_build_merged_candidate_combines_components() -> None:
 
     assert merged.creation_type == "merge"
     assert merged.parent_indices == [parent1.idx, parent2.idx]
-    assert merged.components["instructions"].text == parent1.components["instructions"].text
+    assert (
+        merged.components["instructions"].text
+        == parent1.components["instructions"].text
+    )
     assert merged.components["tools"].text == parent2.components["tools"].text
 
 
@@ -168,7 +180,9 @@ async def test_select_merge_subsample_stratifies_scores() -> None:
     _, parent1, parent2 = _build_lineage(state)
     builder = MergeProposalBuilder(seed=5)
 
-    subsample = await builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
+    subsample = await builder.select_merge_subsample(
+        state, parent1_idx=parent1.idx, parent2_idx=parent2.idx
+    )
     assert len(subsample) == state.config.merge_subsample_size
     case_ids = {inst.name for _, inst in subsample}
     assert case_ids.issubset({f"case-{idx}" for idx in range(6)})
@@ -206,7 +220,9 @@ async def test_select_merge_subsample_returns_empty_when_insufficient_overlap() 
     _populate_scores(parent2, [0.7] * 2)  # Less overlap than required
 
     builder = MergeProposalBuilder(seed=7)
-    subsample = await builder.select_merge_subsample(state, parent1_idx=parent1.idx, parent2_idx=parent2.idx)
+    subsample = await builder.select_merge_subsample(
+        state, parent1_idx=parent1.idx, parent2_idx=parent2.idx
+    )
     assert subsample == []
 
 
@@ -214,7 +230,19 @@ def test_register_candidate_deduplicates_same_merge() -> None:
     state = _make_state()
     ancestor, parent1, parent2 = _build_lineage(state)
     builder = MergeProposalBuilder(seed=2)
-    merged = builder.build_merged_candidate(state, parent1.idx, parent2.idx, ancestor.idx)
+    merged = builder.build_merged_candidate(
+        state, parent1.idx, parent2.idx, ancestor.idx
+    )
 
-    assert builder.register_candidate(candidate=merged, parent1_idx=parent1.idx, parent2_idx=parent2.idx) is True
-    assert builder.register_candidate(candidate=merged, parent1_idx=parent1.idx, parent2_idx=parent2.idx) is False
+    assert (
+        builder.register_candidate(
+            candidate=merged, parent1_idx=parent1.idx, parent2_idx=parent2.idx
+        )
+        is True
+    )
+    assert (
+        builder.register_candidate(
+            candidate=merged, parent1_idx=parent1.idx, parent2_idx=parent2.idx
+        )
+        is False
+    )

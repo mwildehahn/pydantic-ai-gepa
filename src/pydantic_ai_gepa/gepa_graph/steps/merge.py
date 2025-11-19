@@ -120,7 +120,9 @@ def _matches_existing_candidate(
     candidate: CandidateProgram,
 ) -> bool:
     signature = _component_signature(candidate)
-    return any(_component_signature(existing) == signature for existing in state.candidates)
+    return any(
+        _component_signature(existing) == signature for existing in state.candidates
+    )
 
 
 def _component_signature(
@@ -128,8 +130,7 @@ def _component_signature(
 ) -> tuple[tuple[str, str], ...]:
     return tuple(
         sorted(
-            (name, component.text)
-            for name, component in candidate.components.items()
+            (name, component.text) for name, component in candidate.components.items()
         )
     )
 

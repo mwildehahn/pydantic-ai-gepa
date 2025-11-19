@@ -86,9 +86,7 @@ async def test_optimize_agent_minimal_flow():
     seed = extract_seed_candidate(agent)
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
-    def metric(
-        case: Case[str, str, Any], output: RolloutOutput[Any]
-    ) -> MetricResult:
+    def metric(case: Case[str, str, Any], output: RolloutOutput[Any]) -> MetricResult:
         predicted = (
             str(output.result).strip().lower()
             if output.success and output.result is not None
@@ -182,9 +180,7 @@ async def test_optimize_agent_minimal_flow_with_signature():
     seed = extract_seed_candidate_with_input_type(signature_agent, input_type=Input)
 
     # Simple metric: 1.0 if predicted label matches expected label, else 0.0
-    def metric(
-        case: Case[Input, str, Any], output: RolloutOutput[Any]
-    ) -> MetricResult:
+    def metric(case: Case[Input, str, Any], output: RolloutOutput[Any]) -> MetricResult:
         predicted = (
             str(output.result).strip().lower()
             if output.success and output.result is not None
@@ -239,9 +235,7 @@ async def test_optimize_agent_reports_progress(monkeypatch: pytest.MonkeyPatch):
         instructions="Say ok.",
     )
 
-    trainset = [
-        Case(name="case-0", inputs="Hello", expected_output="ok")
-    ]
+    trainset = [Case(name="case-0", inputs="Hello", expected_output="ok")]
 
     def metric(case: Case[str, str, Any], output: RolloutOutput[Any]) -> MetricResult:
         del case  # unused
@@ -302,7 +296,11 @@ async def test_optimize_agent_respects_agent_usage_limits():
     """Per-run UsageLimits should be enforced for each agent evaluation."""
 
     trainset = [
-        Case(name="usage-case", inputs="Respond with anything.", expected_output="irrelevant")
+        Case(
+            name="usage-case",
+            inputs="Respond with anything.",
+            expected_output="irrelevant",
+        )
     ]
 
     agent = Agent(

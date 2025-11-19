@@ -156,6 +156,7 @@ async def optimize_agent(
     reflection_sampler: ReflectionSampler | None = None,
     # Tool configuration
     optimize_tools: bool = False,
+    optimize_output_type: bool = False,
     agent_usage_limits: _usage.UsageLimits | None = None,
     gepa_usage_limits: _usage.UsageLimits | None = None,
 ) -> GepaOptimizationResult:
@@ -216,6 +217,8 @@ async def optimize_agent(
         # Tool configuration
         optimize_tools: Enable optimization of tool descriptions and parameter schemas
             for plain agents without requiring a SignatureAgent wrapper.
+        optimize_output_type: Enable optimization of output tool descriptions and parameter schemas
+            derived from the agent's output_type (via prepare_output_tools).
         agent_usage_limits: Optional UsageLimits applied to each individual agent run
             (e.g., cap tool calls per evaluation to prevent runaway tool loops). When None,
             no per-run usage limits are enforced.
@@ -231,9 +234,22 @@ async def optimize_agent(
         await resolve_dataset(valset, name="valset") if valset is not None else None
     )
 
+    if optimize_output_type:
+        # Ensure output tool optimizer is installed before seed extraction
+        try:
+            from .tool_components import get_or_create_output_tool_optimizer
+
+            get_or_create_output_tool_optimizer(agent)
+        except Exception:
+            logfire.debug(
+                "Unable to install output tool optimizer; continuing without output optimization",
+                exc_info=True,
+            )
+
     extracted_seed_candidate = extract_seed_candidate_with_input_type(
         agent=agent,
         input_type=input_type,
+        optimize_output_type=optimize_output_type,
     )
     if seed_candidate is None:
         normalized_seed_candidate = extracted_seed_candidate
@@ -260,6 +276,7 @@ async def optimize_agent(
         input_type=input_type,
         cache_manager=cache_manager,
         optimize_tools=optimize_tools,
+        optimize_output_type=optimize_output_type,
         agent_usage_limits=agent_usage_limits,
         gepa_usage_limits=gepa_usage_limits,
     )

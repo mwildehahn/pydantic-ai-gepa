@@ -16,6 +16,8 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     CurrentBestCandidateSelector,
     ParetoCandidateSelector,
 )
+
+
 def _make_data_inst(case_id: str) -> Case[str, str, dict[str, str]]:
     return Case(
         name=case_id,
@@ -44,8 +46,12 @@ def _build_state(num_candidates: int = 3) -> GepaState:
 def test_pareto_candidate_selector_is_deterministic() -> None:
     state = _build_state()
     state.pareto_front = {
-        "case-1": ParetoFrontEntry(data_id="case-1", best_score=0.8, candidate_indices={0, 1}),
-        "case-2": ParetoFrontEntry(data_id="case-2", best_score=0.9, candidate_indices={1}),
+        "case-1": ParetoFrontEntry(
+            data_id="case-1", best_score=0.8, candidate_indices={0, 1}
+        ),
+        "case-2": ParetoFrontEntry(
+            data_id="case-2", best_score=0.9, candidate_indices={1}
+        ),
     }
 
     selector_a = ParetoCandidateSelector(seed=42)

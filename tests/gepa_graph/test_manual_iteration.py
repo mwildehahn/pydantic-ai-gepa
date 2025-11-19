@@ -31,7 +31,11 @@ async def test_manual_iteration_flow() -> None:
     deps = create_deps(
         adapter,
         config,
-        seed_candidate={"instructions": ComponentValue(name="instructions", text="seed instructions")},
+        seed_candidate={
+            "instructions": ComponentValue(
+                name="instructions", text="seed instructions"
+            )
+        },
     )
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 
