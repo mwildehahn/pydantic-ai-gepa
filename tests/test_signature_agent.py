@@ -11,7 +11,11 @@ from pydantic_ai_gepa.components import (
     extract_seed_candidate,
     get_component_names,
 )
-from pydantic_ai_gepa.gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
+    ComponentValue,
+    candidate_texts,
+)
 from pydantic_ai_gepa.input_type import (
     generate_system_instructions,
     generate_user_content,
@@ -23,7 +27,9 @@ from pydantic_ai.models.test import TestModel
 
 
 def _component_map(entries: dict[str, str]) -> CandidateMap:
-    return {name: ComponentValue(name=name, text=value) for name, value in entries.items()}
+    return {
+        name: ComponentValue(name=name, text=value) for name, value in entries.items()
+    }
 
 
 class GeographyQuery(BaseModel):

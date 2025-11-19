@@ -135,7 +135,9 @@ def test_reflective_record_includes_output_tool_metadata() -> None:
     )
     trajectory = AgentAdapterTrajectory(
         messages=[
-            ModelRequest(parts=[UserPromptPart(content="Hi")], instructions="Base instructions"),
+            ModelRequest(
+                parts=[UserPromptPart(content="Hi")], instructions="Base instructions"
+            ),
             ModelResponse(parts=[TextPart(content="Hello")]),
         ],
         final_output="Hello",
@@ -146,7 +148,9 @@ def test_reflective_record_includes_output_tool_metadata() -> None:
     record = trajectory.to_reflective_record()
     tools = record.get("tools")
     assert tools is not None
-    matching = [tool for tool in tools if tool.get("function", {}).get("name") == "final_result"]
+    matching = [
+        tool for tool in tools if tool.get("function", {}).get("name") == "final_result"
+    ]
     assert matching, "Expected serialized output tool merged into tools list"
     assert matching[0]["kind"] == "output"
 

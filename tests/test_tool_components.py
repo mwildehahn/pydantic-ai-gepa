@@ -8,7 +8,10 @@ from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.tools import ToolDefinition
 
-from pydantic_ai_gepa.tool_components import ToolComponentCatalog, ToolOptimizationManager
+from pydantic_ai_gepa.tool_components import (
+    ToolComponentCatalog,
+    ToolOptimizationManager,
+)
 
 
 def _make_tool_definition() -> ToolDefinition:
@@ -48,7 +51,10 @@ def test_catalog_ingest_records_seed_components() -> None:
     catalog.ingest([tool_def])
     seeds = catalog.seed_snapshot()
 
-    assert seeds["tool:format_text:description"] == "Format content for downstream processing."
+    assert (
+        seeds["tool:format_text:description"]
+        == "Format content for downstream processing."
+    )
     assert seeds["tool:format_text:param:text"] == "Raw text to format."
     assert seeds["tool:format_text:param:style"] == "Formatting instructions to apply."
     assert catalog.metadata_for("format_text") is not None
@@ -76,7 +82,9 @@ def test_record_model_request_tracks_builtin_tools() -> None:
     manager = ToolOptimizationManager(cast(AbstractAgent[Any, Any], _DummyAgent()))
     builtin = WebSearchTool()
 
-    manager.record_model_request(function_tools=[_make_tool_definition()], builtin_tools=[builtin])
+    manager.record_model_request(
+        function_tools=[_make_tool_definition()], builtin_tools=[builtin]
+    )
 
     latest = manager.latest_builtin_tools()
     assert len(latest) == 1

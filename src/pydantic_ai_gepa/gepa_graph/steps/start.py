@@ -32,10 +32,14 @@ def _determine_seed_components(deps: GepaDeps) -> CandidateMap:
 
     raw_components = deps.adapter.get_components()
     components = {
-        name: component if isinstance(component, ComponentValue) else ComponentValue(name=name, text=str(component))
+        name: component
+        if isinstance(component, ComponentValue)
+        else ComponentValue(name=name, text=str(component))
         for name, component in raw_components.items()
     }
-    deps.seed_candidate = {name: component.model_copy() for name, component in components.items()}
+    deps.seed_candidate = {
+        name: component.model_copy() for name, component in components.items()
+    }
     return deps.seed_candidate
 
 
@@ -44,7 +48,9 @@ def _build_candidate(
     components: CandidateMap,
 ) -> CandidateProgram:
     component_models = {
-        name: component if isinstance(component, ComponentValue) else ComponentValue(name=name, text=str(component))
+        name: component
+        if isinstance(component, ComponentValue)
+        else ComponentValue(name=name, text=str(component))
         for name, component in components.items()
     }
     return CandidateProgram(

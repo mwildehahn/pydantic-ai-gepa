@@ -321,7 +321,9 @@ def _build_reflective_dataset(
     eval_batch = EvaluationBatch(
         outputs=list(eval_results.outputs),
         scores=list(eval_results.scores),
-        trajectories=list(eval_results.trajectories) if eval_results.trajectories is not None else None,
+        trajectories=list(eval_results.trajectories)
+        if eval_results.trajectories is not None
+        else None,
     )
 
     raw_dataset = deps.adapter.make_reflective_dataset(
@@ -329,25 +331,32 @@ def _build_reflective_dataset(
         eval_batch=eval_batch,
         components_to_update=components,
     )
+    # Preserve shared datasets to avoid duplicating identical traces per component
+    # (especially when using the "all" component selector). When adapters return a
+    # SharedReflectiveDataset, show the traces once in the prompt instead of
+    # repeating them under every component section.
     if isinstance(raw_dataset, SharedReflectiveDataset):
-        records_by_component = {component: list(raw_dataset.records) for component in components}
-    else:
-        records_by_component = {
-            component: list(raw_dataset.records_by_component.get(component, []))
-            for component in components
-        }
+        records = list(raw_dataset.records)
+        sampler = state.config.reflection_sampler
+        if sampler is not None:
+            max_records = state.config.reflection_sampler_max_records
+            records = sampler(records, max_records)
+        return SharedReflectiveDataset(records=records)
+
+    records_by_component = {
+        component: list(raw_dataset.records_by_component.get(component, []))
+        for component in components
+    }
 
     sampler = state.config.reflection_sampler
     if sampler is not None:
         max_records = state.config.reflection_sampler_max_records
-        sampled = {
+        records_by_component = {
             component: sampler(records, max_records)
             for component, records in records_by_component.items()
         }
-    else:
-        sampled = records_by_component
 
-    return ComponentReflectiveDataset(records_by_component=sampled)
+    return ComponentReflectiveDataset(records_by_component=records_by_component)
 
 
 def _resolve_reflection_model(
@@ -355,7 +364,9 @@ def _resolve_reflection_model(
 ) -> Model | KnownModelName | str:
     model = deps.reflection_model
     if model is None:
-        raise ValueError("reflection_model must be configured before running reflection.")
+        raise ValueError(
+            "reflection_model must be configured before running reflection."
+        )
     return model
 
 
@@ -432,10 +443,7 @@ def _is_strict_improvement(
 
 
 def _component_versions(candidate: CandidateProgram) -> Mapping[str, str]:
-    return {
-        name: component.text
-        for name, component in candidate.components.items()
-    }
+    return {name: component.text for name, component in candidate.components.items()}
 
 
 __all__ = ["reflect_step"]

@@ -8,7 +8,11 @@ import pytest
 from pydantic_evals import Case
 
 from pydantic_ai_gepa.gepa_graph.evaluation import EvaluationBatch, ParallelEvaluator
-from pydantic_ai_gepa.gepa_graph.models import CandidateMap, CandidateProgram, ComponentValue
+from pydantic_ai_gepa.gepa_graph.models import (
+    CandidateMap,
+    CandidateProgram,
+    ComponentValue,
+)
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
 from pydantic_ai_gepa.adapter import SharedReflectiveDataset
 from pydantic_ai_gepa.types import RolloutOutput

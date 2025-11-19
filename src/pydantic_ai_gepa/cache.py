@@ -24,6 +24,7 @@ CaseInputT = TypeVar("CaseInputT")
 CaseOutputT = TypeVar("CaseOutputT")
 CaseMetadataT = TypeVar("CaseMetadataT")
 
+
 class CacheManager:
     """Manages caching of metric evaluation results for GEPA optimization.
 
@@ -117,9 +118,7 @@ class CacheManager:
             return str(obj)
 
     @staticmethod
-    def _extract_message_history(
-        case: Case[Any, Any, Any]
-    ) -> list[Any] | None:
+    def _extract_message_history(case: Case[Any, Any, Any]) -> list[Any] | None:
         metadata = case.metadata
         if isinstance(metadata, MetadataWithMessageHistory):
             return metadata.message_history
@@ -169,9 +168,7 @@ class CacheManager:
 
         message_history = self._extract_message_history(case)
         if message_history:
-            key_parts.append(
-                f"history:{self._serialize_for_key(message_history)}"
-            )
+            key_parts.append(f"history:{self._serialize_for_key(message_history)}")
 
         # Add output information (only for metric caching)
         if output is not None:
@@ -451,12 +448,16 @@ class CacheManager:
 
 
 def create_cached_metric(
-    metric: Callable[[Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]], MetricResult],
+    metric: Callable[
+        [Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]], MetricResult
+    ],
     cache_manager: CacheManager,
     candidate: CandidateMap,
     *,
     model_identifier: str | None = None,
-) -> Callable[[Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]], MetricResult]:
+) -> Callable[
+    [Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]], MetricResult
+]:
     """Create a cached version of a metric function.
 
     This wrapper function checks the cache before calling the actual metric,

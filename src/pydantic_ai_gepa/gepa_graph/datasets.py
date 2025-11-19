@@ -82,12 +82,16 @@ class ListDataLoader(MutableDataLoader[ComparableHashable, Case[Any, Any, Any]])
     async def all_ids(self) -> Sequence[ComparableHashable]:
         return list(self._ids)
 
-    async def fetch(self, ids: Sequence[ComparableHashable]) -> list[Case[Any, Any, Any]]:
+    async def fetch(
+        self, ids: Sequence[ComparableHashable]
+    ) -> list[Case[Any, Any, Any]]:
         batch: list[Case[Any, Any, Any]] = []
         for data_id in ids:
             idx = self._index_by_id.get(data_id)
             if idx is None:
-                raise KeyError(f"Unknown data id {data_id!r} requested from ListDataLoader.")
+                raise KeyError(
+                    f"Unknown data id {data_id!r} requested from ListDataLoader."
+                )
             batch.append(self._items[idx])
         return batch
 
@@ -115,7 +119,9 @@ class ListDataLoader(MutableDataLoader[ComparableHashable, Case[Any, Any, Any]])
             self._items.append(item)
         data_id = data_id_for_instance(item, idx)
         if data_id in self._index_by_id:
-            raise ValueError(f"Duplicate data id {data_id!r} detected in ListDataLoader.")
+            raise ValueError(
+                f"Duplicate data id {data_id!r} detected in ListDataLoader."
+            )
         if explicit_index is None:
             self._ids.append(data_id)
         else:

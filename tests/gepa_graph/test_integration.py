@@ -25,7 +25,11 @@ async def test_graph_run_produces_improved_candidate() -> None:
     deps = create_deps(
         adapter,
         config,
-        seed_candidate={"instructions": ComponentValue(name="instructions", text="seed instructions")},
+        seed_candidate={
+            "instructions": ComponentValue(
+                name="instructions", text="seed instructions"
+            )
+        },
     )
     deps.proposal_generator = cast(Any, ProposalGeneratorStub())
 

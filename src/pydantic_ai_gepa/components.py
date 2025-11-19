@@ -41,6 +41,7 @@ def _stringify_component_value(value: Any) -> str:
         return "\n".join(str(part) for part in value)
     return str(value)
 
+
 def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> CandidateMap:
     """Extract the current prompts from an agent as a GEPA candidate.
 
@@ -75,12 +76,16 @@ def extract_seed_candidate(agent: AbstractAgent[Any, Any]) -> CandidateMap:
     if isinstance(agent, SignatureAgent):
         if agent.optimize_tools:
             for key, text in agent.get_tool_components().items():
-                candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
+                candidate[key] = ComponentValue(
+                    name=key, text=_stringify_component_value(text)
+                )
     else:
         optimizer = get_tool_optimizer(agent)
         if optimizer:
             for key, text in optimizer.get_seed_components().items():
-                candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
+                candidate[key] = ComponentValue(
+                    name=key, text=_stringify_component_value(text)
+                )
 
     return candidate
 
@@ -205,7 +210,9 @@ def extract_seed_candidate_with_input_type(
     if input_type:
         spec = build_input_spec(input_type)
         for key, text in spec.get_gepa_components().items():
-            candidate[key] = ComponentValue(name=key, text=_stringify_component_value(text))
+            candidate[key] = ComponentValue(
+                name=key, text=_stringify_component_value(text)
+            )
 
     return candidate
 
@@ -239,8 +246,6 @@ def apply_candidate_to_agent_and_input_type(
         if input_type:
             spec = build_input_spec(input_type)
             candidate_map = candidate if candidate is not None else {}
-            stack.enter_context(
-                spec.apply_candidate(candidate_map)
-            )
+            stack.enter_context(spec.apply_candidate(candidate_map))
 
         yield

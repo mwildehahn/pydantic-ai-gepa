@@ -132,9 +132,7 @@ def _make_deps(
     )
 
 
-def _ctx(
-    state: GepaState, deps: GepaDeps
-) -> StepContext[GepaState, GepaDeps, None]:
+def _ctx(state: GepaState, deps: GepaDeps) -> StepContext[GepaState, GepaDeps, None]:
     return StepContext(state=state, deps=deps, inputs=None)
 
 

@@ -40,7 +40,9 @@ class BatchSampler:
         if dataset_size != self._dataset_size or ids != self._dataset_ids:
             self._dataset_size = dataset_size
             self._dataset_ids = ids
-            self._usage_counts = {data_id: self._usage_counts.get(data_id, 0) for data_id in ids}
+            self._usage_counts = {
+                data_id: self._usage_counts.get(data_id, 0) for data_id in ids
+            }
             self._shuffled_ids = []
             self._position = 0
 

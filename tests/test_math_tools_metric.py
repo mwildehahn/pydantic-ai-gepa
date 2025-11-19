@@ -50,15 +50,11 @@ def test_metric_penalizes_multiple_run_python_invocations() -> None:
     case = _make_case()
     baseline = math_tools.metric(
         case,
-        RolloutOutput.from_success(
-            _make_output(), usage=_usage.RunUsage(tool_calls=1)
-        ),
+        RolloutOutput.from_success(_make_output(), usage=_usage.RunUsage(tool_calls=1)),
     )
     penalized = math_tools.metric(
         case,
-        RolloutOutput.from_success(
-            _make_output(), usage=_usage.RunUsage(tool_calls=3)
-        ),
+        RolloutOutput.from_success(_make_output(), usage=_usage.RunUsage(tool_calls=3)),
     )
 
     assert baseline.score == pytest.approx(1.0)

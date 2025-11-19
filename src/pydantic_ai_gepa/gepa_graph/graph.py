@@ -10,6 +10,7 @@ from pydantic_graph.beta.util import TypeExpression
 
 from .deps import GepaDeps
 from .models import GepaConfig, GepaResult, GepaState
+
 if TYPE_CHECKING:
     from .steps import StopSignal
 
@@ -45,7 +46,11 @@ def create_gepa_graph(
 
     continue_decision = (
         builder.decision(node_id="ContinueDecision")
-        .branch(builder.match(StopSignal).transform(_stop_signal_to_result).to(builder.end_node))
+        .branch(
+            builder.match(StopSignal)
+            .transform(_stop_signal_to_result)
+            .to(builder.end_node)
+        )
         .branch(
             builder.match(TypeExpression[Literal["merge"]])
             .transform(_drop_input)
@@ -106,14 +111,12 @@ def _iteration_decision(
 
 
 def _stop_signal_to_result(
-    ctx: StepContext[GepaState, GepaDeps, "StopSignal"]
+    ctx: StepContext[GepaState, GepaDeps, "StopSignal"],
 ) -> GepaResult:
     return ctx.inputs.result
 
 
-def _drop_input(
-    ctx: StepContext[GepaState, GepaDeps, object]
-) -> None:
+def _drop_input(ctx: StepContext[GepaState, GepaDeps, object]) -> None:
     return None
 
 

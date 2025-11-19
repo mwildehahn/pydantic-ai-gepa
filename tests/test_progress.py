@@ -14,7 +14,9 @@ class _FailingProgress:
         raise AssertionError("Progress should not be instantiated when disabled")
 
 
-def test_optimization_progress_disabled_skips_rich(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_optimization_progress_disabled_skips_rich(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Ensure disabled progress bars avoid constructing Rich primitives."""
     monkeypatch.setattr("pydantic_ai_gepa.progress.Progress", _FailingProgress)
     with OptimizationProgress(total=5, description="Skip", enabled=False) as progress:
@@ -84,7 +86,9 @@ def test_optimization_progress_includes_node_context(
 
     monkeypatch.setattr("pydantic_ai_gepa.progress.Progress", _StubProgress)
 
-    with OptimizationProgress(total=5, description="Node run", enabled=True) as progress:
+    with OptimizationProgress(
+        total=5, description="Node run", enabled=True
+    ) as progress:
         progress.update(
             2,
             current_node="EvaluateNode",

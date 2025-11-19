@@ -569,7 +569,6 @@ agent = Agent(
 signature_agent: SignatureAgent[None, MathProblemOutput] = SignatureAgent(
     agent,
     input_type=MathProblemInput,
-    output_type=MathProblemOutput,
     optimize_tools=True,
 )
 

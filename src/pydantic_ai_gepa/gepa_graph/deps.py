@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ..adapter import Adapter
     from .proposal import InstructionProposalGenerator, MergeProposalBuilder
 
+
 @dataclass(slots=True)
 class GepaDeps:
     """Runtime dependencies shared across GEPA graph steps."""

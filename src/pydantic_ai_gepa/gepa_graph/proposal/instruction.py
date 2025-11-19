@@ -225,8 +225,10 @@ class InstructionProposalGenerator:
         components: Sequence[str],
         model: Model | KnownModelName | str,
         iteration: int | None = None,  # Kept for backwards compatibility but not used
-        current_best_score: float | None = None,  # Kept for backwards compatibility but not used
-        parent_score: float | None = None,  # Kept for backwards compatibility but not used
+        current_best_score: float
+        | None = None,  # Kept for backwards compatibility but not used
+        parent_score: float
+        | None = None,  # Kept for backwards compatibility but not used
         model_settings: ModelSettings | None = None,
     ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
@@ -304,7 +306,9 @@ class InstructionProposalGenerator:
                 component, candidate.components[component].text
             )
         metadata = self._build_component_metadata(
-            reasoning=result.output.reasoning if self._include_hypothesis_metadata else None,
+            reasoning=result.output.reasoning
+            if self._include_hypothesis_metadata
+            else None,
             components=actionable,
         )
 
@@ -328,13 +332,15 @@ class InstructionProposalGenerator:
             "",
         ]
 
-        lines.extend([
-            "## Context",
-            "- A student agent has been running with the configuration shown below",
-            "- We've collected traces from real production runs",
-            "- Your job is to improve specific components so the student agent performs better",
-            "",
-        ])
+        lines.extend(
+            [
+                "## Context",
+                "- A student agent has been running with the configuration shown below",
+                "- We've collected traces from real production runs",
+                "- Your job is to improve specific components so the student agent performs better",
+                "",
+            ]
+        )
 
         catalog_tool_defs = self._build_tool_definitions_from_candidate(candidate)
 
@@ -355,7 +361,10 @@ class InstructionProposalGenerator:
             component_sections.append("```")
             component_sections.append("")
 
-            if self._include_hypothesis_metadata and component_name in target_components:
+            if (
+                self._include_hypothesis_metadata
+                and component_name in target_components
+            ):
                 metadata_entry = self._extract_component_metadata(component_value)
                 if metadata_entry:
                     signature = self._metadata_signature(metadata_entry)
@@ -369,11 +378,15 @@ class InstructionProposalGenerator:
                         metadata_components[idx].append(component_name)
 
         if metadata_groups:
-            lines.extend([
-                "## Stored hypotheses from previous reflections",
-                "",
-            ])
-            for metadata_entry, component_list in zip(metadata_groups, metadata_components):
+            lines.extend(
+                [
+                    "## Stored hypotheses from previous reflections",
+                    "",
+                ]
+            )
+            for metadata_entry, component_list in zip(
+                metadata_groups, metadata_components
+            ):
                 component_names = ", ".join(f"`{name}`" for name in component_list)
                 lines.append(f"- Components: {component_names}")
                 iteration = metadata_entry.get("iteration")
@@ -401,14 +414,16 @@ class InstructionProposalGenerator:
                     lines.append("  - Checkpoint: (not provided)")
                 lines.append("")
 
-        lines.extend([
-            "---",
-            "",
-            "## Full student agent configuration",
-            "",
-            "This is the complete configuration the student agent was running with:",
-            "",
-        ])
+        lines.extend(
+            [
+                "---",
+                "",
+                "## Full student agent configuration",
+                "",
+                "This is the complete configuration the student agent was running with:",
+                "",
+            ]
+        )
 
         lines.extend(component_sections)
 
@@ -444,7 +459,7 @@ class InstructionProposalGenerator:
             if output_tool_names:
                 sample_name = output_tool_names[0]
                 lines.append(
-                    f"_Tools with `\"kind\": \"output\"` (e.g., `{sample_name}`) end the run."
+                    f'_Tools with `"kind": "output"` (e.g., `{sample_name}`) end the run.'
                     " Teach the student to call the appropriate output tool when finalizing their answer._"
                 )
                 lines.append("")
@@ -574,7 +589,9 @@ class InstructionProposalGenerator:
 
         return {component: dict(filtered) for component in components}
 
-    def _extract_component_metadata(self, component_value: ComponentValue) -> dict[str, Any]:
+    def _extract_component_metadata(
+        self, component_value: ComponentValue
+    ) -> dict[str, Any]:
         metadata = component_value.metadata or {}
         if not isinstance(metadata, dict) or not metadata:
             return {}
@@ -590,7 +607,9 @@ class InstructionProposalGenerator:
             moves = [str(move).strip() for move in raw_moves if str(move).strip()]
         iteration = metadata.get("iteration")
 
-        if not any([hypothesis, pattern, approach, edge_insight, checkpoint, moves, iteration]):
+        if not any(
+            [hypothesis, pattern, approach, edge_insight, checkpoint, moves, iteration]
+        ):
             return {}
 
         entry: dict[str, Any] = {}
@@ -610,7 +629,9 @@ class InstructionProposalGenerator:
             entry["moves"] = moves
         return entry
 
-    def _metadata_signature(self, metadata: Mapping[str, Any]) -> tuple[tuple[str, str], ...]:
+    def _metadata_signature(
+        self, metadata: Mapping[str, Any]
+    ) -> tuple[tuple[str, str], ...]:
         return tuple(
             (key, str(value))
             for key, value in sorted(metadata.items(), key=lambda item: item[0])
@@ -680,17 +701,23 @@ class InstructionProposalGenerator:
 
         base_function = base.get("function")
         supplement_function = supplement.get("function")
-        if not isinstance(base_function, Mapping) or not isinstance(supplement_function, Mapping):
+        if not isinstance(base_function, Mapping) or not isinstance(
+            supplement_function, Mapping
+        ):
             return
 
         if not isinstance(base_function, dict):
             base_function = dict(base_function)
             base["function"] = base_function
 
-        if not base_function.get("description") and supplement_function.get("description"):
+        if not base_function.get("description") and supplement_function.get(
+            "description"
+        ):
             base_function["description"] = supplement_function["description"]
 
-        if not base_function.get("parameters") and supplement_function.get("parameters"):
+        if not base_function.get("parameters") and supplement_function.get(
+            "parameters"
+        ):
             base_function["parameters"] = supplement_function["parameters"]
 
     def _build_tool_definitions_from_candidate(

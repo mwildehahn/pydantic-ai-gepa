@@ -108,7 +108,9 @@ async def test_process_case():
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
+    def metric(
+        case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]
+    ) -> MetricResult:
         if output.success:
             return MetricResult(score=0.8, feedback="Good")
         return MetricResult(score=0.0, feedback="Failed")
@@ -148,7 +150,9 @@ async def test_process_case_captures_messages_on_tool_error():
     async def broken_tool(ctx, code: str) -> str:
         raise ValueError("boom")
 
-    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
+    def metric(
+        case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]
+    ) -> MetricResult:
         return MetricResult(score=0.0, feedback="failed")
 
     adapter = AgentAdapter(agent=agent, metric=metric)
@@ -172,13 +176,17 @@ async def test_process_case_skips_system_error_trajectory(monkeypatch):
     async def broken_tool(ctx, code: str) -> str:
         raise ValueError("boom")
 
-    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
+    def metric(
+        case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]
+    ) -> MetricResult:
         return MetricResult(score=0.0, feedback="failed")
 
     adapter = AgentAdapter(agent=agent, metric=metric)
     case = Case(name="system-error", inputs="Hello", metadata={})
 
-    monkeypatch.setattr(agent_adapter_module, "_classify_exception", lambda exc: "system")
+    monkeypatch.setattr(
+        agent_adapter_module, "_classify_exception", lambda exc: "system"
+    )
 
     result = await adapter.process_case(case, 0, capture_traces=True)
 
@@ -195,7 +203,9 @@ async def test_make_reflective_dataset():
         TestModel(custom_output_text="Test response"), instructions="Be helpful"
     )
 
-    def metric(case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]) -> MetricResult:
+    def metric(
+        case: Case[str, str, dict[str, Any]], output: RolloutOutput[Any]
+    ) -> MetricResult:
         if output.success:
             return MetricResult(score=0.8, feedback="Good")
         return MetricResult(score=0.0, feedback="Failed")

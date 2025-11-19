@@ -36,4 +36,8 @@ dev = [
     "logfire>=4.14.2",
     "pyright>=1.1.405",
     "time-machine>=2.19.0",
+    "ruff>=0.6.9",
 ]
+
+[tool.inline-snapshot]
+format-command = ["ruff", "format", "--stdin-filename", "{filename}", "-"]

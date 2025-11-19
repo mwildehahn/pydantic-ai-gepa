@@ -7,7 +7,12 @@ from typing import Any
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import AgentAdapter, MetricResult, SignatureAgent, SignatureAgentAdapter
+from pydantic_ai_gepa import (
+    AgentAdapter,
+    MetricResult,
+    SignatureAgent,
+    SignatureAgentAdapter,
+)
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
 from pydantic_ai_gepa.gepa_graph.models import (
     CandidateMap,
@@ -24,6 +29,8 @@ from pydantic_evals import Case
 
 from pydantic_ai import Agent
 from pydantic_ai.models.test import TestModel
+
+
 def _instructions_candidate(text: str) -> CandidateMap:
     return {"instructions": ComponentValue(name="instructions", text=text)}
 
