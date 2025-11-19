@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Sequence, cast
+from typing import Any, cast
 
 import pytest
 from pydantic_graph.beta import StepContext

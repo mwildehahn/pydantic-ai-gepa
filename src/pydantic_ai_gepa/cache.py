@@ -12,7 +12,7 @@ import logfire
 
 from pydantic_evals import Case
 
-from .gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
+from .gepa_graph.models import CandidateMap, candidate_texts
 from .types import (
     MetadataWithMessageHistory,
     MetricResult,

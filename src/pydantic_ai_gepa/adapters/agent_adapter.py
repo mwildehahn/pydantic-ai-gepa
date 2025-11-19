@@ -48,7 +48,7 @@ from ..components import (
     extract_seed_candidate_with_input_type,
 )
 from ..evaluation_models import EvaluationBatch
-from ..gepa_graph.models import CandidateMap, ComponentValue, candidate_texts
+from ..gepa_graph.models import CandidateMap, candidate_texts
 from ..inspection import InspectionAborted
 from ..input_type import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
@@ -596,7 +596,7 @@ class _BaseAgentAdapter(
         """Install tool optimization support for plain agents when requested."""
         try:
             get_or_create_tool_optimizer(self.agent)
-        except Exception as e:
+        except Exception:
             logfire.debug(
                 "Tool optimization not available for agent",
                 agent_name=getattr(self.agent, "name", self.agent.__class__.__name__),

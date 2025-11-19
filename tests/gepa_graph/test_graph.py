@@ -47,7 +47,6 @@ def _make_adapter(name: str | None = None) -> Adapter[str, str, dict[str, str]]:
 
 
 def test_create_gepa_graph_without_merge() -> None:
-    adapter = _make_adapter()
     config = GepaConfig()
 
     graph = create_gepa_graph(config=config)
@@ -65,7 +64,6 @@ def test_create_gepa_graph_without_merge() -> None:
 
 
 def test_create_gepa_graph_with_merge_enabled() -> None:
-    adapter = _make_adapter()
     config = GepaConfig(use_merge=True)
 
     graph = create_gepa_graph(config=config)

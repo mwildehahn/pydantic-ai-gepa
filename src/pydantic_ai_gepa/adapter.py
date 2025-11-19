@@ -9,7 +9,7 @@ from typing import Any, Generic, Protocol, TypeVar
 from pydantic_evals import Case
 
 from .evaluation_models import EvaluationBatch
-from .gepa_graph.models import CandidateMap, ComponentValue
+from .gepa_graph.models import CandidateMap
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")

@@ -9,7 +9,7 @@ from contextlib import (
     asynccontextmanager,
     nullcontext,
 )
-from typing import TYPE_CHECKING, Any, overload, cast
+from typing import TYPE_CHECKING, Any, overload
 
 from typing_extensions import Never
 

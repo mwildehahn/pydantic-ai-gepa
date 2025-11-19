@@ -353,6 +353,27 @@ result = await optimize_agent(
 # Second run reuses cached LLM results
 ```
 
+## Development
+
+```bash
+# Install everything (library + dev tools)
+uv sync --all-extras
+
+# Install git hooks (ruff lint/format + pyproject schema check)
+uv run pre-commit install
+
+# Lint & format
+uv run ruff check .
+uv run ruff format .
+
+# Tests and type checks
+uv run pytest
+uv run pyright
+
+# Run all hooks on-demand
+uv run pre-commit run --all-files
+```
+
 ## Experimental
 
 This library is experimental and depends on pydantic-ai PR #2926 (not yet merged). Expect API changes.

@@ -7,12 +7,7 @@ from typing import Any
 import pytest
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
-from pydantic_ai_gepa import (
-    AgentAdapter,
-    MetricResult,
-    SignatureAgent,
-    SignatureAgentAdapter,
-)
+from pydantic_ai_gepa import MetricResult, SignatureAgent, SignatureAgentAdapter
 from pydantic_ai_gepa.components import extract_seed_candidate_with_input_type
 from pydantic_ai_gepa.gepa_graph.models import (
     CandidateMap,
@@ -20,7 +15,6 @@ from pydantic_ai_gepa.gepa_graph.models import (
     candidate_texts,
 )
 from pydantic_ai_gepa.input_type import (
-    apply_candidate_to_input_model,
     generate_system_instructions,
     generate_user_content,
     get_gepa_components,

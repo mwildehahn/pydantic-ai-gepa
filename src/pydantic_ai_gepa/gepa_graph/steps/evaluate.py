@@ -10,7 +10,7 @@ from pydantic_graph.beta import StepContext
 from pydantic_evals import Case
 from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
-from ..models import CandidateProgram, ComponentValue, GepaState
+from ..models import CandidateProgram, GepaState
 
 
 async def evaluate_step(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
