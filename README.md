@@ -59,7 +59,8 @@ GEPA can optimize different parts of your agent:
 
 - System prompts
 - Signature field descriptions (when using SignatureAgent)
-- Tool descriptions (when `optimize_tools=True`)
+- Tool descriptions and parameter docs (set `optimize_tools=True`)
+- Output model docstrings and field descriptions (set `optimize_output_type=True` when using structured outputs)
 
 All these text components evolve together using LLM-guided improvements:
 
@@ -69,6 +70,8 @@ result = await optimize_agent(
     agent=agent,  # SignatureAgent instance
     trainset=examples,
     metric=metric,
+    optimize_tools=True,          # evolve tool descriptions
+    optimize_output_type=True,    # evolve output_type docs/fields
 )
 
 # Access all optimized components
@@ -80,6 +83,8 @@ print(result.best_candidate.components)
 #   "signature:AnalysisInput:focus_area:desc": "...",
 #   "tool:my_tool:description": "...",               # If optimize_tools=True
 #   "tool:my_tool:param_x:description": "...",
+#   "output:MyOutput:instructions": "...",           # If optimize_output_type=True
+#   "output:MyOutput:field:desc": "...",
 #   ...
 # }
 ```
@@ -159,7 +164,7 @@ The optimization runs as a pydantic-graph workflow:
 - **ReflectNode** - Sample minibatch, analyze failures, propose improvements via LLM
 - **MergeNode** - Genetic crossover of successful candidates (when enabled)
 
-Each node transition is checkpointed, so you can resume from any point. Evaluations run in parallel for speed.
+Evaluations run in parallel for speed.
 
 ### Optimization Process
 
@@ -194,7 +199,7 @@ result = await optimize_agent(
     agent=agent,
     trainset=training_examples,
     metric=metric,
-    config=GepaConfig(max_evaluations=100),
+    max_metric_calls=100,
 )
 
 print(f"Best prompt: {result.best_candidate.system_prompt}")
@@ -273,53 +278,35 @@ tests/                # Test suite
 
 ## Configuration
 
-```python
-from pydantic_ai_gepa import GepaConfig
+Key arguments for `optimize_agent`:
 
-config = GepaConfig(
-    # Stopping conditions
-    max_evaluations=200,
-    max_iterations=50,
+```python
+result = await optimize_agent(
+    ...,
+    # Budget
+    max_metric_calls=200,          # Maximum number of evaluations
 
     # Reflection settings
     reflection_model="openai:gpt-4o",
     reflection_model_settings={"temperature": 0.8},
-    minibatch_size=5,
-
-    # Parallelism
-    max_concurrent_evaluations=10,
+    reflection_minibatch_size=5,   # Examples per reflection
+    track_component_hypotheses=True, # Persist reasoning metadata
 
     # Merging
     use_merge=True,
-    merges_per_accept=2,
+    max_merge_invocations=5,
 
     # Strategy selection
-    candidate_selector="pareto",  # or "best", "epsilon_greedy"
-    component_selector="round_robin",  # or "all"
+    candidate_selection_strategy="pareto",  # or "current_best"
+    module_selector="round_robin",          # or "all"
+    
+    # Tool & Output Optimization
+    optimize_tools=True,
+    optimize_output_type=True,
 )
 ```
 
 ## Advanced Features
-
-### Checkpointing & Resumption
-
-```python
-# Optimization automatically checkpoints
-result = await optimize_agent(
-    agent=agent,
-    trainset=trainset,
-    metric=metric,
-    checkpoint_dir="./runs/",
-)
-
-# Resume from checkpoint
-result = await optimize_agent(
-    agent=agent,
-    trainset=trainset,
-    metric=metric,
-    resume_from="./runs/run_123.json",
-)
-```
 
 ### Custom Metrics
 
