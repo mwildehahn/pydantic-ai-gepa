@@ -27,6 +27,8 @@ from .input_type import BoundInputSpec, InputSpec, build_input_spec
 from .tool_components import (
     ToolOptimizationManager,
     get_or_create_tool_optimizer,
+    get_or_create_output_tool_optimizer,
+    get_output_tool_optimizer,
     get_tool_optimizer,
 )
 
@@ -95,6 +97,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         *,
         append_instructions: bool = True,
         optimize_tools: bool = False,
+        optimize_output_type: bool = False,
     ):
         """Initialize the SignatureAgent wrapper.
 
@@ -104,6 +107,8 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             output_type: Optional output type or spec expected from the wrapped agent.
             append_instructions: If True, append signature instructions to the agent's instructions.
             optimize_tools: If True, expose and optimize tool descriptions and parameter schemas via GEPA.
+            optimize_output_type: If True, expose and optimize output tool descriptions and schemas derived
+                from the agent's output_type via GEPA.
         """
         bound_spec = build_input_spec(input_type)
 
@@ -124,14 +129,25 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         self._input_spec: BoundInputSpec[BaseModel] = bound_spec
         self._default_output_type = inferred_output_type
         self._optimize_tools = optimize_tools
+        self._optimize_output_type = optimize_output_type
 
         self._tool_optimizer: ToolOptimizationManager | None = None
+        existing_optimizer = get_tool_optimizer(wrapped)
         if optimize_tools:
             self._tool_optimizer = get_or_create_tool_optimizer(wrapped)
-        else:
-            existing_optimizer = get_tool_optimizer(wrapped)
-            if existing_optimizer is not None:
-                self._tool_optimizer = existing_optimizer
+            self._optimize_tools = True
+        elif existing_optimizer is not None:
+            self._tool_optimizer = existing_optimizer
+            self._optimize_tools = True
+
+        self._output_tool_optimizer = None
+        existing_output_optimizer = get_output_tool_optimizer(wrapped)
+        if optimize_output_type:
+            self._output_tool_optimizer = get_or_create_output_tool_optimizer(wrapped)
+            self._optimize_output_type = True
+        elif existing_output_optimizer is not None:
+            self._output_tool_optimizer = existing_output_optimizer
+            self._optimize_output_type = True
 
     def _resolve_input_spec(self) -> BoundInputSpec[BaseModel]:
         """Return the bound input spec configured for this agent."""
@@ -161,6 +177,11 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
     def optimize_tools(self) -> bool:
         """Return whether tool optimization is enabled."""
         return self._optimize_tools
+
+    @property
+    def optimize_output_type(self) -> bool:
+        """Return whether output tool optimization is enabled."""
+        return self._optimize_output_type
 
     def get_tool_components(self) -> dict[str, str]:
         """Return the seed tool component texts when tool optimization is enabled."""

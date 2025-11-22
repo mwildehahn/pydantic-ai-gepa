@@ -52,8 +52,12 @@ from ..gepa_graph.models import CandidateMap, candidate_texts
 from ..inspection import InspectionAborted
 from ..input_type import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
-from ..tool_components import get_or_create_tool_optimizer
-from ..tool_components import get_or_create_output_tool_optimizer
+from ..tool_components import (
+    get_or_create_output_tool_optimizer,
+    get_or_create_tool_optimizer,
+    get_output_tool_optimizer,
+    get_tool_optimizer,
+)
 from ..types import (
     MetadataWithMessageHistory,
     MetricResult,
@@ -586,15 +590,20 @@ class _BaseAgentAdapter(
             and not self.cache_manager.model_identifier
         ):
             self.cache_manager.set_model_identifier(self._model_identifier)
-        self.optimize_tools = optimize_tools
-        self.optimize_output_type = optimize_output_type
+        existing_tool_optimizer = get_tool_optimizer(agent)
+        existing_output_tool_optimizer = get_output_tool_optimizer(agent)
+
+        self.optimize_tools = optimize_tools or existing_tool_optimizer is not None
+        self.optimize_output_type = (
+            optimize_output_type or existing_output_tool_optimizer is not None
+        )
         self.agent_usage_limits = agent_usage_limits
         self._gepa_usage_limits = gepa_usage_limits
         self._gepa_usage = _usage.RunUsage()
         self._gepa_usage_lock = asyncio.Lock()
-        if optimize_tools:
+        if self.optimize_tools:
             self._configure_tool_optimizer()
-        if optimize_output_type:
+        if self.optimize_output_type:
             self._configure_output_tool_optimizer()
 
     def _configure_tool_optimizer(self) -> None:
