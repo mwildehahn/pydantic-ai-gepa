@@ -570,6 +570,7 @@ signature_agent: SignatureAgent[None, MathProblemOutput] = SignatureAgent(
     agent,
     input_type=MathProblemInput,
     optimize_tools=True,
+    optimize_output_type=True,
 )
 
 
