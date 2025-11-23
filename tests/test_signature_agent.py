@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -24,6 +25,7 @@ from pydantic_ai_gepa.input_type import (
 from pydantic_ai import Agent, ToolDefinition
 from pydantic_ai.messages import ModelRequest, UserPromptPart
 from pydantic_ai.models.test import TestModel
+from pydantic_ai.durable_exec.temporal import TemporalAgent
 
 
 def _component_map(entries: dict[str, str]) -> CandidateMap:
@@ -399,6 +401,58 @@ def test_signature_agent_followup_uses_signature_prompt():
 
 <region>Central Europe</region>\
 """)
+
+
+def _normalize_instructions_text(instructions: Any) -> str:
+    if isinstance(instructions, str):
+        return instructions
+    if isinstance(instructions, Sequence) and not isinstance(
+        instructions, (bytes, bytearray)
+    ):
+        return "\n".join(str(part) for part in instructions)
+    return str(instructions)
+
+
+def test_temporal_signature_agent_preserves_instructions_with_history():
+    """TemporalAgent wrapping should not drop base instructions on follow-ups."""
+    test_model = TestModel(custom_output_text="ok")
+
+    base_agent = Agent(
+        test_model,
+        instructions="Base instructions.",
+        output_type=str,
+        name="geo",
+    )
+
+    temporal_agent = TemporalAgent(base_agent)
+    signature_agent = SignatureAgent(
+        temporal_agent,
+        input_type=GeographyQuery,
+        output_type=str,
+    )
+
+    sig = GeographyQuery(question="What's the capital of Spain?", region="Europe")
+    initial_result = signature_agent.run_signature_sync(sig)
+    first_request = [
+        msg for msg in initial_result.all_messages() if isinstance(msg, ModelRequest)
+    ][0]
+    assert "Base instructions." in _normalize_instructions_text(
+        first_request.instructions
+    )
+
+    message_history = initial_result.all_messages()
+    followup_result = signature_agent.run_signature_sync(
+        sig,
+        message_history=message_history,
+        user_prompt="Follow-up question?",
+    )
+
+    followup_request = [
+        msg for msg in followup_result.new_messages() if isinstance(msg, ModelRequest)
+    ][0]
+    assert "Base instructions." in _normalize_instructions_text(
+        followup_request.instructions
+    )
 
 
 class FormatRequest(BaseModel):

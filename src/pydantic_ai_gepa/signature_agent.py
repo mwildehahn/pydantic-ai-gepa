@@ -288,20 +288,33 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
         if candidate and "instructions" in candidate:
             base_instructions = candidate["instructions"]
         else:
-            override_mgr = getattr(self.wrapped, "_override_instructions", None)
-            if override_mgr is not None:
-                inst = override_mgr.get()
-                if inst is not None and inst.value is not None:
-                    base_instructions = inst.value
-                else:
-                    base_instructions = getattr(self.wrapped, "_instructions", None)
-            else:
-                base_instructions = getattr(self.wrapped, "_instructions", None)
+            base_instructions = self._resolve_base_instructions()
 
         instructions_override = self._compose_instructions_override(
             base_instructions, system_instructions
         )
         return run_user_prompt, instructions_override
+
+    def _resolve_base_instructions(self) -> Instructions[AgentDepsT] | None:
+        """Find the effective base instructions, unwrapping nested agents if needed."""
+        agent: AbstractAgent[Any, Any] | WrapperAgent[Any, Any] = self.wrapped
+
+        while True:
+            override_mgr = getattr(agent, "_override_instructions", None)
+            if override_mgr is not None:
+                inst = override_mgr.get()
+                if inst is not None and inst.value is not None:
+                    return inst.value
+
+            direct_instructions = getattr(agent, "_instructions", None)
+            if direct_instructions is not None:
+                return direct_instructions
+
+            if isinstance(agent, WrapperAgent):
+                agent = agent.wrapped
+                continue
+
+            return None
 
     @staticmethod
     def _normalize_user_prompt(
