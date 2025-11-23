@@ -18,6 +18,7 @@ from .inspection import (
 )
 from .exceptions import UsageBudgetExceeded
 from .runner import GepaOptimizationResult, optimize_agent
+from .durable_exec import TemporalRunner
 from .input_type import (
     BoundInputSpec,
     InputSpec,
@@ -68,6 +69,7 @@ __all__ = [
     "InspectionAborted",
     "InspectionSnapshot",
     "UsageBudgetExceeded",
+    "TemporalRunner",
 ]
 
 __version__ = "0.1.0"

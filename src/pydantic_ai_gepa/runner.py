@@ -14,7 +14,6 @@ from pydantic_ai import usage as _usage
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
 from pydantic_graph.beta.graph import EndMarker, GraphTask
-
 from .adapters.agent_adapter import create_adapter
 from .cache import CacheManager
 from .components import (
@@ -229,11 +228,6 @@ async def optimize_agent(
     Returns:
         GepaOptimizationResult with the best candidate and metadata.
     """
-    train_loader = await resolve_dataset(trainset, name="trainset")
-    val_loader = (
-        await resolve_dataset(valset, name="valset") if valset is not None else None
-    )
-
     if optimize_output_type:
         # Ensure output tool optimizer is installed before seed extraction
         try:
@@ -298,6 +292,10 @@ async def optimize_agent(
         track_component_hypotheses=track_component_hypotheses,
     )
 
+    train_loader = await resolve_dataset(trainset, name="trainset")
+    val_loader = (
+        await resolve_dataset(valset, name="valset") if valset is not None else None
+    )
     deps = create_deps(
         adapter,
         config,
