@@ -55,7 +55,6 @@ class _AttachmentRegistry:
         self.attachments: list[AttachmentContent] = []
         self.placeholders: list[str] = []
         self._placeholders: dict[int, str] = {}
-        self._type_counts: dict[str, int] = {}
 
     def register(self, content: AttachmentContent) -> str:
         key = id(content)
@@ -64,10 +63,8 @@ class _AttachmentRegistry:
             return existing
 
         label = self._label_for(content)
-        index = self._type_counts.get(label, 0) + 1
-        self._type_counts[label] = index
-
-        ref = f"{label}{index}"
+        # Use the content's stable identifier (hash-based) for consistent references
+        ref = content.identifier
         placeholder = f'<{label} ref="{ref}"/>'
         self.attachments.append(content)
         self.placeholders.append(placeholder)

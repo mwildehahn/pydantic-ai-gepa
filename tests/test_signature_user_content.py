@@ -40,9 +40,9 @@ def test_user_content_with_multimodal_resources() -> None:
     text_content = user_content[2]
     assert text_content == snapshot("""\
 <gallery>
-  <item><image ref="image1"/></item>
+  <item><image ref="b86daf"/></item>
   <item>Provide a comparison of the screenshots.</item>
-  <item><image ref="image2"/></item>
+  <item><image ref="a98844"/></item>
   <item>Highlight any mismatched UI states.</item>
 </gallery>
 
@@ -90,12 +90,12 @@ ReferenceModel
     text_content = user_content[1]
     assert text_content == snapshot("""\
 <reference>
-  <attachment><image ref="image1"/></attachment>
+  <attachment><image ref="cd6702"/></attachment>
   <remark>Primary capture.</remark>
 </reference>
 
 <repeated>
   <item>Revisit the earlier capture here:</item>
-  <item><image ref="image1"/></item>
+  <item><image ref="cd6702"/></item>
 </repeated>\
 """)
