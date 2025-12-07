@@ -83,7 +83,7 @@ class CandidateProgram(BaseModel):
     @field_validator("components", mode="before")
     @classmethod
     def _coerce_components(
-        cls, value: Mapping[str, ComponentValue | str] | None
+        cls, value: Mapping[str, ComponentValue | dict[str, Any] | str] | None
     ) -> CandidateMap:
         if value is None:
             raise ValueError("components must be provided.")
@@ -92,6 +92,8 @@ class CandidateProgram(BaseModel):
         for name, raw in value.items():
             if isinstance(raw, ComponentValue):
                 comp = raw
+            elif isinstance(raw, dict):
+                comp = ComponentValue.model_validate(raw)
             else:
                 comp = ComponentValue(name=name, text=str(raw))
 

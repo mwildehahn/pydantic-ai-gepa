@@ -64,30 +64,6 @@ When you add example banks, append them as a clearly labeled final section (e.g.
 - Memorable frameworks
 - Unexpected metaphors
 
-## Evolution Mandate
-
-Plateaus occur when every reflection reiterates the same playbook. Break that loop explicitly:
-- Each proposal must name at least **two** "Evolution Moves"—concrete levers you are changing relative to the previous iteration (e.g., a new planning scaffold, a scratchpad ritual, a self-check loop, a tool-handshake rewrite, an evaluation rubric, a persona shift).
-- Write those move names in the scratchpad so the next reflection sees what changed (e.g., "Move: Planning scaffold + Tool handshake").
-- For every move, explain how it alters the student's cognitive workflow and why it should generalize beyond the current dataset.
-- If you keep an existing move, state why it still matters; otherwise, mark it as retired.
-- When traces show that a failure category (e.g., domain-specific correctness, semantic interpretations, unit handling, edge-condition validation) survived the last few updates, dedicate **at least one** Evolution Move to that domain reasoning gap instead of repeating the same tool-budget fixes.
-
-### Edge-Case Forcing Function
-
-- In every iteration, highlight one "Edge Insight"—a concise description of a domain logic error pattern still present in the traces (e.g., misreading boundary language, mishandling descending sequences, forgetting to verify invariants or preconditions).
-- Design one Evolution Move called `Edge Reasoning: <name>` that injects new thinking tools around that insight (stress-test tables, double-check rituals, alternate formulations, etc.).
-- Capture the Edge Insight in the scratchpad so future reflections can retire it once metrics confirm it's solved.
-
-### Evolution Move Menu (pick different pairings often)
-- **Planning scaffolds:** multi-step checklists, state-management cues, or scratchpad summaries before coding.
-- **Self-check loops:** instructions that require the student to verify ranges, recompute with alternate reasoning, or reconcile tool output before finalizing.
-- **Tool handshake rewrites:** new phrasing that changes how the student calls tools (e.g., explicit stop rules, timeout budgets, fallback paths).
-- **Meta-cognition prompts:** guiding the student to reflect on uncertainties, name assumptions, or note TODOs.
-- **Persona / tone shifts:** framing the student as a specific role (auditor, coach, researcher) to unlock different behavior.
-- **Example re-lensing:** reorganizing evidence into tables, failure galleries, or short stories that highlight different contrasts.
-- **Data abstractions:** turning repeated trace motifs into reusable formulas, heuristics, or quick diagnostics the student can quote.
-
 ## Evidence to Leverage
 
 Use the traces as concrete backing for each idea:
@@ -111,9 +87,8 @@ For each set of traces, discover:
 The "Pattern Discovery", "Creative Hypothesis", and "Experimental Approach" fields act as a multi-step scratchpad. Treat them like a baton pass to the next reflection:
 - Start each field with labels such as `Keep:`, `Change:`, `Experiment:` so lineage is obvious.
 - Cite the evidence (trace IDs, failure themes) that motivated each bullet.
-- Explicitly connect your listed Evolution Moves to the text you will rewrite.
-- End the Experimental Approach with a checkpoint describing how to measure whether the move worked (what behaviors or metrics should improve next time).
-- Reserve one bullet for the Edge Insight noted above and specify how you'll know it's resolved (e.g., "Expect zero range-direction mistakes on validation minibatch").
+- Explicitly connect your proposed changes to specific failures in the traces.
+- End the Experimental Approach with a checkpoint describing how to measure whether the change worked (what behaviors or metrics should improve next time).
 
 ## Output Requirements
 
@@ -124,7 +99,6 @@ Your updated components should:
 - Balance clarity with creativity
 - Work together as a unified system
 - Whenever feasible, include a short bank of positive vs. negative examples (or success vs. failure traces) that encode the domain knowledge extracted from the traces—spell out the interpretation rule, then show the matching and mismatching code. Place this example bank at the end of the instructions so it reads like a few-shot appendix the student can reference quickly.
-- Highlight where the new Evolution Moves appear (e.g., "Planning Scaffold" subsection, "Self-check loop" checklist) so evaluators can trace the experiment.
 
 ## Instruction Design Goal
 
@@ -136,8 +110,6 @@ Produce instructions that are clear, memorable, and grounded in observed behavio
 - Tie each hypothesis directly to the traces and components it informed—cite successes, failures, or surprises.
 - Call out which parts of the hypothesis stay valid, which parts need tweaks, and which parts you are discarding.
 - Keep it concise and component-aware so the next reflection can quickly inherit the right mental model.
-- Whenever you introduce an Evolution Move, record it in the scratchpad with a short justification ("Experiment: Self-check loop to eliminate tool-call churn on edge cases").
-- If an Edge Insight persists across two iterations, escalate: require the student instructions to include a distinct section (tables, checklists, step-by-step tests) devoted to that edge behavior until the traces confirm it's fixed.
 
 Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
 
@@ -146,25 +118,25 @@ class TrajectoryAnalysis(BaseModel):
     """Analysis of what happened in the traces before proposing changes."""
 
     pattern_discovery: str = Field(
-        description="What fascinating patterns emerge from the traces? Look for both obvious and subtle connections between successes and failures.",
+        description="What patterns emerge from the traces? Look for connections between successes and failures.",
     )
     creative_hypothesis: str = Field(
-        description="Based on the patterns, what innovative approach could unlock better performance? Why might this work?",
+        description="Based on the patterns, what approach could address the failures? Why might this work?",
     )
     experimental_approach: str = Field(
-        description="What specific instructional format or style will you try? How does it differ from conventional approaches?",
+        description="What specific instructional changes will you make? How do they address the observed failures?",
     )
     edge_insight: str = Field(
         default="",
-        description="Name the most stubborn domain-specific error pattern still present (the 'Edge Insight') and why it persists.",
+        description="Optional: Note any recurring error pattern that's hard to fix and why it persists.",
     )
     evolution_moves: list[str] = Field(
         default_factory=list,
-        description="List the concrete Evolution Moves you're introducing, e.g., planning scaffold, edge reasoning ritual, persona shift.",
+        description="Optional: List the key changes being made (useful for tracking what was tried).",
     )
     success_checkpoint: str = Field(
         default="",
-        description="Define how we'll know this experiment worked (metrics, qualitative behavior, or trace-level signal).",
+        description="Optional: How will we know this change worked (what should improve in the next evaluation)?",
     )
 
 

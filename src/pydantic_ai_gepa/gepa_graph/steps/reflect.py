@@ -73,7 +73,7 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         state.last_accepted = False
         return "continue"
 
-    if _should_skip_perfect(parent_results.scores, parent, state):
+    if _should_skip_perfect(parent_results.scores, state):
         logfire.info(
             "ReflectStep skipping reflection due to perfect minibatch",
             parent_idx=parent_idx,
@@ -283,19 +283,13 @@ def _summarize_scores(scores: Sequence[float]) -> tuple[float, float]:
 
 def _should_skip_perfect(
     scores: Sequence[float],
-    candidate: CandidateProgram,
     state: GepaState,
 ) -> bool:
     if not state.config.skip_perfect_score:
         return False
     perfect = state.config.perfect_score
     total = float(sum(scores))
-    minibatch_perfect = total >= perfect * len(scores)
-    if not minibatch_perfect:
-        return False
-    if state.config.skip_perfect_requires_validation:
-        return candidate.avg_validation_score >= perfect
-    return True
+    return total >= perfect * len(scores)
 
 
 def _select_components(
