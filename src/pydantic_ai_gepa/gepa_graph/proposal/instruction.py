@@ -126,6 +126,9 @@ You have access to example bank tools to build a persistent library of few-shot 
 - `list_examples()` - See all examples currently in the bank.
 - `test_retrieval(query)` - Preview what the student would see when searching with a given query.
 
+**Parallel tool invocation:**
+When you need to add, remove, or test multiple examples, invoke the tools in parallel within a single response. For example, if you identify three distinct failure patterns that each warrant a new example, call `add_example` three times in parallel rather than sequentially. Similarly, if removing multiple outdated examples, invoke `remove_example` for each in the same response. This improves efficiency and ensures all related changes are applied together.
+
 **When to add examples:**
 - When you see a pattern of failures that could be addressed with a concrete "do this, not that" reference
 - When the traces reveal domain-specific knowledge that's hard to encode in general instructions
