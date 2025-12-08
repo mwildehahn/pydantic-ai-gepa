@@ -114,11 +114,11 @@ Produce instructions that are clear, memorable, and grounded in observed behavio
 - Call out which parts of the hypothesis stay valid, which parts need tweaks, and which parts you are discarding.
 - Keep it concise and component-aware so the next reflection can quickly inherit the right mental model.
 
-Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off.
+Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
 
-## Example Bank Tools (when available)
+EXAMPLE_BANK_TOOLS_INSTRUCTIONS = """## Example Bank Tools
 
-If you have access to example bank tools, you can build a persistent library of few-shot examples that the student can search at runtime:
+You have access to example bank tools to build a persistent library of few-shot examples that the student can search at runtime:
 
 **Available tools:**
 - `add_example(title, keywords, content)` - Add a searchable example. Keywords should be terms the student might search for.
@@ -280,14 +280,17 @@ class InstructionProposalGenerator:
         try:
             resolved_settings = model_settings or self._default_model_settings
             toolsets: list[AbstractToolset[None]] = []
+            additional_instructions: str | None = None
             if example_bank is not None:
                 toolsets.append(create_example_bank_tools(example_bank))
+                additional_instructions = EXAMPLE_BANK_TOOLS_INSTRUCTIONS
 
             result = await self._agent.run(
                 prompt,
                 model=model,
                 model_settings=resolved_settings,
                 toolsets=toolsets if toolsets else None,
+                instructions=additional_instructions,
             )
         except InspectionAborted:
             raise

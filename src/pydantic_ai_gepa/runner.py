@@ -37,7 +37,13 @@ from .gepa_graph.models import (
 )
 from .input_type import InputSpec
 from .reflection import ReflectionSampler
-from .types import Case, MetricResult, RolloutOutput
+from .types import (
+    Case,
+    ExampleBankConfig,
+    MetricResult,
+    ReflectionConfig,
+    RolloutOutput,
+)
 from .progress import OptimizationProgress
 
 ComponentSelectorLiteral = Literal["round_robin", "all"]
@@ -159,6 +165,8 @@ async def optimize_agent(
     optimize_output_type: bool = False,
     agent_usage_limits: _usage.UsageLimits | None = None,
     gepa_usage_limits: _usage.UsageLimits | None = None,
+    # Reflection configuration
+    reflection_config: ReflectionConfig | None = None,
 ) -> GepaOptimizationResult:
     """Optimizes a pydantic-ai agent (and optional signature inputs) using the GEPA graph backend.
 
@@ -225,6 +233,10 @@ async def optimize_agent(
         gepa_usage_limits: Optional UsageLimits applied cumulatively across the entire
             GEPA optimization run. When provided, GEPA stops once the aggregated usage
             exceeds this budget.
+        reflection_config: Configuration for reflection behavior, including example bank
+            settings. When example_bank is configured, the reflection agent can build
+            a persistent library of few-shot examples that the student agent can search
+            at runtime.
 
     Returns:
         GepaOptimizationResult with the best candidate and metadata.
@@ -281,6 +293,9 @@ async def optimize_agent(
         gepa_usage_limits=gepa_usage_limits,
     )
 
+    # Extract example_bank config from reflection_config if provided
+    example_bank_config = reflection_config.example_bank if reflection_config else None
+
     config = _build_gepa_config(
         max_metric_calls=max_metric_calls,
         reflection_minibatch_size=reflection_minibatch_size,
@@ -296,6 +311,7 @@ async def optimize_agent(
         reflection_model_settings=reflection_model_settings,
         reflection_sampler=reflection_sampler,
         track_component_hypotheses=track_component_hypotheses,
+        example_bank=example_bank_config,
     )
 
     deps = create_deps(
@@ -427,6 +443,7 @@ def _build_gepa_config(
     reflection_model_settings: ModelSettings | None,
     reflection_sampler: ReflectionSampler | None,
     track_component_hypotheses: bool,
+    example_bank: ExampleBankConfig | None,
 ) -> GepaConfig:
     component_selector: ComponentSelectorLiteral = _resolve_component_selector(
         module_selector, len(seed_candidate)
@@ -449,6 +466,7 @@ def _build_gepa_config(
         reflection_model_settings=reflection_model_settings,
         reflection_sampler=reflection_sampler,
         track_component_hypotheses=track_component_hypotheses,
+        example_bank=example_bank,
     )
 
 
