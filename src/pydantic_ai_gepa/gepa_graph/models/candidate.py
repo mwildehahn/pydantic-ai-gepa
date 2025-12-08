@@ -7,6 +7,7 @@ from typing import Any, Literal, Mapping
 from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator
 
 from ...types import RolloutOutput
+from ..example_bank import InMemoryExampleBank
 
 
 class ComponentValue(BaseModel):
@@ -63,6 +64,9 @@ class CandidateProgram(BaseModel):
 
     discovered_at_iteration: int
     discovered_at_evaluation: int
+
+    # Example bank for few-shot retrieval (None = feature not enabled)
+    example_bank: InMemoryExampleBank | None = Field(default=None, exclude=True)
 
     model_config = ConfigDict(arbitrary_types_allowed=True, validate_assignment=True)
 
@@ -141,4 +145,8 @@ class CandidateProgram(BaseModel):
 
     def clone_with_new_idx(self, idx: int) -> CandidateProgram:
         """Clone the candidate with a new identifier."""
-        return self.model_copy(update={"idx": idx})
+        cloned = self.model_copy(update={"idx": idx})
+        # Copy the example bank so mutations are independent
+        if self.example_bank is not None:
+            cloned.example_bank = self.example_bank.copy()
+        return cloned

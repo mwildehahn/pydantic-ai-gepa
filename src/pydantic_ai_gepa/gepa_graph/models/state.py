@@ -17,7 +17,7 @@ from pydantic import (
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
 
-from ...types import RolloutOutput
+from ...types import ExampleBankConfig, RolloutOutput
 from pydantic_evals import Case
 from ..datasets import DataLoader, ensure_loader
 from ...reflection import ReflectionSampler
@@ -122,6 +122,12 @@ class GepaConfig(BaseModel):
     reflection_model_settings: ModelSettings | None = Field(
         default=None,
         description="Default model settings applied to every reflection model call (e.g., temperature, top_p).",
+    )
+
+    # Example bank
+    example_bank: ExampleBankConfig | None = Field(
+        default=None,
+        description="Configuration for the example bank feature. None disables the feature.",
     )
 
     # Component selection

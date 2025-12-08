@@ -12,6 +12,7 @@ from ..models import CandidateMap, CandidateProgram
 
 if TYPE_CHECKING:
     from ...adapter import Adapter
+    from ..example_bank import InMemoryExampleBank
 
 DataIdT = TypeVar("DataIdT")
 
@@ -67,6 +68,7 @@ class ParallelEvaluator:
 
         semaphore = asyncio.Semaphore(max(1, max_concurrent))
         candidate_payload = candidate.components
+        example_bank = candidate.example_bank
 
         async def run_one(index: int, instance: Case[Any, Any, Any]):
             async with semaphore:
@@ -75,6 +77,7 @@ class ParallelEvaluator:
                     instance=instance,
                     candidate_payload=candidate_payload,
                     capture_traces=capture_traces,
+                    example_bank=example_bank,
                 )
             data_id = self._data_id(instance, index)
             return data_id, eval_batch
@@ -91,11 +94,13 @@ class ParallelEvaluator:
         instance: Case[Any, Any, Any],
         candidate_payload: CandidateMap,
         capture_traces: bool,
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> EvaluationBatch:
         return await adapter.evaluate(
             [instance],
             candidate_payload,
             capture_traces,
+            example_bank=example_bank,
         )
 
     def _merge_results(

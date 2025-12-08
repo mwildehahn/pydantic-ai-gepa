@@ -10,6 +10,7 @@ from typing import Any, Iterable, Sequence
 
 from pydantic_evals import Case
 from ..datasets import DataLoader, data_id_for_instance
+from ..example_bank import InMemoryExampleBank
 from ..models import CandidateMap, CandidateProgram, ComponentValue, GepaState
 
 _SCORE_EPSILON = 1e-6
@@ -108,6 +109,15 @@ class MergeProposalBuilder:
                 parent2_score=parent2_score,
             )
 
+        # Merge example banks from both parents
+        example_bank = self._merge_example_banks(
+            parent1.example_bank,
+            parent2.example_bank,
+            max_examples=state.config.example_bank.max_examples
+            if state.config.example_bank
+            else 50,
+        )
+
         return CandidateProgram(
             idx=len(state.candidates),
             components=merged_components,
@@ -115,6 +125,7 @@ class MergeProposalBuilder:
             creation_type="merge",
             discovered_at_iteration=max(state.iteration, 0),
             discovered_at_evaluation=state.total_evaluations,
+            example_bank=example_bank,
         )
 
     async def select_merge_subsample(
@@ -238,6 +249,34 @@ class MergeProposalBuilder:
                 bucket_tie.append(data_id)
 
         return bucket_p1, bucket_p2, bucket_tie
+
+    def _merge_example_banks(
+        self,
+        bank1: InMemoryExampleBank | None,
+        bank2: InMemoryExampleBank | None,
+        max_examples: int,
+    ) -> InMemoryExampleBank | None:
+        """Merge example banks from two parents.
+
+        Combines examples from both banks, deduplicating by ID and
+        respecting the max_examples limit.
+        """
+        if bank1 is None and bank2 is None:
+            return None
+
+        merged = InMemoryExampleBank()
+        seen_ids: set[str] = set()
+
+        # Add examples from both banks, preferring bank1 if there are duplicates
+        for bank in [bank1, bank2]:
+            if bank is None:
+                continue
+            for example in bank:
+                if example.id not in seen_ids and len(merged) < max_examples:
+                    merged.add(example)
+                    seen_ids.add(example.id)
+
+        return merged if len(merged) > 0 else None
 
     def _choose_component(
         self,

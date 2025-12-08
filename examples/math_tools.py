@@ -29,7 +29,7 @@ from pydantic_ai_gepa.gepa_graph import (
 )
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import ExampleBankConfig, MetricResult, RolloutOutput
 
 logfire.configure(console=False)
 logfire.instrument_pydantic_ai()
@@ -679,6 +679,7 @@ async def run_math_tools_optimization(
         max_concurrent_evaluations=20,
         enable_parallel_reflection=True,
         reflection_model=reflection_model,
+        example_bank=ExampleBankConfig(),
     )
 
     return await optimize(

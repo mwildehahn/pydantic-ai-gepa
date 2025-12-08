@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
+from pydantic_ai.toolsets import AbstractToolset
 
 from pydantic_ai_gepa.inspection import InspectionAborted
 
@@ -19,7 +20,9 @@ from ...adapter import (
     ReflectiveDataset,
     SharedReflectiveDataset,
 )
+from ..example_bank import InMemoryExampleBank
 from ..models import CandidateProgram, ComponentValue
+from .example_bank_tools import create_example_bank_tools
 
 DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover instruction formats that measurably improve the student agent's performance.
 
@@ -111,7 +114,35 @@ Produce instructions that are clear, memorable, and grounded in observed behavio
 - Call out which parts of the hypothesis stay valid, which parts need tweaks, and which parts you are discarding.
 - Keep it concise and component-aware so the next reflection can quickly inherit the right mental model.
 
-Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
+Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off.
+
+## Example Bank Tools (when available)
+
+If you have access to example bank tools, you can build a persistent library of few-shot examples that the student can search at runtime:
+
+**Available tools:**
+- `add_example(title, keywords, content)` - Add a searchable example. Keywords should be terms the student might search for.
+- `remove_example(example_id)` - Remove an example that's no longer helpful or is causing confusion.
+- `list_examples()` - See all examples currently in the bank.
+- `test_retrieval(query)` - Preview what the student would see when searching with a given query.
+
+**When to add examples:**
+- When you see a pattern of failures that could be addressed with a concrete "do this, not that" reference
+- When the traces reveal domain-specific knowledge that's hard to encode in general instructions
+- When successful traces demonstrate a reusable solution pattern
+
+**When to remove examples:**
+- If an example is too narrow and doesn't generalize
+- If the student is retrieving and misapplying an example
+- If the example conflicts with updated instructions
+
+**Key difference from inline examples:**
+Examples in the bank are *searchable* by the student at runtime. The student can call a search tool to find relevant examples based on their current task. This is more efficient than putting all examples in the system prompt, and allows the student to pull in examples only when needed.
+
+**Example structure tips:**
+- Title: Brief, descriptive (e.g., "Handling null responses from API")
+- Keywords: Terms the student would search for (e.g., ["null", "API", "error handling", "empty response"])
+- Content: The actual example showing the pattern, ideally with both correct and incorrect approaches"""
 
 
 class TrajectoryAnalysis(BaseModel):
@@ -202,6 +233,7 @@ class InstructionProposalGenerator:
         parent_score: float
         | None = None,  # Kept for backwards compatibility but not used
         model_settings: ModelSettings | None = None,
+        example_bank: InMemoryExampleBank | None = None,
     ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
 
@@ -213,6 +245,9 @@ class InstructionProposalGenerator:
             iteration: (Deprecated) No longer used - kept for backwards compatibility
             current_best_score: (Deprecated) No longer used - kept for backwards compatibility
             parent_score: (Deprecated) No longer used - kept for backwards compatibility
+            model_settings: Optional model settings for the proposal agent
+            example_bank: Optional example bank for the reflection agent to manage.
+                If provided, the agent can add/remove examples via tool calls.
         """
         if not components:
             return ProposalResult(texts={}, component_metadata={}, reasoning=None)
@@ -244,10 +279,15 @@ class InstructionProposalGenerator:
 
         try:
             resolved_settings = model_settings or self._default_model_settings
+            toolsets: list[AbstractToolset[None]] = []
+            if example_bank is not None:
+                toolsets.append(create_example_bank_tools(example_bank))
+
             result = await self._agent.run(
                 prompt,
                 model=model,
                 model_settings=resolved_settings,
+                toolsets=toolsets if toolsets else None,
             )
         except InspectionAborted:
             raise

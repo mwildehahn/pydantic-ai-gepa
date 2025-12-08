@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from pydantic_evals import Case
 
 from .evaluation_models import EvaluationBatch
 from .gepa_graph.models import CandidateMap
+
+if TYPE_CHECKING:
+    from .gepa_graph.example_bank import InMemoryExampleBank
 
 InputT = TypeVar("InputT")
 OutputT = TypeVar("OutputT")
@@ -41,6 +44,7 @@ class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
         batch: Sequence[Case[InputT, OutputT, MetadataT]],
         candidate: CandidateMap,
         capture_traces: bool,
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> EvaluationBatch: ...
 
     def make_reflective_dataset(
