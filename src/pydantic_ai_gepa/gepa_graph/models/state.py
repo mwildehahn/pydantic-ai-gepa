@@ -77,6 +77,25 @@ class EvaluationErrorEvent(BaseModel):
         return value
 
 
+class ExampleBankConfig(BaseModel):
+    """Configuration for the example bank feature."""
+
+    max_examples: int = Field(
+        default=50,
+        description="Maximum number of examples to store in each candidate's example bank.",
+    )
+    retrieval_k: int = Field(
+        default=3,
+        description="Number of examples to retrieve when the student agent searches the bank.",
+    )
+    search_tool_instruction: str = Field(
+        default="Search for relevant examples when you're unsure how to handle a request or want to see similar cases.",
+        description="Instruction shown to the student agent for when to use the example search tool.",
+    )
+
+    model_config = ConfigDict(frozen=True)
+
+
 class GepaConfig(BaseModel):
     """Immutable configuration for GEPA optimization."""
 
@@ -122,6 +141,12 @@ class GepaConfig(BaseModel):
     reflection_model_settings: ModelSettings | None = Field(
         default=None,
         description="Default model settings applied to every reflection model call (e.g., temperature, top_p).",
+    )
+
+    # Example bank
+    example_bank: ExampleBankConfig | None = Field(
+        default=None,
+        description="Configuration for the example bank feature. None disables the feature.",
     )
 
     # Component selection

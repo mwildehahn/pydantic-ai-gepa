@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic_graph.beta import StepContext
 
 from ..deps import GepaDeps
+from ..example_bank import InMemoryExampleBank
 from ..models import CandidateMap, CandidateProgram, ComponentValue, GepaState
 
 
@@ -53,12 +54,19 @@ def _build_candidate(
         else ComponentValue(name=name, text=str(component))
         for name, component in components.items()
     }
+
+    # Initialize example bank if enabled
+    example_bank = None
+    if state.config.example_bank is not None:
+        example_bank = InMemoryExampleBank()
+
     return CandidateProgram(
         idx=len(state.candidates),
         components=component_models,
         creation_type="seed",
         discovered_at_iteration=0,
         discovered_at_evaluation=state.total_evaluations,
+        example_bank=example_bank,
     )
 
 

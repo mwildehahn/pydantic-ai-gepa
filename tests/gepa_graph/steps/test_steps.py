@@ -73,7 +73,7 @@ class _FakeAdapter:
         self.reflection_model = "test-model"
         self.reflection_sampler = None
 
-    async def evaluate(self, batch, candidate, capture_traces):
+    async def evaluate(self, batch, candidate, capture_traces, example_bank=None):
         case_name = batch[0].name or "unnamed"
         score = self.scores.get(case_name, 0.5)
         return _FakeEvaluationBatch(
@@ -99,8 +99,8 @@ class _HydratingAdapter(_FakeAdapter):
         super().__init__()
         self._include_tool = False
 
-    async def evaluate(self, batch, candidate, capture_traces):
-        result = await super().evaluate(batch, candidate, capture_traces)
+    async def evaluate(self, batch, candidate, capture_traces, example_bank=None):
+        result = await super().evaluate(batch, candidate, capture_traces, example_bank)
         self._include_tool = True
         return result
 

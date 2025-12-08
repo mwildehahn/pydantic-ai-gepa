@@ -42,6 +42,7 @@ from pydantic_ai.messages import (
 from pydantic_ai.tools import ToolDefinition
 
 from ..cache import CacheManager
+from ..gepa_graph.proposal.student_tools import create_example_search_tool
 from ..exceptions import UsageBudgetExceeded
 from ..components import (
     apply_candidate_to_agent,
@@ -70,6 +71,7 @@ from pydantic_evals import Case
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
+    from ..gepa_graph.example_bank import InMemoryExampleBank
 
 from pydantic_ai.exceptions import ToolRetryError as _ToolRetryError
 from pydantic_ai.exceptions import UsageLimitExceeded as _UsageLimitExceeded
@@ -683,6 +685,7 @@ class _BaseAgentAdapter(
         batch: Sequence[Case[InputT, OutputT, MetadataT]],
         candidate: CandidateMap,
         capture_traces: bool,
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> EvaluationBatch:
         """Evaluate a batch of cases asynchronously."""
         outputs: list[RolloutOutput[Any]] = []
@@ -699,6 +702,7 @@ class _BaseAgentAdapter(
                         index,
                         capture_traces,
                         candidate,
+                        example_bank=example_bank,
                     )
                     for index, case in enumerate(batch)
                 )
@@ -731,6 +735,7 @@ class _BaseAgentAdapter(
         case_index: int,
         capture_traces: bool = False,
         candidate: CandidateMap | None = None,
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> dict[str, Any]:
         """Process a single Case and return the metric evaluation."""
         metric_result: MetricResult | None = None
@@ -750,10 +755,12 @@ class _BaseAgentAdapter(
                 else:
                     if capture_traces:
                         trajectory, output = await self._run_with_trace(
-                            case, case_index, candidate
+                            case, case_index, candidate, example_bank=example_bank
                         )
                     else:
-                        output = await self._run_simple(case, case_index, candidate)
+                        output = await self._run_simple(
+                            case, case_index, candidate, example_bank=example_bank
+                        )
                         trajectory = None
 
                     self.cache_manager.cache_agent_run(
@@ -768,10 +775,12 @@ class _BaseAgentAdapter(
             else:
                 if capture_traces:
                     trajectory, output = await self._run_with_trace(
-                        case, case_index, candidate
+                        case, case_index, candidate, example_bank=example_bank
                     )
                 else:
-                    output = await self._run_simple(case, case_index, candidate)
+                    output = await self._run_simple(
+                        case, case_index, candidate, example_bank=example_bank
+                    )
                     trajectory = None
 
             if self.cache_manager and candidate:
@@ -925,6 +934,7 @@ class _BaseAgentAdapter(
         case: Case[InputT, OutputT, MetadataT],
         case_index: int,
         candidate: CandidateMap | None,
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> tuple[AgentAdapterTrajectory | None, RolloutOutput[Any]]:
         messages: list[ModelMessage] = []
         captured_messages: list[ModelMessage] = []
@@ -941,6 +951,7 @@ class _BaseAgentAdapter(
                     candidate=candidate,
                     message_history=message_history,
                     usage_kwargs=usage_kwargs,
+                    example_bank=example_bank,
                 )
                 messages = run_result.new_messages()
             run_usage = run_result.usage()
@@ -1045,6 +1056,7 @@ class _BaseAgentAdapter(
         case: Case[InputT, OutputT, MetadataT],
         case_index: int,
         candidate: CandidateMap | None,
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> RolloutOutput[Any]:
         usage_kwargs = self._usage_kwargs()
         case_name = self._case_identifier(case, case_index)
@@ -1054,6 +1066,7 @@ class _BaseAgentAdapter(
                 candidate=candidate,
                 message_history=self._message_history_for_case(case),
                 usage_kwargs=usage_kwargs,
+                example_bank=example_bank,
             )
             run_usage = result.usage()
             await self._record_gepa_usage(run_usage)
@@ -1083,6 +1096,7 @@ class _BaseAgentAdapter(
         candidate: CandidateMap | None,
         message_history: list[ModelMessage] | None,
         usage_kwargs: Mapping[str, Any],
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> AgentRunResult[Any]:
         """Run the underlying agent for the provided case."""
 
@@ -1178,15 +1192,29 @@ class AgentAdapter(
         candidate: CandidateMap | None,
         message_history: list[ModelMessage] | None,
         usage_kwargs: Mapping[str, Any],
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> AgentRunResult[Any]:
         prompt = case.inputs
         if not isinstance(prompt, str):
             raise TypeError(
                 "AgentAdapter expects Case.inputs to be a string prompt for prompt-based agents"
             )
+        toolsets = None
+        if example_bank is not None and len(example_bank) > 0:
+            search_tool = create_example_search_tool(
+                bank=example_bank,
+                instruction=(
+                    "Search for relevant examples when you're unsure how to handle "
+                    "a request. Provide a query describing what kind of example "
+                    "would help."
+                ),
+                k=3,
+            )
+            toolsets = [search_tool]
         return await self.agent.run(
             prompt,
             message_history=message_history,
+            toolsets=toolsets,
             **usage_kwargs,
         )
 
@@ -1257,13 +1285,27 @@ class SignatureAgentAdapter(
         candidate: CandidateMap | None,
         message_history: list[ModelMessage] | None,
         usage_kwargs: Mapping[str, Any],
+        example_bank: "InMemoryExampleBank | None" = None,
     ) -> AgentRunResult[Any]:
         inputs = self._validate_inputs(case.inputs)
         candidate_text = candidate_texts(candidate)
+        toolsets = None
+        if example_bank is not None and len(example_bank) > 0:
+            search_tool = create_example_search_tool(
+                bank=example_bank,
+                instruction=(
+                    "Search for relevant examples when you're unsure how to handle "
+                    "a request. Provide a query describing what kind of example "
+                    "would help."
+                ),
+                k=3,
+            )
+            toolsets = [search_tool]
         return await self._signature_agent.run_signature(
             inputs,
             message_history=message_history,
             candidate=candidate_text,
+            toolsets=toolsets,
             **usage_kwargs,
         )
 

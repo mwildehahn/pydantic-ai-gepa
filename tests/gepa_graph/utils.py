@@ -50,7 +50,7 @@ class AdapterStub:
         self.agent = type("Agent", (), {"_instructions": "seed instructions"})()
         self.input_spec = None
 
-    async def evaluate(self, batch, candidate, capture_traces):
+    async def evaluate(self, batch, candidate, capture_traces, example_bank=None):
         text = candidate["instructions"].text
         base = 0.85 if text.startswith("improved") else 0.4
 
@@ -112,6 +112,7 @@ class ProposalGeneratorStub:
         current_best_score: float | None = None,
         parent_score: float | None = None,
         model_settings=None,
+        example_bank=None,
     ):
         self.calls += 1
         updates: dict[str, str] = {}

@@ -39,7 +39,7 @@ class _RecordingAdapter:
         self.max_inflight = 0
         self.call_count = 0
 
-    async def evaluate(self, batch, candidate, capture_traces):
+    async def evaluate(self, batch, candidate, capture_traces, example_bank=None):
         self.call_count += 1
         self.inflight += 1
         self.max_inflight = max(self.max_inflight, self.inflight)
@@ -76,7 +76,7 @@ class _CachingAdapter:
         self.llm_calls = 0
         self.cache_hits = 0
 
-    async def evaluate(self, batch, candidate, capture_traces):
+    async def evaluate(self, batch, candidate, capture_traces, example_bank=None):
         key = (
             batch[0].name,
             tuple(sorted((name, value.text) for name, value in candidate.items())),

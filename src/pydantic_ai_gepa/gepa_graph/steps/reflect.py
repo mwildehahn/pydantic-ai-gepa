@@ -384,6 +384,7 @@ async def _propose_new_texts(
         current_best_score=state.best_score,
         parent_score=parent.avg_validation_score,
         model_settings=model_settings,
+        example_bank=parent.example_bank,
     )
 
 
@@ -417,6 +418,11 @@ def _create_candidate(
             version=base_version + 1,
             metadata=component_metadata,
         )
+    # Copy example bank from parent (already modified by reflection via tool calls)
+    example_bank = None
+    if parent.example_bank is not None:
+        example_bank = parent.example_bank.copy()
+
     return CandidateProgram(
         idx=len(state.candidates),
         components=new_components,
@@ -424,6 +430,7 @@ def _create_candidate(
         parent_indices=[parent_idx],
         discovered_at_iteration=state.iteration,
         discovered_at_evaluation=state.total_evaluations,
+        example_bank=example_bank,
     )
 
 

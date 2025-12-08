@@ -6,6 +6,7 @@ from .result import GepaResult
 from .state import (
     CandidateSelectorStrategy,
     EvaluationErrorEvent,
+    ExampleBankConfig,
     GenealogyRecord,
     GepaConfig,
     GepaState,
@@ -17,6 +18,7 @@ __all__ = [
     "CandidateMap",
     "candidate_texts",
     "EvaluationErrorEvent",
+    "ExampleBankConfig",
     "ComponentValue",
     "GenealogyRecord",
     "GepaConfig",
