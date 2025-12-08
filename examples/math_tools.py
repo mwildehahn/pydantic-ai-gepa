@@ -27,10 +27,9 @@ from pydantic_ai_gepa.gepa_graph import (
     GepaResult,
     optimize,
 )
-from pydantic_ai_gepa.gepa_graph.models import ExampleBankConfig
 from pydantic_ai_gepa.gepa_graph.models import CandidateProgram
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import ExampleBankConfig, MetricResult, RolloutOutput
 
 logfire.configure(console=False)
 logfire.instrument_pydantic_ai()

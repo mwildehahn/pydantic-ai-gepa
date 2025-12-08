@@ -9,6 +9,24 @@ from pydantic_ai import usage as _usage
 from pydantic_ai.messages import ModelMessage
 from pydantic_evals import Case
 
+
+@dataclass(frozen=True)
+class ExampleBankConfig:
+    """Configuration for the example bank feature."""
+
+    max_examples: int = 50
+    """Maximum number of examples to store in each candidate's example bank."""
+
+    retrieval_k: int = 3
+    """Number of examples to retrieve when the student agent searches the bank."""
+
+    search_tool_instruction: str = (
+        "Search for relevant examples when you're unsure how to handle "
+        "a request or want to see similar cases."
+    )
+    """Instruction shown to the student agent for when to use the example search tool."""
+
+
 # Type variable for the output type in RolloutOutput
 OutputT = TypeVar("OutputT")
 
@@ -52,6 +70,9 @@ class ReflectionConfig:
     include_expected_output: bool = False
     """Include case.expected_output in reflection records."""
 
+    example_bank: ExampleBankConfig | None = None
+    """Configuration for the example bank feature. None disables the feature."""
+
 
 @dataclass
 class RolloutOutput(Generic[OutputT]):
@@ -90,6 +111,7 @@ class RolloutOutput(Generic[OutputT]):
 
 __all__ = [
     "Case",
+    "ExampleBankConfig",
     "MetadataWithMessageHistory",
     "Trajectory",
     "MetricResult",

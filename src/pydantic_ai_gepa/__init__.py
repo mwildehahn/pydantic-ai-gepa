@@ -31,6 +31,7 @@ from .input_type import (
 from .signature_agent import SignatureAgent
 from .types import (
     Case,
+    ExampleBankConfig,
     MetadataWithMessageHistory,
     MetricResult,
     OutputT,
@@ -55,6 +56,7 @@ __all__ = [
     "RolloutOutput",
     "MetricResult",
     "MetadataWithMessageHistory",
+    "ExampleBankConfig",
     "ReflectionConfig",
     "OutputT",
     "BoundInputSpec",
