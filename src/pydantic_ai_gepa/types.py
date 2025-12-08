@@ -39,6 +39,21 @@ class MetricResult:
 
 
 @dataclass
+class ReflectionConfig:
+    """Configuration for what gets included in reflection records.
+
+    Controls what context is passed to the GEPA reflection agent when
+    analyzing agent execution traces.
+    """
+
+    include_case_metadata: bool = False
+    """Include case.metadata in reflection records (e.g., preserved_ids, structural checks)."""
+
+    include_expected_output: bool = False
+    """Include case.expected_output in reflection records."""
+
+
+@dataclass
 class RolloutOutput(Generic[OutputT]):
     """Output from a single agent execution."""
 
@@ -78,5 +93,6 @@ __all__ = [
     "MetadataWithMessageHistory",
     "Trajectory",
     "MetricResult",
+    "ReflectionConfig",
     "RolloutOutput",
 ]

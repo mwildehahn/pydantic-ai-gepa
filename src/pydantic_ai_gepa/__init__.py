@@ -34,6 +34,7 @@ from .types import (
     MetadataWithMessageHistory,
     MetricResult,
     OutputT,
+    ReflectionConfig,
     RolloutOutput,
     Trajectory,
 )
@@ -54,6 +55,7 @@ __all__ = [
     "RolloutOutput",
     "MetricResult",
     "MetadataWithMessageHistory",
+    "ReflectionConfig",
     "OutputT",
     "BoundInputSpec",
     "InputSpec",

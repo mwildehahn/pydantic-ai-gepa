@@ -62,6 +62,7 @@ from ..tool_components import (
 from ..types import (
     MetadataWithMessageHistory,
     MetricResult,
+    ReflectionConfig,
     RolloutOutput,
     Trajectory,
 )
@@ -131,6 +132,27 @@ def _truncate_text(value: str, limit: int = 2000) -> str:
     trimmed = value[:limit]
     omitted = len(value) - limit
     return f"{trimmed}... [truncated {omitted} chars]"
+
+
+def _serialize_for_reflection(obj: Any) -> Any:
+    """Serialize an object for inclusion in reflection records.
+
+    Handles BaseModel, dataclasses, dicts, and other common types.
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, BaseModel):
+        return obj.model_dump(mode="json")
+    if hasattr(obj, "__dataclass_fields__"):
+        return asdict(obj)
+    if isinstance(obj, Mapping):
+        return {k: _serialize_for_reflection(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple, set, frozenset)):
+        return [_serialize_for_reflection(item) for item in obj]
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    # Fallback to string representation
+    return str(obj)
 
 
 def _compact_dict(data: dict[str, Any]) -> dict[str, Any]:
@@ -580,11 +602,13 @@ class _BaseAgentAdapter(
         optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
+        reflection_config: ReflectionConfig | None = None,
     ) -> None:
         self.agent = agent
         self.metric = metric
         self.input_spec = input_spec
         self.cache_manager = cache_manager
+        self.reflection_config = reflection_config or ReflectionConfig()
         self._model_identifier = _derive_model_identifier(agent)
         if (
             self.cache_manager
@@ -1140,6 +1164,20 @@ class _BaseAgentAdapter(
                         feedback_text += f" - Error: {output.error_message}"
 
             record["feedback"] = feedback_text
+
+            # Include case metadata and expected output based on reflection_config
+            case = getattr(trajectory, "case", None)
+            if case is not None:
+                if self.reflection_config.include_case_metadata and case.metadata:
+                    record["case_metadata"] = _serialize_for_reflection(case.metadata)
+                if (
+                    self.reflection_config.include_expected_output
+                    and case.expected_output
+                ):
+                    record["expected_output"] = _serialize_for_reflection(
+                        case.expected_output
+                    )
+
             reflection_records.append(record)
 
         if not reflection_records:
@@ -1173,6 +1211,7 @@ class AgentAdapter(
         optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
+        reflection_config: ReflectionConfig | None = None,
     ) -> None:
         super().__init__(
             agent=agent,
@@ -1183,6 +1222,7 @@ class AgentAdapter(
             optimize_output_type=optimize_output_type,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
+            reflection_config=reflection_config,
         )
 
     async def _invoke_agent(
@@ -1259,6 +1299,7 @@ class SignatureAgentAdapter(
         optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
+        reflection_config: ReflectionConfig | None = None,
     ) -> None:
         bound_spec = (
             build_input_spec(input_type) if input_type is not None else agent.input_spec
@@ -1276,6 +1317,7 @@ class SignatureAgentAdapter(
             optimize_output_type=optimize_output_type,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
+            reflection_config=reflection_config,
         )
 
     async def _invoke_agent(
