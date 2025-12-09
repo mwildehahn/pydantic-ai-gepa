@@ -1337,6 +1337,7 @@ class SignatureAgentAdapter(
             message_history=message_history,
             candidate=candidate_text,
             toolsets=toolsets,
+            deps=inputs,
             **usage_kwargs,
         )
 
