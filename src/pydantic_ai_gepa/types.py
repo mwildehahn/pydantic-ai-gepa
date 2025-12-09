@@ -52,6 +52,15 @@ class ReflectionConfig:
     example_bank: ExampleBankConfig | None = None
     """Configuration for the example bank feature. None disables the feature."""
 
+    additional_instructions: str | None = None
+    """Additional domain-specific instructions appended to the reflection agent's prompt.
+
+    Use this to provide context about your specific optimization task, such as:
+    - Domain knowledge about the task being optimized
+    - Guidance on analyzing specific error patterns
+    - Custom evaluation criteria to consider
+    """
+
 
 # Type variable for the output type in RolloutOutput
 OutputT = TypeVar("OutputT")

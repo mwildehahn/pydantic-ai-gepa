@@ -2,9 +2,24 @@
 
 from __future__ import annotations
 
+from pydantic import BaseModel, Field
 from pydantic_ai import FunctionToolset
 
 from ..example_bank import BankedExample, InMemoryExampleBank
+
+
+class ExampleInput(BaseModel):
+    """Input schema for adding an example to the bank."""
+
+    title: str = Field(
+        description="Short descriptive name (e.g., 'Handle nested JSON')"
+    )
+    keywords: list[str] = Field(
+        description="Semantic keywords for retrieval - what user queries should find this example? (e.g., ['json', 'nested', 'parsing'])"
+    )
+    content: str = Field(
+        description="The full example content. Can be any format: input/output pairs, reasoning chains, do/don't comparisons, etc."
+    )
 
 
 def create_example_bank_tools(bank: InMemoryExampleBank) -> FunctionToolset:
@@ -16,22 +31,25 @@ def create_example_bank_tools(bank: InMemoryExampleBank) -> FunctionToolset:
     toolset: FunctionToolset[None] = FunctionToolset()
 
     @toolset.tool
-    def add_example(title: str, keywords: list[str], content: str) -> str:
-        """Add a few-shot example to help the student agent handle similar cases.
+    def add_examples(examples: list[ExampleInput]) -> str:
+        """Add multiple few-shot examples to help the student agent handle similar cases.
 
-        Use this when you identify a pattern in the failures that could be
-        addressed by showing the student a concrete example of correct behavior.
-
-        Args:
-            title: Short descriptive name for the example (e.g., "Handle nested JSON").
-            keywords: Semantic keywords for retrieval - what user queries should find
-                this example? (e.g., ["json", "nested", "parsing"]).
-            content: The full example content. This can be any format that helps:
-                input/output pairs, reasoning chains, do/don't comparisons, etc.
+        Use this when you identify patterns in the failures that could be addressed
+        by showing the student concrete examples of correct behavior. You can add
+        many examples at once to build a comprehensive reference library.
         """
-        example = BankedExample(title=title, keywords=keywords, content=content)
-        bank.add(example)
-        return f"Added example '{title}' (id: {example.id})"
+        added: list[str] = []
+        for ex in examples:
+            example = BankedExample(
+                title=ex.title,
+                keywords=ex.keywords,
+                content=ex.content,
+            )
+            bank.add(example)
+            added.append(f"'{ex.title}' (id: {example.id})")
+        if not added:
+            return "No examples provided."
+        return f"Added {len(added)} examples: {', '.join(added)}"
 
     @toolset.tool
     def remove_example(example_id: str) -> str:
@@ -64,23 +82,28 @@ def create_example_bank_tools(bank: InMemoryExampleBank) -> FunctionToolset:
         return "\n".join(lines)
 
     @toolset.tool
-    def read_example(example_id: str) -> str:
-        """Read the full content of a specific example.
+    def read_examples(example_ids: list[str]) -> str:
+        """Read the full content of one or more examples.
 
-        Use this after list_examples() to see the complete content of an
-        example you want to review, modify, or use as reference.
+        Use this after list_examples() to see the complete content of
+        examples you want to review, modify, or use as reference.
         """
-        example = bank.get(example_id)
-        if example is None:
-            return f"Example {example_id} not found"
-        lines = [
-            f"Title: {example.title}",
-            f"Keywords: {', '.join(example.keywords) if example.keywords else '(none)'}",
-            "",
-            "Content:",
-            example.content,
-        ]
-        return "\n".join(lines)
+        results: list[str] = []
+        for example_id in example_ids:
+            example = bank.get(example_id)
+            if example is None:
+                results.append(f"[{example_id}] Not found")
+            else:
+                lines = [
+                    f"[{example.id}] {example.title}",
+                    f"Keywords: {', '.join(example.keywords) if example.keywords else '(none)'}",
+                    "",
+                    example.content,
+                ]
+                results.append("\n".join(lines))
+        if not results:
+            return "No example IDs provided."
+        return "\n\n---\n\n".join(results)
 
     @toolset.tool
     def test_retrieval(query: str) -> str:

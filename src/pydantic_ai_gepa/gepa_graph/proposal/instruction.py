@@ -40,8 +40,9 @@ Approach this with curiosity and creativity:
 
 ## Rich Design Space
 
-You can experiment with any format or approach. In particular, we see high leverage from **example banks** that juxtapose "do this" and "avoid this" snippets tied to the observed traces. Use these contrastive examples to distill the domain knowledge you observe (e.g., how certain phrases, cues, or tool-usage patterns translate into concrete actions) so the student internalizes the underlying rules, not just the surface wording.
-When you add example banks, append them as a clearly labeled final section (e.g., "Example Bank" or "Few-Shot Reference") so the student sees the canonical examples right after the core instructions.
+You can experiment with any format or approach. In particular, we see high leverage from **inline example banks** that juxtapose "do this" and "avoid this" snippets tied to the observed traces. Use these contrastive examples to distill the domain knowledge you observe (e.g., how certain phrases, cues, or tool-usage patterns translate into concrete actions) so the student internalizes the underlying rules, not just the surface wording.
+
+When you add inline example banks, append them as a clearly labeled final section (e.g., "Example Bank" or "Few-Shot Reference") so the student sees the canonical examples right after the core instructions.
 
 **Teaching Styles**
 - Learning by example
@@ -109,10 +110,10 @@ The student agent does NOT see traces or trace IDs—those are internal to this 
 - NEVER reference "Trace 1", "Trace 7", or any trace numbering
 - NEVER say "as seen in the traces" or similar—the student has no context for this
 - DO describe patterns, rules, and examples in terms the student can understand
-- DO name patterns descriptively (e.g., "Categorical Split Pattern", "Boundary Split Pattern") rather than by trace number
+- DO name patterns descriptively rather than by trace number
 
 Bad: "### ✓ Simple Split - Trace 7 pattern"
-Good: "### ✓ Boundary Split Pattern (reorder without new sections)"
+Good: "### ✓ Pattern name that describes the behavior"
 
 ## Instruction Design Goal
 
@@ -127,31 +128,30 @@ Produce instructions that are clear, memorable, and grounded in observed behavio
 
 Always connect the *latest* evidence back to its originating hypothesis before proposing new instructions, and let the scratchpad capture the causal reasoning you want to hand off."""
 
-EXAMPLE_BANK_TOOLS_INSTRUCTIONS = """## Example Bank Tools
+EXAMPLE_BANK_TOOLS_INSTRUCTIONS = """## Searchable Example Bank Tools
 
-You have access to example bank tools to build a persistent library of few-shot examples that the student can search at runtime:
+You have access to a **searchable example bank** - a persistent library of few-shot examples that the student can query at runtime. This is different from inline example banks (examples embedded directly in instructions).
+
+**When to use the searchable example bank vs. inline examples:**
+- **Inline examples** (in instructions): Best for a small number of critical examples (3-10) that should always be visible to the student. Start here.
+- **Searchable example bank**: Use when you need tens of examples that would bloat the context if inlined. The student retrieves only relevant examples on demand.
 
 **Available tools:**
-- `add_example(title, keywords, content)` - Add a searchable example. Keywords should be terms the student might search for.
+- `add_examples(examples)` - Add multiple examples at once. Each example needs: title, keywords, content.
 - `remove_example(example_id)` - Remove an example that's no longer helpful or is causing confusion.
 - `list_examples()` - See all examples currently in the bank.
+- `read_examples(example_ids)` - Read the full content of one or more examples.
 - `test_retrieval(query)` - Preview what the student would see when searching with a given query.
 
-**Parallel tool invocation:**
-When you need to add, remove, or test multiple examples, invoke the tools in parallel within a single response. For example, if you identify three distinct failure patterns that each warrant a new example, call `add_example` three times in parallel rather than sequentially. Similarly, if removing multiple outdated examples, invoke `remove_example` for each in the same response. This improves efficiency and ensures all related changes are applied together.
-
-**When to add examples:**
-- When you see a pattern of failures that could be addressed with a concrete "do this, not that" reference
+**When to add examples to the bank:**
+- When inline examples aren't enough and you need a larger reference library
+- When you see many distinct failure patterns that each warrant their own example
 - When the traces reveal domain-specific knowledge that's hard to encode in general instructions
-- When successful traces demonstrate a reusable solution pattern
 
 **When to remove examples:**
 - If an example is too narrow and doesn't generalize
 - If the student is retrieving and misapplying an example
 - If the example conflicts with updated instructions
-
-**Key difference from inline examples:**
-Examples in the bank are *searchable* by the student at runtime. The student can call `search_examples(query)` to find relevant examples based on their current task. This is more efficient than putting all examples in the system prompt, and allows the student to pull in examples only when needed.
 
 **Important - Teaching the student to use the example bank:**
 When you add examples to the bank, also update the student's instructions to tell them when and how to use the `search_examples` tool. For example, if you add examples about handling edge cases, include guidance like "When encountering an unfamiliar pattern, use `search_examples` to find relevant examples before proceeding." Without explicit instructions, the student may not know to search the example bank.
@@ -228,12 +228,14 @@ class InstructionProposalGenerator:
         instructions: str | None = None,
         *,
         include_hypothesis_metadata: bool = False,
+        additional_instructions: str | None = None,
     ) -> None:
         self._agent = Agent(
             instructions=instructions or DEFAULT_AGENT_INSTRUCTIONS,
             output_type=InstructionProposalOutput,
         )
         self._include_hypothesis_metadata = include_hypothesis_metadata
+        self._additional_instructions = additional_instructions
 
     async def propose_texts(
         self,
@@ -287,17 +289,24 @@ class InstructionProposalGenerator:
 
         try:
             toolsets: list[AbstractToolset[None]] = []
-            additional_instructions: str | None = None
+            runtime_instructions_parts: list[str] = []
             if example_bank is not None:
                 toolsets.append(create_example_bank_tools(example_bank))
-                additional_instructions = EXAMPLE_BANK_TOOLS_INSTRUCTIONS
+                runtime_instructions_parts.append(EXAMPLE_BANK_TOOLS_INSTRUCTIONS)
+            if self._additional_instructions:
+                runtime_instructions_parts.append(self._additional_instructions)
+            runtime_instructions = (
+                "\n\n".join(runtime_instructions_parts)
+                if runtime_instructions_parts
+                else None
+            )
 
             result = await self._agent.run(
                 prompt,
                 model=model,
                 model_settings=model_settings,
                 toolsets=toolsets if toolsets else None,
-                instructions=additional_instructions,
+                instructions=runtime_instructions,
             )
         except InspectionAborted:
             raise
@@ -516,7 +525,6 @@ class InstructionProposalGenerator:
             lines.extend(
                 self._format_trace_sections(
                     cleaned_records,
-                    heading_level="###",
                     label="Trace",
                 )
             )
@@ -573,7 +581,6 @@ class InstructionProposalGenerator:
                     lines.extend(
                         self._format_trace_sections(
                             cleaned_records,
-                            heading_level="####",
                             label="Example",
                         )
                     )
@@ -876,7 +883,6 @@ class InstructionProposalGenerator:
         self,
         records: Sequence[Mapping[str, Any]],
         *,
-        heading_level: str,
         label: str,
     ) -> list[str]:
         """Render reflective records in a readable structure."""
@@ -885,11 +891,8 @@ class InstructionProposalGenerator:
 
         lines: list[str] = []
         for idx, record in enumerate(records, start=1):
-            heading = f"{heading_level} {label} {idx}"
-            user_prompt = record.get("user_prompt")
-            if isinstance(user_prompt, str) and user_prompt.strip():
-                heading += f": {user_prompt.strip()}"
-            lines.append(heading)
+            lines.append(f"=== start {label.lower()} {idx} ===")
+            lines.append("")
 
             summary_lines: list[str] = []
             summary_fields = (
@@ -930,6 +933,8 @@ class InstructionProposalGenerator:
                 lines.append(json.dumps(run_usage, indent=2))
                 lines.append("```")
 
+            lines.append("")
+            lines.append(f"=== end {label.lower()} {idx} ===")
             lines.append("")
 
         return lines
