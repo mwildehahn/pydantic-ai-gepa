@@ -10,6 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_ai.toolsets import AbstractToolset
 
 from pydantic_ai_gepa.inspection import InspectionAborted
@@ -241,6 +242,7 @@ class InstructionProposalGenerator:
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
         model: Model | KnownModelName | str,
+        model_settings: ModelSettings | None = None,
         example_bank: InMemoryExampleBank | None = None,
     ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
@@ -250,6 +252,7 @@ class InstructionProposalGenerator:
             reflective_data: Training data with execution traces
             components: Component names to update
             model: Model to use for proposal generation
+            model_settings: Optional model settings (e.g., temperature, max_tokens)
             example_bank: Optional example bank for the reflection agent to manage.
                 If provided, the agent can add/remove examples via tool calls.
         """
@@ -292,6 +295,7 @@ class InstructionProposalGenerator:
             result = await self._agent.run(
                 prompt,
                 model=model,
+                model_settings=model_settings,
                 toolsets=toolsets if toolsets else None,
                 instructions=additional_instructions,
             )

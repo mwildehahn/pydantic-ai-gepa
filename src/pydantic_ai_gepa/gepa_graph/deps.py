@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 
 from .models import CandidateMap
 from .evaluation import ParallelEvaluator, ParetoFrontManager
@@ -29,4 +30,5 @@ class GepaDeps:
     proposal_generator: "InstructionProposalGenerator"
     merge_builder: "MergeProposalBuilder"
     model: Model | KnownModelName | str | None = None
+    model_settings: ModelSettings | None = None
     seed_candidate: CandidateMap | None = None

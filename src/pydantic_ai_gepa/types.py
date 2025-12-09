@@ -8,6 +8,7 @@ from typing import Any, Generic, Literal, Protocol, TypeVar, runtime_checkable
 from pydantic_ai import usage as _usage
 from pydantic_ai.messages import ModelMessage
 from pydantic_ai.models import KnownModelName, Model
+from pydantic_ai.settings import ModelSettings
 from pydantic_evals import Case
 
 
@@ -38,6 +39,9 @@ class ReflectionConfig:
 
     model: Model | KnownModelName | str | None = None
     """LLM used to propose new component text during reflection."""
+
+    model_settings: ModelSettings | None = None
+    """Model settings (e.g., temperature, max_tokens) for the reflection model."""
 
     include_case_metadata: bool = False
     """Include case.metadata in reflection records (e.g., preserved_ids, structural checks)."""

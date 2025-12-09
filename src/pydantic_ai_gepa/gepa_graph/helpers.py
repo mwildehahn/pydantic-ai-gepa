@@ -44,6 +44,9 @@ def create_deps(
     reflection_model = (
         config.reflection_config.model if config.reflection_config else None
     )
+    reflection_model_settings = (
+        config.reflection_config.model_settings if config.reflection_config else None
+    )
     return GepaDeps(
         adapter=adapter,
         evaluator=ParallelEvaluator(),
@@ -56,6 +59,7 @@ def create_deps(
         ),
         merge_builder=MergeProposalBuilder(seed=config.seed),
         model=reflection_model,
+        model_settings=reflection_model_settings,
         seed_candidate=seed_candidate,
     )
 
