@@ -22,12 +22,13 @@ class TestExampleBankTools:
         toolset = create_example_bank_tools(bank)
 
         # Toolset should have registered tools
-        assert len(toolset.tools) == 4
+        assert len(toolset.tools) == 5
         tool_names = set(toolset.tools.keys())
         assert tool_names == {
             "add_example",
             "remove_example",
             "list_examples",
+            "read_example",
             "test_retrieval",
         }
 

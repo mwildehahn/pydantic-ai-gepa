@@ -22,6 +22,7 @@ from ...adapter import (
 from ..example_bank import InMemoryExampleBank
 from ..models import CandidateProgram, ComponentValue
 from .example_bank_tools import create_example_bank_tools
+from .student_tools import create_example_search_tool
 
 DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover instruction formats that measurably improve the student agent's performance.
 
@@ -101,6 +102,17 @@ Your updated components should:
 - Balance clarity with creativity
 - Work together as a unified system
 - Whenever feasible, include a short bank of positive vs. negative examples (or success vs. failure traces) that encode the domain knowledge extracted from the traces—spell out the interpretation rule, then show the matching and mismatching code. Place this example bank at the end of the instructions so it reads like a few-shot appendix the student can reference quickly.
+
+## Critical: Student-Facing Language
+
+The student agent does NOT see traces or trace IDs—those are internal to this reflection process. When writing instructions for the student:
+- NEVER reference "Trace 1", "Trace 7", or any trace numbering
+- NEVER say "as seen in the traces" or similar—the student has no context for this
+- DO describe patterns, rules, and examples in terms the student can understand
+- DO name patterns descriptively (e.g., "Categorical Split Pattern", "Boundary Split Pattern") rather than by trace number
+
+Bad: "### ✓ Simple Split - Trace 7 pattern"
+Good: "### ✓ Boundary Split Pattern (reorder without new sections)"
 
 ## Instruction Design Goal
 
@@ -265,6 +277,7 @@ class InstructionProposalGenerator:
             candidate=candidate,
             reflective_data=reflective_data,
             components=actionable,
+            example_bank=example_bank,
         )
 
         try:
@@ -327,6 +340,7 @@ class InstructionProposalGenerator:
         candidate: CandidateProgram,
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
+        example_bank: InMemoryExampleBank | None = None,
     ) -> str:
         lines = [
             "# Creative Instruction Design Challenge",
@@ -355,13 +369,15 @@ class InstructionProposalGenerator:
         component_sections: list[str] = []
 
         # Show non-tool components in the candidate (tools are shown via JSON Schema below)
+        # Use clear boundary markers that won't conflict with content
         for component_name, component_value in candidate.components.items():
             if component_name.startswith("tool:"):
                 continue  # Skip tool components, they're shown in JSON Schema
-            component_sections.append(f"**`{component_name}` given to student:**")
-            component_sections.append("```")
+            component_sections.append(
+                f"=== start component: `{component_name}` given to student ==="
+            )
             component_sections.append(component_value.text.strip())
-            component_sections.append("```")
+            component_sections.append("=== end ===")
             component_sections.append("")
 
             if (
@@ -445,6 +461,27 @@ class InstructionProposalGenerator:
                 tools.append(catalog_tool)
                 tool_map[name] = catalog_tool
 
+        # Add the student's search_examples tool if example bank exists with examples
+        if example_bank is not None and len(example_bank) > 0:
+            if "search_examples" not in tool_map:
+                # Create the actual toolset and extract schema from it
+                search_toolset = create_example_search_tool(
+                    bank=example_bank,
+                    instruction=example_bank.search_tool_instruction,
+                    k=example_bank.retrieval_k,
+                )
+                tool = search_toolset.tools["search_examples"]
+                search_examples_tool: dict[str, Any] = {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.function_schema.json_schema,
+                    },
+                }
+                tools.append(search_examples_tool)
+                tool_map["search_examples"] = search_examples_tool
+
         output_tool_names: list[str] = []
         if tools:
             for tool in tools:
@@ -526,14 +563,12 @@ class InstructionProposalGenerator:
             ]
         )
 
-        # Show each component to update
+        # Show each component to update (use clear boundary markers)
         for component in components:
             component_value = candidate.components[component]
-            lines.append(f"### Component: `{component}`")
-            lines.append("Current value:")
-            lines.append("```")
+            lines.append(f"=== start component: `{component}` current value ===")
             lines.append(component_value.text.strip())
-            lines.append("```")
+            lines.append("=== end ===")
             lines.append("")
 
             # For ComponentReflectiveDataset, show component-specific traces

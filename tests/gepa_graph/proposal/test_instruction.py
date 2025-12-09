@@ -130,8 +130,8 @@ async def test_llm_generator_updates_components() -> None:
         "tools": "Better tools",
     }
     assert "## Components to update" in prompts[-1]
-    assert "### Component: `instructions`" in prompts[-1]
-    assert "### Component: `tools`" in prompts[-1]
+    assert "=== start component: `instructions` current value ===" in prompts[-1]
+    assert "=== start component: `tools` current value ===" in prompts[-1]
 
 
 @pytest.mark.asyncio
@@ -250,15 +250,13 @@ Transform the student agent's performance through innovative instruction formats
 
 This is the complete configuration the student agent was running with:
 
-**`instructions` given to student:**
-```
+=== start component: `instructions` given to student ===
 Seed instructions
-```
+=== end ===
 
-**`tools` given to student:**
-```
+=== start component: `tools` given to student ===
 Seed tools
-```
+=== end ===
 
 ---
 
@@ -324,17 +322,13 @@ Each trace contains:
 
 Rewrite these components as a coordinated update based on the evidence above:
 
-### Component: `instructions`
-Current value:
-```
+=== start component: `instructions` current value ===
 Seed instructions
-```
+=== end ===
 
-### Component: `tools`
-Current value:
-```
+=== start component: `tools` current value ===
 Seed tools
-```
+=== end ===
 """)
 
 
@@ -350,8 +344,10 @@ async def test_llm_generator_skips_components_without_records() -> None:
 
     async def fake_model(messages, agent_info):
         prompt = messages[-1].parts[0].content
-        assert "### Component: `instructions`" in prompt
-        assert "### Component: `tools`" not in prompt
+        # instructions should be in "Components to update" section
+        assert "=== start component: `instructions` current value ===" in prompt
+        # tools should NOT be in "Components to update" (no records), but IS in "given to student"
+        assert "=== start component: `tools` current value ===" not in prompt
         content = """{
             "reasoning": {
                 "pattern_discovery": "Some things worked",
@@ -622,15 +618,13 @@ Transform the student agent's performance through innovative instruction formats
 
 This is the complete configuration the student agent was running with:
 
-**`instructions` given to student:**
-```
+=== start component: `instructions` given to student ===
 Seed instructions
-```
+=== end ===
 
-**`tools` given to student:**
-```
+=== start component: `tools` given to student ===
 Seed tools
-```
+=== end ===
 
 ---
 
@@ -697,17 +691,13 @@ Each trace contains:
 
 Rewrite these components as a coordinated update based on the evidence above:
 
-### Component: `instructions`
-Current value:
-```
+=== start component: `instructions` current value ===
 Seed instructions
-```
+=== end ===
 
-### Component: `tools`
-Current value:
-```
+=== start component: `tools` current value ===
 Seed tools
-```
+=== end ===
 """)
 
 
@@ -922,10 +912,9 @@ Transform the student agent's performance through innovative instruction formats
 
 This is the complete configuration the student agent was running with:
 
-**`instructions` given to student:**
-```
+=== start component: `instructions` given to student ===
 Use the weather tool to answer questions about weather.
-```
+=== end ===
 
 **Tools available to student (JSON Schema):**
 ```json
@@ -1173,21 +1162,15 @@ Each trace contains:
 
 Rewrite these components as a coordinated update based on the evidence above:
 
-### Component: `instructions`
-Current value:
-```
+=== start component: `instructions` current value ===
 Use the weather tool to answer questions about weather.
-```
+=== end ===
 
-### Component: `tool:get_weather:description`
-Current value:
-```
+=== start component: `tool:get_weather:description` current value ===
 Get current weather for a location.
-```
+=== end ===
 
-### Component: `tool:get_weather:param:location`
-Current value:
-```
+=== start component: `tool:get_weather:param:location` current value ===
 The city name to get weather for.
-```
+=== end ===
 """)

@@ -281,14 +281,19 @@ tests/                # Test suite
 Key arguments for `optimize_agent`:
 
 ```python
+from pydantic_ai_gepa import ReflectionConfig
+
 result = await optimize_agent(
     ...,
     # Budget
     max_metric_calls=200,          # Maximum number of evaluations
 
     # Reflection settings
-    reflection_model="openai:gpt-4o",
-    reflection_model_settings={"temperature": 0.8},
+    reflection_config=ReflectionConfig(
+        model="openai:gpt-4o",
+        include_case_metadata=True,
+        include_expected_output=True,
+    ),
     reflection_minibatch_size=5,   # Examples per reflection
     track_component_hypotheses=True, # Persist reasoning metadata
 
@@ -299,7 +304,7 @@ result = await optimize_agent(
     # Strategy selection
     candidate_selection_strategy="pareto",  # or "current_best"
     module_selector="round_robin",          # or "all"
-    
+
     # Tool & Output Optimization
     optimize_tools=True,
     optimize_output_type=True,

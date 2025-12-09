@@ -48,10 +48,11 @@ def create_example_bank_tools(bank: InMemoryExampleBank) -> FunctionToolset:
 
     @toolset.tool
     def list_examples() -> str:
-        """View all current examples in the bank.
+        """View all current examples in the bank (titles and keywords only).
 
         Use this to understand what examples already exist before adding
         new ones, or to identify examples that should be removed.
+        Use read_example() to see the full content of a specific example.
         """
         if len(bank) == 0:
             return "Example bank is empty."
@@ -60,10 +61,25 @@ def create_example_bank_tools(bank: InMemoryExampleBank) -> FunctionToolset:
             kw_str = ", ".join(ex.keywords) if ex.keywords else "(no keywords)"
             lines.append(f"- [{ex.id}] {ex.title}")
             lines.append(f"  Keywords: {kw_str}")
-            # Show truncated content preview
-            preview = ex.content[:100] + "..." if len(ex.content) > 100 else ex.content
-            preview = preview.replace("\n", " ")
-            lines.append(f"  Preview: {preview}")
+        return "\n".join(lines)
+
+    @toolset.tool
+    def read_example(example_id: str) -> str:
+        """Read the full content of a specific example.
+
+        Use this after list_examples() to see the complete content of an
+        example you want to review, modify, or use as reference.
+        """
+        example = bank.get(example_id)
+        if example is None:
+            return f"Example {example_id} not found"
+        lines = [
+            f"Title: {example.title}",
+            f"Keywords: {', '.join(example.keywords) if example.keywords else '(none)'}",
+            "",
+            "Content:",
+            example.content,
+        ]
         return "\n".join(lines)
 
     @toolset.tool
