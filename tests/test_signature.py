@@ -93,6 +93,7 @@ def test_signature_basic():
     # Get system instructions - should contain descriptions and suffix
     system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
+
 Analyze emails for key information and sentiment.
 
 Inputs:
@@ -156,6 +157,7 @@ def test_apply_candidate():
     # System instructions should use the optimized candidate
     system_instructions = generate_system_instructions(sig, candidate=candidate)
     assert system_instructions == snapshot("""\
+
 Extract actionable insights from customer emails.
 
 Inputs:
@@ -237,6 +239,7 @@ def test_signature_strips_annotated_metadata():
     sig = AnnotatedSignature(timezone=ZoneInfo("UTC"))
     instructions = generate_system_instructions(sig)
     assert instructions == snapshot("""\
+
 Example signature that uses Annotated metadata.
 
 Inputs:
@@ -300,6 +303,7 @@ def test_separation_of_concerns():
     # System instructions should be separate and safe from user manipulation
     system_instructions = generate_system_instructions(sig)
     assert system_instructions == snapshot("""\
+
 Process user data with care.
 
 Inputs:

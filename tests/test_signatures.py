@@ -189,6 +189,7 @@ def test_signature_with_optimized_candidate():
         sig, candidate=optimized_candidate
     )
     assert system_instructions == snapshot("""\
+
 You are an expert support agent. Identify critical issues immediately.
 
 Inputs:

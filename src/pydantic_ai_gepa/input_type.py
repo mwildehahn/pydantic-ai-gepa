@@ -429,9 +429,12 @@ class _InputModelView(_InputShared):
             if suffix_text:
                 instruction_sections.append(suffix_text)
 
-        return "\n\n".join(
+        result = "\n\n".join(
             section.strip() for section in instruction_sections if section.strip()
         )
+        # Prepend a newline so that when pydantic-ai joins multiple instruction parts
+        # with '\n', we get proper '\n\n' separation between base and signature instructions
+        return f"\n{result}" if result else result
 
     def build_user_content(self) -> Sequence[UserContent]:
         content_sections: list[str] = []

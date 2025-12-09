@@ -142,7 +142,7 @@ def test_to_user_content_with_nested_models():
     }
 
     system_instructions = generate_system_instructions(query, candidate=candidate)
-    assert system_instructions == snapshot("""\
+    assert system_instructions == snapshot("""
 Help the customer quickly
 
 Inputs:

@@ -95,6 +95,7 @@ def test_signature_agent_basic():
     expected_signature_instructions = generate_system_instructions(sig)
     assert expected_signature_instructions == snapshot(
         """\
+
 Ask a question about geography.
 
 Inputs:
@@ -105,6 +106,7 @@ Inputs:
     )
     assert request.instructions == snapshot("""\
 You're an expert in geography.
+
 Ask a question about geography.
 
 Inputs:
@@ -157,6 +159,7 @@ def test_signature_agent_with_override_candidate():
     )
     assert expected_signature_instructions == snapshot(
         """\
+
 Focus on European capitals.
 
 Inputs:
@@ -168,6 +171,7 @@ Inputs:
     assert request.instructions is not None
     assert request.instructions == snapshot("""\
 Be concise and accurate.
+
 Focus on European capitals.
 
 Inputs:
@@ -290,6 +294,7 @@ def test_prompt_generation_with_candidate():
 
     system_instructions = generate_system_instructions(sig, candidate=candidate)
     assert system_instructions == snapshot("""\
+
 Focus on major waterways and their importance.
 
 Inputs:
