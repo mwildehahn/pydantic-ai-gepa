@@ -9,6 +9,7 @@ import pytest
 
 from pydantic_ai_gepa.adapter import Adapter
 from pydantic_ai_gepa.gepa_graph import GepaConfig, optimize
+from pydantic_ai_gepa.types import ReflectionConfig
 from tests.gepa_graph.utils import AdapterStub, make_dataset
 
 
@@ -19,7 +20,7 @@ async def test_optimize_completes_successfully() -> None:
         max_evaluations=30,
         minibatch_size=2,
         seed=11,
-        reflection_model="reflection-model",
+        reflection_config=ReflectionConfig(model="reflection-model"),
     )
     dataset = make_dataset()
 
@@ -43,7 +44,7 @@ async def test_optimize_supports_async_dataset_loader() -> None:
         max_evaluations=20,
         minibatch_size=1,
         seed=3,
-        reflection_model="reflection-model",
+        reflection_config=ReflectionConfig(model="reflection-model"),
     )
 
     async def load_remote_dataset():

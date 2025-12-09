@@ -7,6 +7,7 @@ from pydantic_ai_gepa.gepa_graph.example_bank import (
     ExampleBank,
     InMemoryExampleBank,
 )
+from pydantic_ai_gepa.types import ExampleBankConfig
 
 
 def _make_example(
@@ -241,3 +242,63 @@ class TestInMemoryExampleBank:
         copied.remove("test-id")
         assert copied.get("test-id") is None
         assert bank.get("test-id") == ex
+
+
+class TestExampleBankConfig:
+    """Tests for ExampleBankConfig integration with InMemoryExampleBank."""
+
+    def test_default_config_values(self) -> None:
+        """Bank without config uses sensible defaults."""
+        bank = InMemoryExampleBank()
+
+        assert bank.config is None
+        assert bank.retrieval_k == 3  # default
+        assert "Search for relevant examples" in bank.search_tool_instruction
+
+    def test_config_is_stored(self) -> None:
+        """Config passed to constructor is accessible."""
+        config = ExampleBankConfig(
+            retrieval_k=5,
+            search_tool_instruction="Custom instruction",
+            max_examples=100,
+        )
+        bank = InMemoryExampleBank(config=config)
+
+        assert bank.config is config
+
+    def test_retrieval_k_from_config(self) -> None:
+        """retrieval_k property returns value from config."""
+        config = ExampleBankConfig(retrieval_k=10)
+        bank = InMemoryExampleBank(config=config)
+
+        assert bank.retrieval_k == 10
+
+    def test_search_tool_instruction_from_config(self) -> None:
+        """search_tool_instruction property returns value from config."""
+        custom_instruction = "Use this tool when you need examples for tricky cases."
+        config = ExampleBankConfig(search_tool_instruction=custom_instruction)
+        bank = InMemoryExampleBank(config=config)
+
+        assert bank.search_tool_instruction == custom_instruction
+
+    def test_copy_preserves_config(self) -> None:
+        """Copying a bank preserves its config."""
+        config = ExampleBankConfig(retrieval_k=7, search_tool_instruction="Custom")
+        bank = InMemoryExampleBank(config=config)
+        bank.add(_make_example("test", ["a"]))
+
+        copied = bank.copy()
+
+        assert copied.config is config
+        assert copied.retrieval_k == 7
+        assert copied.search_tool_instruction == "Custom"
+
+    def test_copy_without_config(self) -> None:
+        """Copying a bank without config works correctly."""
+        bank = InMemoryExampleBank()
+        bank.add(_make_example("test", ["a"]))
+
+        copied = bank.copy()
+
+        assert copied.config is None
+        assert copied.retrieval_k == 3  # default

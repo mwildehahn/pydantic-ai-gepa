@@ -142,7 +142,6 @@ async def _validation_instances(
 
 
 class _StubAdapter:
-    reflection_model = "test-model"
     reflection_sampler = None
     agent = type("Agent", (), {"_instructions": "seed"})()
     input_spec = None
@@ -156,6 +155,8 @@ class _StubAdapter:
         candidate,
         eval_batch,
         components_to_update: Sequence[str],
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
     ) -> SharedReflectiveDataset:  # pragma: no cover
         return SharedReflectiveDataset(records=[])
 
@@ -245,7 +246,7 @@ def _make_deps(
         batch_sampler=BatchSampler(),
         proposal_generator=InstructionProposalGenerator(),
         merge_builder=merge_builder,
-        reflection_model="test-model",
+        model="test-model",
     )
 
 

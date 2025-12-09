@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import uuid
-from typing import Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Sequence, runtime_checkable
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from ..types import ExampleBankConfig
 
 
 def _generate_id() -> str:
@@ -96,10 +99,11 @@ class InMemoryExampleBank:
     Suitable for small example sets (<1000 examples).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config: "ExampleBankConfig | None" = None) -> None:
         self._examples: list[BankedExample] = []
         self._by_id: dict[str, BankedExample] = {}
         self._idf: dict[str, float] = {}
+        self._config = config
 
     def add(self, example: BankedExample) -> None:
         """Add an example to the bank."""
@@ -177,9 +181,31 @@ class InMemoryExampleBank:
     def __iter__(self):
         return iter(self._examples)
 
+    @property
+    def config(self) -> "ExampleBankConfig | None":
+        """Get the configuration for this example bank."""
+        return self._config
+
+    @property
+    def retrieval_k(self) -> int:
+        """Number of examples to retrieve when searching."""
+        if self._config is not None:
+            return self._config.retrieval_k
+        return 3  # default
+
+    @property
+    def search_tool_instruction(self) -> str:
+        """Instruction for when the student agent should use the search tool."""
+        if self._config is not None:
+            return self._config.search_tool_instruction
+        return (
+            "Search for relevant examples when you're unsure how to handle "
+            "a request or want to see similar cases."
+        )
+
     def copy(self) -> InMemoryExampleBank:
         """Create a shallow copy of the bank (for candidate forking)."""
-        new_bank = InMemoryExampleBank()
+        new_bank = InMemoryExampleBank(config=self._config)
         new_bank._examples = list(self._examples)
         new_bank._by_id = dict(self._by_id)
         new_bank._idf = dict(self._idf)

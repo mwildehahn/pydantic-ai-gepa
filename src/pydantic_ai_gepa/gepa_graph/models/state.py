@@ -14,10 +14,8 @@ from pydantic import (
     field_validator,
     model_validator,
 )
-from pydantic_ai.models import KnownModelName, Model
-from pydantic_ai.settings import ModelSettings
 
-from ...types import ExampleBankConfig, RolloutOutput
+from ...types import ReflectionConfig, RolloutOutput
 from pydantic_evals import Case
 from ..datasets import DataLoader, ensure_loader
 from ...reflection import ReflectionSampler
@@ -103,9 +101,9 @@ class GepaConfig(BaseModel):
         default=True,
         description="Whether to stop reflecting once a candidate meets or exceeds perfect_score.",
     )
-    reflection_model: Model | KnownModelName | str | None = Field(
+    reflection_config: ReflectionConfig | None = Field(
         default=None,
-        description="LLM used to propose new component text during reflection.",
+        description="Configuration for the reflection agent (model, include_case_metadata, include_expected_output).",
     )
     reflection_sampler: ReflectionSampler | None = Field(
         default=None,
@@ -118,16 +116,6 @@ class GepaConfig(BaseModel):
     track_component_hypotheses: bool = Field(
         default=False,
         description="Persist reasoning metadata for component updates and surface it in future reflections.",
-    )
-    reflection_model_settings: ModelSettings | None = Field(
-        default=None,
-        description="Default model settings applied to every reflection model call (e.g., temperature, top_p).",
-    )
-
-    # Example bank
-    example_bank: ExampleBankConfig | None = Field(
-        default=None,
-        description="Configuration for the example bank feature. None disables the feature.",
     )
 
     # Component selection

@@ -63,7 +63,15 @@ class _RecordingAdapter:
         finally:
             self.inflight -= 1
 
-    def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update,
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
+    ):
         return SharedReflectiveDataset(records=[])
 
     def get_components(self) -> CandidateMap:
@@ -93,7 +101,15 @@ class _CachingAdapter:
         self._cache[key] = batch_result
         return batch_result
 
-    def make_reflective_dataset(self, *, candidate, eval_batch, components_to_update):
+    def make_reflective_dataset(
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update,
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
+    ):
         return SharedReflectiveDataset(records=[])
 
     def get_components(self) -> CandidateMap:

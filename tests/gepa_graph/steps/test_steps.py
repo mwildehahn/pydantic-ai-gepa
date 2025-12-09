@@ -27,7 +27,7 @@ from pydantic_ai_gepa.gepa_graph.steps import (
     evaluate_step,
     start_step,
 )
-from pydantic_ai_gepa.types import RolloutOutput
+from pydantic_ai_gepa.types import ExampleBankConfig, ReflectionConfig, RolloutOutput
 from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
@@ -70,7 +70,6 @@ class _FakeAdapter:
         self.agent = type("Agent", (), {"_instructions": "seed"})()
         self.input_spec = None
         self.scores: dict[str, float] = {}
-        self.reflection_model = "test-model"
         self.reflection_sampler = None
 
     async def evaluate(self, batch, candidate, capture_traces, example_bank=None):
@@ -87,6 +86,8 @@ class _FakeAdapter:
         candidate,
         eval_batch,
         components_to_update: Sequence[str],
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
     ) -> SharedReflectiveDataset:
         return SharedReflectiveDataset(records=[])
 
@@ -125,7 +126,7 @@ def _make_deps(
         batch_sampler=BatchSampler(),
         proposal_generator=InstructionProposalGenerator(),
         merge_builder=MergeProposalBuilder(),
-        reflection_model="test-model",
+        model="test-model",
         seed_candidate=seed_candidate,
     )
 
@@ -193,6 +194,47 @@ async def test_start_step_uses_adapter_snapshot_when_seed_missing() -> None:
     assert deps.seed_candidate == {
         "instructions": ComponentValue(name="instructions", text="seed"),
     }
+
+
+@pytest.mark.asyncio
+async def test_start_step_creates_example_bank_with_config() -> None:
+    """Start step creates example bank with config from ReflectionConfig."""
+    example_bank_config = ExampleBankConfig(
+        retrieval_k=5,
+        search_tool_instruction="Custom search instruction",
+        max_examples=100,
+    )
+    config = GepaConfig(
+        max_evaluations=10,
+        reflection_config=ReflectionConfig(example_bank=example_bank_config),
+    )
+    state = _make_state(config=config)
+    deps = _make_deps()
+    ctx = _ctx(state, deps)
+
+    await start_step(ctx)
+
+    assert len(state.candidates) == 1
+    candidate = state.candidates[0]
+    assert candidate.example_bank is not None
+    assert candidate.example_bank.config is example_bank_config
+    assert candidate.example_bank.retrieval_k == 5
+    assert candidate.example_bank.search_tool_instruction == "Custom search instruction"
+
+
+@pytest.mark.asyncio
+async def test_start_step_no_example_bank_when_config_is_none() -> None:
+    """Start step does not create example bank when reflection_config.example_bank is None."""
+    config = GepaConfig(max_evaluations=10, reflection_config=ReflectionConfig())
+    state = _make_state(config=config)
+    deps = _make_deps()
+    ctx = _ctx(state, deps)
+
+    await start_step(ctx)
+
+    assert len(state.candidates) == 1
+    candidate = state.candidates[0]
+    assert candidate.example_bank is None
 
 
 @pytest.mark.asyncio

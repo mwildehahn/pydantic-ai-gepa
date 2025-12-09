@@ -62,7 +62,6 @@ from ..tool_components import (
 from ..types import (
     MetadataWithMessageHistory,
     MetricResult,
-    ReflectionConfig,
     RolloutOutput,
     Trajectory,
 )
@@ -602,13 +601,11 @@ class _BaseAgentAdapter(
         optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
-        reflection_config: ReflectionConfig | None = None,
     ) -> None:
         self.agent = agent
         self.metric = metric
         self.input_spec = input_spec
         self.cache_manager = cache_manager
-        self.reflection_config = reflection_config or ReflectionConfig()
         self._model_identifier = _derive_model_identifier(agent)
         if (
             self.cache_manager
@@ -1130,6 +1127,8 @@ class _BaseAgentAdapter(
         candidate: CandidateMap,
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
     ) -> ReflectiveDataset:
         trajectories = eval_batch.trajectories
         if not trajectories:
@@ -1165,15 +1164,12 @@ class _BaseAgentAdapter(
 
             record["feedback"] = feedback_text
 
-            # Include case metadata and expected output based on reflection_config
+            # Include case metadata and expected output based on config
             case = getattr(trajectory, "case", None)
             if case is not None:
-                if self.reflection_config.include_case_metadata and case.metadata:
+                if include_case_metadata and case.metadata:
                     record["case_metadata"] = _serialize_for_reflection(case.metadata)
-                if (
-                    self.reflection_config.include_expected_output
-                    and case.expected_output
-                ):
+                if include_expected_output and case.expected_output:
                     record["expected_output"] = _serialize_for_reflection(
                         case.expected_output
                     )
@@ -1211,7 +1207,6 @@ class AgentAdapter(
         optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
-        reflection_config: ReflectionConfig | None = None,
     ) -> None:
         super().__init__(
             agent=agent,
@@ -1222,7 +1217,6 @@ class AgentAdapter(
             optimize_output_type=optimize_output_type,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
-            reflection_config=reflection_config,
         )
 
     async def _invoke_agent(
@@ -1243,12 +1237,8 @@ class AgentAdapter(
         if example_bank is not None and len(example_bank) > 0:
             search_tool = create_example_search_tool(
                 bank=example_bank,
-                instruction=(
-                    "Search for relevant examples when you're unsure how to handle "
-                    "a request. Provide a query describing what kind of example "
-                    "would help."
-                ),
-                k=3,
+                instruction=example_bank.search_tool_instruction,
+                k=example_bank.retrieval_k,
             )
             toolsets = [search_tool]
         return await self.agent.run(
@@ -1299,7 +1289,6 @@ class SignatureAgentAdapter(
         optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
-        reflection_config: ReflectionConfig | None = None,
     ) -> None:
         bound_spec = (
             build_input_spec(input_type) if input_type is not None else agent.input_spec
@@ -1317,7 +1306,6 @@ class SignatureAgentAdapter(
             optimize_output_type=optimize_output_type,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
-            reflection_config=reflection_config,
         )
 
     async def _invoke_agent(
@@ -1335,12 +1323,8 @@ class SignatureAgentAdapter(
         if example_bank is not None and len(example_bank) > 0:
             search_tool = create_example_search_tool(
                 bank=example_bank,
-                instruction=(
-                    "Search for relevant examples when you're unsure how to handle "
-                    "a request. Provide a query describing what kind of example "
-                    "would help."
-                ),
-                k=3,
+                instruction=example_bank.search_tool_instruction,
+                k=example_bank.retrieval_k,
             )
             toolsets = [search_tool]
         return await self._signature_agent.run_signature(

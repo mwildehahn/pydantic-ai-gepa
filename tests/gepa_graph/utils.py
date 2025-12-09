@@ -75,7 +75,13 @@ class AdapterStub:
         )
 
     def make_reflective_dataset(
-        self, *, candidate, eval_batch, components_to_update
+        self,
+        *,
+        candidate,
+        eval_batch,
+        components_to_update,
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
     ) -> SharedReflectiveDataset:
         records = [
             {

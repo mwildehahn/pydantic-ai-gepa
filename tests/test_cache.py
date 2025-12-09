@@ -21,7 +21,7 @@ from pydantic_ai_gepa.gepa_graph.proposal.instruction import (
 )
 from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapterTrajectory
-from pydantic_ai_gepa.types import MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import MetricResult, ReflectionConfig, RolloutOutput
 from pydantic_evals import Case
 
 
@@ -379,7 +379,7 @@ async def test_optimize_agent_with_caching():
             agent=agent,
             trainset=trainset,
             metric=metric,
-            reflection_model=reflection_model,
+            reflection_config=ReflectionConfig(model=reflection_model),
             max_metric_calls=15,
             seed=42,
             enable_cache=True,
@@ -399,7 +399,7 @@ async def test_optimize_agent_with_caching():
             agent=agent,
             trainset=trainset,
             metric=metric,
-            reflection_model=reflection_model,
+            reflection_config=ReflectionConfig(model=reflection_model),
             max_metric_calls=15,
             seed=42,  # Same seed to get same behavior
             enable_cache=True,

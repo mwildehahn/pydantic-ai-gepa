@@ -10,7 +10,6 @@ from typing import Any
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
 from pydantic_ai.models import KnownModelName, Model
-from pydantic_ai.settings import ModelSettings
 from pydantic_ai.toolsets import AbstractToolset
 
 from pydantic_ai_gepa.inspection import InspectionAborted
@@ -214,14 +213,12 @@ class InstructionProposalGenerator:
         instructions: str | None = None,
         *,
         include_hypothesis_metadata: bool = False,
-        model_settings: ModelSettings | None = None,
     ) -> None:
         self._agent = Agent(
             instructions=instructions or DEFAULT_AGENT_INSTRUCTIONS,
             output_type=InstructionProposalOutput,
         )
         self._include_hypothesis_metadata = include_hypothesis_metadata
-        self._default_model_settings = model_settings
 
     async def propose_texts(
         self,
@@ -230,12 +227,6 @@ class InstructionProposalGenerator:
         reflective_data: ReflectiveDataset,
         components: Sequence[str],
         model: Model | KnownModelName | str,
-        iteration: int | None = None,  # Kept for backwards compatibility but not used
-        current_best_score: float
-        | None = None,  # Kept for backwards compatibility but not used
-        parent_score: float
-        | None = None,  # Kept for backwards compatibility but not used
-        model_settings: ModelSettings | None = None,
         example_bank: InMemoryExampleBank | None = None,
     ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
@@ -245,10 +236,6 @@ class InstructionProposalGenerator:
             reflective_data: Training data with execution traces
             components: Component names to update
             model: Model to use for proposal generation
-            iteration: (Deprecated) No longer used - kept for backwards compatibility
-            current_best_score: (Deprecated) No longer used - kept for backwards compatibility
-            parent_score: (Deprecated) No longer used - kept for backwards compatibility
-            model_settings: Optional model settings for the proposal agent
             example_bank: Optional example bank for the reflection agent to manage.
                 If provided, the agent can add/remove examples via tool calls.
         """
@@ -281,7 +268,6 @@ class InstructionProposalGenerator:
         )
 
         try:
-            resolved_settings = model_settings or self._default_model_settings
             toolsets: list[AbstractToolset[None]] = []
             additional_instructions: str | None = None
             if example_bank is not None:
@@ -291,7 +277,6 @@ class InstructionProposalGenerator:
             result = await self._agent.run(
                 prompt,
                 model=model,
-                model_settings=resolved_settings,
                 toolsets=toolsets if toolsets else None,
                 instructions=additional_instructions,
             )

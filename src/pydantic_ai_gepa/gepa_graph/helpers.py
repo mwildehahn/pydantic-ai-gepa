@@ -41,6 +41,9 @@ def create_deps(
     component_selector = _build_component_selector(config)
     batch_sampler = BatchSampler(seed=config.seed)
 
+    reflection_model = (
+        config.reflection_config.model if config.reflection_config else None
+    )
     return GepaDeps(
         adapter=adapter,
         evaluator=ParallelEvaluator(),
@@ -50,10 +53,9 @@ def create_deps(
         batch_sampler=batch_sampler,
         proposal_generator=InstructionProposalGenerator(
             include_hypothesis_metadata=config.track_component_hypotheses,
-            model_settings=config.reflection_model_settings,
         ),
         merge_builder=MergeProposalBuilder(seed=config.seed),
-        reflection_model=config.reflection_model,
+        model=reflection_model,
         seed_candidate=seed_candidate,
     )
 

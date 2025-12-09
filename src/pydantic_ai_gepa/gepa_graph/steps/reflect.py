@@ -7,7 +7,6 @@ from typing import Any, Mapping, Sequence, cast
 import logfire
 from pydantic_graph.beta import StepContext
 from pydantic_ai.models import KnownModelName, Model
-from pydantic_ai.settings import ModelSettings
 
 from ...adapter import (
     ComponentReflectiveDataset,
@@ -96,7 +95,7 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         eval_results=parent_results,
         components=components,
     )
-    reflection_model = _resolve_reflection_model(deps)
+    reflection_model = _resolve_model(deps)
 
     with logfire.span(
         "propose new texts",
@@ -111,7 +110,6 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
             reflective_dataset=reflective_dataset,
             components=components,
             model=reflection_model,
-            model_settings=state.config.reflection_model_settings,
         )
         component_metadata = (
             proposal_result.component_metadata
@@ -320,10 +318,17 @@ def _build_reflective_dataset(
         else None,
     )
 
+    reflection_config = state.config.reflection_config
     raw_dataset = deps.adapter.make_reflective_dataset(
         candidate=candidate.components,
         eval_batch=eval_batch,
         components_to_update=components,
+        include_case_metadata=reflection_config.include_case_metadata
+        if reflection_config
+        else False,
+        include_expected_output=reflection_config.include_expected_output
+        if reflection_config
+        else False,
     )
     # Preserve shared datasets to avoid duplicating identical traces per component
     # (especially when using the "all" component selector). When adapters return a
@@ -353,14 +358,12 @@ def _build_reflective_dataset(
     return ComponentReflectiveDataset(records_by_component=records_by_component)
 
 
-def _resolve_reflection_model(
+def _resolve_model(
     deps: GepaDeps,
 ) -> Model | KnownModelName | str:
-    model = deps.reflection_model
+    model = deps.model
     if model is None:
-        raise ValueError(
-            "reflection_model must be configured before running reflection."
-        )
+        raise ValueError("model must be configured before running reflection.")
     return model
 
 
@@ -372,7 +375,6 @@ async def _propose_new_texts(
     reflective_dataset: ReflectiveDataset,
     components: Sequence[str],
     model: Model | KnownModelName | str,
-    model_settings: ModelSettings | None = None,
 ) -> ProposalResult:
     proposal = deps.proposal_generator
     return await proposal.propose_texts(
@@ -380,10 +382,6 @@ async def _propose_new_texts(
         reflective_data=reflective_dataset,
         components=components,
         model=model,
-        iteration=state.iteration,
-        current_best_score=state.best_score,
-        parent_score=parent.avg_validation_score,
-        model_settings=model_settings,
         example_bank=parent.example_bank,
     )
 

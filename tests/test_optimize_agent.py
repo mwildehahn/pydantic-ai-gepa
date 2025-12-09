@@ -25,6 +25,7 @@ from pydantic_ai_gepa.runner import optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
 from pydantic_ai_gepa.types import (
     MetricResult,
+    ReflectionConfig,
     RolloutOutput,
 )
 
@@ -117,7 +118,7 @@ async def test_optimize_agent_minimal_flow():
         agent=agent,
         trainset=dataset,
         metric=metric,
-        reflection_model=reflection_model,
+        reflection_config=ReflectionConfig(model=reflection_model),
         max_metric_calls=20,
         seed=0,
     )
@@ -212,7 +213,7 @@ async def test_optimize_agent_minimal_flow_with_signature():
         trainset=dataset,
         input_type=Input,
         metric=metric,
-        reflection_model=reflection_model,
+        reflection_config=ReflectionConfig(model=reflection_model),
         max_metric_calls=20,
         seed=0,
     )
@@ -280,7 +281,7 @@ async def test_optimize_agent_reports_progress(monkeypatch: pytest.MonkeyPatch):
         agent=agent,
         trainset=trainset,
         metric=metric,
-        reflection_model=reflection_model,
+        reflection_config=ReflectionConfig(model=reflection_model),
         max_metric_calls=5,
         show_progress=True,
         seed=0,
@@ -334,7 +335,7 @@ async def test_optimize_agent_respects_agent_usage_limits():
         agent=agent,
         trainset=trainset,
         metric=metric,
-        reflection_model=reflection_model,
+        reflection_config=ReflectionConfig(model=reflection_model),
         max_metric_calls=3,
         agent_usage_limits=_usage.UsageLimits(request_limit=0),
         seed=0,
@@ -380,7 +381,7 @@ async def test_optimize_agent_stops_on_gepa_usage_budget():
         agent=agent,
         trainset=trainset,
         metric=metric,
-        reflection_model=reflection_model,
+        reflection_config=ReflectionConfig(model=reflection_model),
         max_metric_calls=50,
         gepa_usage_limits=_usage.UsageLimits(request_limit=1),
         seed=0,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -131,9 +132,11 @@ class _StubAdapter:
     def make_reflective_dataset(
         self,
         *,
-        candidate,
-        eval_batch,
-        components_to_update,
+        candidate: CandidateMap,
+        eval_batch: Any,
+        components_to_update: Sequence[str],
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
     ) -> ComponentReflectiveDataset:
         self.dataset_calls += 1
         data = {
@@ -173,19 +176,19 @@ class _StubProposalGenerator(InstructionProposalGenerator):
     async def propose_texts(
         self,
         *,
-        candidate,
-        reflective_data,
-        components,
-        model,
-        iteration=None,
-        current_best_score=None,
-        parent_score=None,
-        model_settings=None,
-        example_bank=None,
-    ):
+        candidate: CandidateProgram,
+        reflective_data: ReflectiveDataset,
+        components: Sequence[str],
+        model: Any,
+        iteration: int | None = None,
+        current_best_score: float | None = None,
+        parent_score: float | None = None,
+        model_settings: Any = None,
+        example_bank: Any = None,
+    ) -> ProposalResult:
         self.calls += 1
         self.last_reflective_data = reflective_data
-        updates = {
+        updates: dict[str, str] = {
             component: self._updates.get(
                 component, candidate.components[component].text
             )
@@ -221,7 +224,7 @@ def _make_deps(
     evaluator: ParallelEvaluator,
     batch_sampler: BatchSampler,
     proposal_generator: InstructionProposalGenerator,
-    reflection_model: str | None = "reflection-model",
+    model: str | None = "reflection-model",
 ) -> GepaDeps:
     return GepaDeps(
         adapter=adapter,
@@ -232,7 +235,7 @@ def _make_deps(
         batch_sampler=batch_sampler,
         proposal_generator=proposal_generator,
         merge_builder=MergeProposalBuilder(),
-        reflection_model=reflection_model,
+        model=model,
     )
 
 
@@ -412,7 +415,7 @@ async def test_reflect_step_skips_when_batch_is_perfect() -> None:
 
 
 @pytest.mark.asyncio
-async def test_reflect_step_requires_reflection_model() -> None:
+async def test_reflect_step_requires_model() -> None:
     state = _make_state()
     minibatch = await _training_examples(state)
     evaluator = _StubEvaluator([_eval_results([0.3, 0.4])])
@@ -424,11 +427,11 @@ async def test_reflect_step_requires_reflection_model() -> None:
         evaluator=evaluator,
         batch_sampler=batch_sampler,
         proposal_generator=generator,
-        reflection_model=None,
+        model=None,
     )
     ctx = _ctx(state, deps)
 
-    with pytest.raises(ValueError, match="reflection_model"):
+    with pytest.raises(ValueError, match="model must be configured"):
         await reflect_step(ctx)
 
 
@@ -448,6 +451,8 @@ async def test_reflect_step_preserves_shared_dataset_with_all_selector() -> None
             candidate,
             eval_batch,
             components_to_update,
+            include_case_metadata: bool = False,
+            include_expected_output: bool = False,
         ) -> SharedReflectiveDataset:
             self.dataset_calls += 1
             return SharedReflectiveDataset(records=list(self.records))
@@ -480,7 +485,7 @@ async def test_reflect_step_preserves_shared_dataset_with_all_selector() -> None
         batch_sampler=batch_sampler,
         proposal_generator=generator,
         merge_builder=MergeProposalBuilder(),
-        reflection_model="reflection-model",
+        model="reflection-model",
     )
     ctx = _ctx(state, deps)
 

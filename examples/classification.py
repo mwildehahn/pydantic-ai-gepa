@@ -13,7 +13,7 @@ from pydantic_evals import Case, Dataset
 
 from pydantic_ai_gepa.runner import GepaOptimizationResult, optimize_agent
 from pydantic_ai_gepa.signature_agent import SignatureAgent
-from pydantic_ai_gepa.types import MetricResult, RolloutOutput
+from pydantic_ai_gepa.types import MetricResult, ReflectionConfig, RolloutOutput
 
 logfire.configure()
 logfire.instrument_pydantic_ai()
@@ -362,7 +362,7 @@ async def main() -> None:
         module_selector="all",
         metric=metric,
         input_type=ClassificationInput,
-        reflection_model=reflection_model,
+        reflection_config=ReflectionConfig(model=reflection_model),
         max_metric_calls=200,
         enable_cache=True,
         cache_dir=".gepa_cache",

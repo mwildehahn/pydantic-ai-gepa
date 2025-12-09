@@ -48,6 +48,8 @@ class _AdapterStub:
         candidate,
         eval_batch,
         components_to_update: Sequence[str],
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
     ) -> SharedReflectiveDataset:  # pragma: no cover
         return SharedReflectiveDataset(records=[])
 
@@ -73,7 +75,11 @@ def _make_state(config: GepaConfig) -> GepaState:
 
 def test_create_deps_defaults() -> None:
     adapter = _make_adapter()
-    config = GepaConfig(seed=7, reflection_model="reflection-model")
+    from pydantic_ai_gepa.types import ReflectionConfig
+
+    config = GepaConfig(
+        seed=7, reflection_config=ReflectionConfig(model="reflection-model")
+    )
 
     deps = create_deps(adapter, config)
 
@@ -84,7 +90,8 @@ def test_create_deps_defaults() -> None:
     assert isinstance(deps.batch_sampler, BatchSampler)
     assert isinstance(deps.merge_builder.seed, int)
     assert deps.merge_builder.seed == config.seed
-    assert deps.reflection_model == config.reflection_model
+    assert config.reflection_config is not None
+    assert deps.model == config.reflection_config.model
 
     # Batch sampler should respect the config seed for determinism.
     sampler_rng = getattr(deps.batch_sampler, "_rng")

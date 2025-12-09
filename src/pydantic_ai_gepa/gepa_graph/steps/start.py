@@ -57,8 +57,9 @@ def _build_candidate(
 
     # Initialize example bank if enabled
     example_bank = None
-    if state.config.example_bank is not None:
-        example_bank = InMemoryExampleBank()
+    reflection_config = state.config.reflection_config
+    if reflection_config is not None and reflection_config.example_bank is not None:
+        example_bank = InMemoryExampleBank(config=reflection_config.example_bank)
 
     return CandidateProgram(
         idx=len(state.candidates),

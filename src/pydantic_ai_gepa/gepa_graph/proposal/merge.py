@@ -110,11 +110,15 @@ class MergeProposalBuilder:
             )
 
         # Merge example banks from both parents
+        reflection_config = state.config.reflection_config
+        example_bank_config = (
+            reflection_config.example_bank if reflection_config else None
+        )
         example_bank = self._merge_example_banks(
             parent1.example_bank,
             parent2.example_bank,
-            max_examples=state.config.example_bank.max_examples
-            if state.config.example_bank
+            max_examples=example_bank_config.max_examples
+            if example_bank_config
             else 50,
         )
 
@@ -264,7 +268,13 @@ class MergeProposalBuilder:
         if bank1 is None and bank2 is None:
             return None
 
-        merged = InMemoryExampleBank()
+        # Preserve config from whichever bank has it
+        config = (
+            bank1.config
+            if bank1 is not None
+            else (bank2.config if bank2 is not None else None)
+        )
+        merged = InMemoryExampleBank(config=config)
         seen_ids: set[str] = set()
 
         # Add examples from both banks, preferring bank1 if there are duplicates

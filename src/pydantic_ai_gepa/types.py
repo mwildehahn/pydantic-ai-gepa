@@ -7,6 +7,7 @@ from typing import Any, Generic, Literal, Protocol, TypeVar, runtime_checkable
 
 from pydantic_ai import usage as _usage
 from pydantic_ai.messages import ModelMessage
+from pydantic_ai.models import KnownModelName, Model
 from pydantic_evals import Case
 
 
@@ -25,6 +26,27 @@ class ExampleBankConfig:
         "a request or want to see similar cases."
     )
     """Instruction shown to the student agent for when to use the example search tool."""
+
+
+@dataclass
+class ReflectionConfig:
+    """Configuration for the GEPA reflection agent.
+
+    Controls the model used for reflection and what context is passed
+    to the reflection agent when analyzing agent execution traces.
+    """
+
+    model: Model | KnownModelName | str | None = None
+    """LLM used to propose new component text during reflection."""
+
+    include_case_metadata: bool = False
+    """Include case.metadata in reflection records (e.g., preserved_ids, structural checks)."""
+
+    include_expected_output: bool = False
+    """Include case.expected_output in reflection records."""
+
+    example_bank: ExampleBankConfig | None = None
+    """Configuration for the example bank feature. None disables the feature."""
 
 
 # Type variable for the output type in RolloutOutput
@@ -54,24 +76,6 @@ class MetricResult:
 
     score: float
     feedback: str | None = None
-
-
-@dataclass
-class ReflectionConfig:
-    """Configuration for what gets included in reflection records.
-
-    Controls what context is passed to the GEPA reflection agent when
-    analyzing agent execution traces.
-    """
-
-    include_case_metadata: bool = False
-    """Include case.metadata in reflection records (e.g., preserved_ids, structural checks)."""
-
-    include_expected_output: bool = False
-    """Include case.expected_output in reflection records."""
-
-    example_bank: ExampleBankConfig | None = None
-    """Configuration for the example bank feature. None disables the feature."""
 
 
 @dataclass
@@ -113,8 +117,8 @@ __all__ = [
     "Case",
     "ExampleBankConfig",
     "MetadataWithMessageHistory",
+    "ReflectionConfig",
     "Trajectory",
     "MetricResult",
-    "ReflectionConfig",
     "RolloutOutput",
 ]

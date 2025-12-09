@@ -53,6 +53,8 @@ class Adapter(Protocol, Generic[InputT, OutputT, MetadataT]):
         candidate: CandidateMap,
         eval_batch: EvaluationBatch,
         components_to_update: Sequence[str],
+        include_case_metadata: bool = False,
+        include_expected_output: bool = False,
     ) -> ReflectiveDataset: ...
 
     def get_components(self) -> CandidateMap:

@@ -28,5 +28,5 @@ class GepaDeps:
     batch_sampler: BatchSampler
     proposal_generator: "InstructionProposalGenerator"
     merge_builder: "MergeProposalBuilder"
-    reflection_model: Model | KnownModelName | str | None = None
+    model: Model | KnownModelName | str | None = None
     seed_candidate: CandidateMap | None = None
