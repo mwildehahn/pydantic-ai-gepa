@@ -21,7 +21,14 @@ async def start_step(ctx: StepContext[GepaState, GepaDeps, None]) -> None:
         return None
 
     seed_components = _determine_seed_components(ctx.deps)
-    candidate = _build_candidate(state, seed_components)
+
+    # Initialize example bank if configured
+    example_bank: InMemoryExampleBank | None = None
+    reflection_config = state.config.reflection_config
+    if reflection_config is not None and reflection_config.example_bank is not None:
+        example_bank = InMemoryExampleBank(config=reflection_config.example_bank)
+
+    candidate = _build_candidate(state, seed_components, example_bank)
     state.add_candidate(candidate)
     state.iteration = 0
     return None
@@ -47,6 +54,7 @@ def _determine_seed_components(deps: GepaDeps) -> CandidateMap:
 def _build_candidate(
     state: GepaState,
     components: CandidateMap,
+    example_bank: InMemoryExampleBank | None = None,
 ) -> CandidateProgram:
     component_models = {
         name: component
@@ -54,12 +62,6 @@ def _build_candidate(
         else ComponentValue(name=name, text=str(component))
         for name, component in components.items()
     }
-
-    # Initialize example bank if enabled
-    example_bank = None
-    reflection_config = state.config.reflection_config
-    if reflection_config is not None and reflection_config.example_bank is not None:
-        example_bank = InMemoryExampleBank(config=reflection_config.example_bank)
 
     return CandidateProgram(
         idx=len(state.candidates),

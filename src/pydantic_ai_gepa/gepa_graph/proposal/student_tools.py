@@ -31,6 +31,8 @@ def create_example_search_tool(
         Args:
             query: What kind of example are you looking for?
         """
+        if len(bank) == 0:
+            return "No examples have been added to the example bank yet."
         results = bank.search(query, k=k)
         if not results:
             return "No relevant examples found."

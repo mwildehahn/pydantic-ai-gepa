@@ -22,7 +22,6 @@ from ...adapter import (
 from ..example_bank import InMemoryExampleBank
 from ..models import CandidateProgram, ComponentValue
 from .example_bank_tools import create_example_bank_tools
-from .student_tools import create_example_search_tool
 
 DEFAULT_AGENT_INSTRUCTIONS = """Your mission is to discover instruction formats that measurably improve the student agent's performance.
 
@@ -460,27 +459,6 @@ class InstructionProposalGenerator:
             else:
                 tools.append(catalog_tool)
                 tool_map[name] = catalog_tool
-
-        # Add the student's search_examples tool if example bank is configured
-        if example_bank is not None:
-            if "search_examples" not in tool_map:
-                # Create the actual toolset and extract schema from it
-                search_toolset = create_example_search_tool(
-                    bank=example_bank,
-                    instruction=example_bank.search_tool_instruction,
-                    k=example_bank.retrieval_k,
-                )
-                tool = search_toolset.tools["search_examples"]
-                search_examples_tool: dict[str, Any] = {
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.function_schema.json_schema,
-                    },
-                }
-                tools.append(search_examples_tool)
-                tool_map["search_examples"] = search_examples_tool
 
         output_tool_names: list[str] = []
         if tools:

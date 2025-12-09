@@ -201,7 +201,12 @@ class OutputToolComponentCatalog(ToolComponentCatalog):
 class ToolOptimizationManager:
     """Manage tool component extraction and candidate application."""
 
-    def __init__(self, agent: AbstractAgent[Any, Any]) -> None:
+    def __init__(
+        self,
+        agent: AbstractAgent[Any, Any],
+        *,
+        allowed_tools: set[str] | None = None,
+    ) -> None:
         self._base_agent = _unwrap_agent(agent)
         self._base_prepare = getattr(self._base_agent, "_prepare_tools", None)
         self._candidate_var: contextvars.ContextVar[ToolCandidate | None] = (
@@ -209,6 +214,8 @@ class ToolOptimizationManager:
         )
         self._catalog = ToolComponentCatalog()
         self._latest_builtin_tools: list[AbstractBuiltinTool] = []
+        # When None, all tools are optimized. When a set, only those tools are optimized.
+        self._allowed_tools: set[str] | None = allowed_tools
 
         # Install wrapper only once.
         if getattr(self._base_agent, "_gepa_tool_prepare_wrapper", None) is None:
@@ -216,6 +223,17 @@ class ToolOptimizationManager:
                 self._base_agent, "_gepa_tool_prepare_wrapper", self._prepare_wrapper
             )
             self._base_agent._prepare_tools = self._prepare_wrapper  # type: ignore[assignment]
+
+    def allow_tool(self, tool_name: str) -> None:
+        """Add a tool to the allowed set for optimization.
+
+        If the manager was created with allowed_tools=None (optimize all),
+        this creates a new set with just this tool.
+        """
+        if self._allowed_tools is None:
+            self._allowed_tools = {tool_name}
+        else:
+            self._allowed_tools.add(tool_name)
 
     def get_seed_components(self) -> dict[str, str]:
         """Return cached seed components, collecting them if necessary."""
@@ -279,9 +297,19 @@ class ToolOptimizationManager:
     ) -> ToolCandidate | None:
         if not candidate:
             return None
-        filtered = {
-            key: value for key, value in candidate.items() if key.startswith("tool:")
-        }
+        filtered: dict[str, str] = {}
+        for key, value in candidate.items():
+            if not key.startswith("tool:"):
+                continue
+            # Extract tool name from key like "tool:search_examples:description"
+            parts = key.split(":", 2)
+            if len(parts) < 2:
+                continue
+            tool_name = parts[1]
+            # If allowed_tools is set, only include tools in that set
+            if self._allowed_tools is not None and tool_name not in self._allowed_tools:
+                continue
+            filtered[key] = value
         return filtered or None
 
     async def _prepare_wrapper(
@@ -502,14 +530,27 @@ def get_tool_optimizer(
 
 def get_or_create_tool_optimizer(
     agent: AbstractAgent[Any, Any],
+    *,
+    allowed_tools: set[str] | None = None,
 ) -> ToolOptimizationManager:
-    """Retrieve or attach a tool optimization manager to an agent."""
+    """Retrieve or attach a tool optimization manager to an agent.
+
+    Args:
+        agent: The agent to get or create the optimizer for.
+        allowed_tools: If provided, only these tools will be optimized.
+            If None, all tools are optimized.
+            If a manager already exists, these tools are added to the allowed set.
+    """
     base_agent = _unwrap_agent(agent)
     manager = getattr(base_agent, "_gepa_tool_optimizer", None)
     if isinstance(manager, ToolOptimizationManager):
+        # If additional allowed_tools specified, add them to existing manager
+        if allowed_tools is not None:
+            for tool_name in allowed_tools:
+                manager.allow_tool(tool_name)
         return manager
 
-    manager = ToolOptimizationManager(base_agent)
+    manager = ToolOptimizationManager(base_agent, allowed_tools=allowed_tools)
     setattr(base_agent, "_gepa_tool_optimizer", manager)
     initial = _collect_registered_tool_defs(base_agent)
     if initial:

@@ -220,6 +220,9 @@ async def test_start_step_creates_example_bank_with_config() -> None:
     assert candidate.example_bank.config is example_bank_config
     assert candidate.example_bank.retrieval_k == 5
     assert candidate.example_bank.search_tool_instruction == "Custom search instruction"
+    # Note: search_examples tool components are added during evaluation via
+    # _hydrate_missing_components, not in start_step. This happens after the
+    # tool optimizer captures the tool definition during the first agent.run().
 
 
 @pytest.mark.asyncio

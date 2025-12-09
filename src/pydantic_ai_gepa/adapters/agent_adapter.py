@@ -597,7 +597,7 @@ class _BaseAgentAdapter(
         ],
         input_spec: BoundInputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
-        optimize_tools: bool = False,
+        optimize_tools: bool | set[str] = False,
         optimize_output_type: bool = False,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
@@ -616,7 +616,12 @@ class _BaseAgentAdapter(
         existing_tool_optimizer = get_tool_optimizer(agent)
         existing_output_tool_optimizer = get_output_tool_optimizer(agent)
 
-        self.optimize_tools = optimize_tools or existing_tool_optimizer is not None
+        # Store the original config for selective tool optimization
+        self._optimize_tools_config: bool | set[str] = optimize_tools
+        # For backwards compatibility, optimize_tools is True if any tools should be optimized
+        self.optimize_tools = (
+            bool(optimize_tools) or existing_tool_optimizer is not None
+        )
         self.optimize_output_type = (
             optimize_output_type or existing_output_tool_optimizer is not None
         )
@@ -632,7 +637,11 @@ class _BaseAgentAdapter(
     def _configure_tool_optimizer(self) -> None:
         """Install tool optimization support for plain agents when requested."""
         try:
-            get_or_create_tool_optimizer(self.agent)
+            # If optimize_tools is a set, only allow those specific tools
+            allowed_tools: set[str] | None = None
+            if isinstance(self._optimize_tools_config, set):
+                allowed_tools = self._optimize_tools_config
+            get_or_create_tool_optimizer(self.agent, allowed_tools=allowed_tools)
         except Exception:
             logfire.debug(
                 "Tool optimization not available for agent",
@@ -1234,7 +1243,7 @@ class AgentAdapter(
                 "AgentAdapter expects Case.inputs to be a string prompt for prompt-based agents"
             )
         toolsets = None
-        if example_bank is not None and len(example_bank) > 0:
+        if example_bank is not None:
             search_tool = create_example_search_tool(
                 bank=example_bank,
                 instruction=example_bank.search_tool_instruction,
@@ -1320,7 +1329,7 @@ class SignatureAgentAdapter(
         inputs = self._validate_inputs(case.inputs)
         candidate_text = candidate_texts(candidate)
         toolsets = None
-        if example_bank is not None and len(example_bank) > 0:
+        if example_bank is not None:
             search_tool = create_example_search_tool(
                 bank=example_bank,
                 instruction=example_bank.search_tool_instruction,
