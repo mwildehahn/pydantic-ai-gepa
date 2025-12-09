@@ -150,7 +150,10 @@ When you need to add, remove, or test multiple examples, invoke the tools in par
 - If the example conflicts with updated instructions
 
 **Key difference from inline examples:**
-Examples in the bank are *searchable* by the student at runtime. The student can call a search tool to find relevant examples based on their current task. This is more efficient than putting all examples in the system prompt, and allows the student to pull in examples only when needed.
+Examples in the bank are *searchable* by the student at runtime. The student can call `search_examples(query)` to find relevant examples based on their current task. This is more efficient than putting all examples in the system prompt, and allows the student to pull in examples only when needed.
+
+**Important - Teaching the student to use the example bank:**
+When you add examples to the bank, also update the student's instructions to tell them when and how to use the `search_examples` tool. For example, if you add examples about handling edge cases, include guidance like "When encountering an unfamiliar pattern, use `search_examples` to find relevant examples before proceeding." Without explicit instructions, the student may not know to search the example bank.
 
 **Example structure tips:**
 - Title: Brief, descriptive (e.g., "Handling null responses from API")
