@@ -461,8 +461,8 @@ class InstructionProposalGenerator:
                 tools.append(catalog_tool)
                 tool_map[name] = catalog_tool
 
-        # Add the student's search_examples tool if example bank exists with examples
-        if example_bank is not None and len(example_bank) > 0:
+        # Add the student's search_examples tool if example bank is configured
+        if example_bank is not None:
             if "search_examples" not in tool_map:
                 # Create the actual toolset and extract schema from it
                 search_toolset = create_example_search_tool(
