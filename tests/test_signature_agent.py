@@ -676,3 +676,147 @@ def test_signature_agent_tool_candidate_modifies_definitions():
             )
         ]
     )
+
+
+def test_signature_agent_with_output_validator():
+    """SignatureAgent works with agents that have output_validators."""
+    test_model = TestModel(
+        custom_output_args=GeographyAnswer(answer="Paris", confidence="high")
+    )
+    agent = Agent(
+        test_model,
+        output_type=GeographyAnswer,
+        instructions="Geography expert",
+        name="geo",
+    )
+
+    # Register an output_validator
+    @agent.output_validator
+    def validate_answer(data: GeographyAnswer) -> GeographyAnswer:
+        # Simple validation - just return the data
+        return data
+
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+    )
+
+    sig = GeographyQuery(question="What's the capital of France?", region="Europe")
+
+    # This should not raise UserError about output_type with validators
+    result = signature_agent.run_signature_sync(sig)
+    assert result.output == GeographyAnswer(answer="Paris", confidence="high")
+
+
+@pytest.mark.asyncio
+async def test_signature_agent_async_with_output_validator():
+    """Async SignatureAgent works with agents that have output_validators."""
+    test_model = TestModel(
+        custom_output_args=GeographyAnswer(answer="Berlin", confidence="medium")
+    )
+    agent = Agent(
+        test_model,
+        output_type=GeographyAnswer,
+        instructions="Geography expert",
+        name="geo",
+    )
+
+    @agent.output_validator
+    async def validate_answer(data: GeographyAnswer) -> GeographyAnswer:
+        return data
+
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+    )
+
+    sig = GeographyQuery(question="What's the capital of Germany?", region="Europe")
+
+    result = await signature_agent.run_signature(sig)
+    assert result.output == GeographyAnswer(answer="Berlin", confidence="medium")
+
+
+@pytest.mark.asyncio
+async def test_signature_agent_stream_with_output_validator():
+    """Streaming SignatureAgent works with agents that have output_validators."""
+    test_model = TestModel(
+        custom_output_args=GeographyAnswer(answer="Rome", confidence="high")
+    )
+    agent = Agent(
+        test_model,
+        output_type=GeographyAnswer,
+        instructions="Geography expert",
+        name="geo",
+    )
+
+    @agent.output_validator
+    def validate_answer(data: GeographyAnswer) -> GeographyAnswer:
+        return data
+
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+    )
+
+    sig = GeographyQuery(question="What's the capital of Italy?", region="Europe")
+
+    async with signature_agent.run_signature_stream(sig) as stream:
+        result = await stream.get_output()
+
+    assert result == GeographyAnswer(answer="Rome", confidence="high")
+
+
+def test_signature_agent_output_optimization_with_validator():
+    """Output tool optimization works with agents that have output_validators."""
+    test_model = TestModel(
+        custom_output_args=GeographyAnswer(answer="Paris", confidence="high")
+    )
+    agent = Agent(
+        test_model,
+        output_type=GeographyAnswer,
+        instructions="Geography expert",
+        name="geo",
+    )
+
+    @agent.output_validator
+    def validate_answer(data: GeographyAnswer) -> GeographyAnswer:
+        return data
+
+    # Enable output tool optimization
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=GeographyQuery,
+        optimize_output_type=True,
+    )
+
+    sig = GeographyQuery(question="What's the capital of France?", region="Europe")
+
+    # Create candidate with optimized output descriptions
+    candidate = {
+        "instructions": "Geography expert",
+        "output:final_result:description": "OPTIMIZED description",
+        "output:final_result:param:answer": "OPTIMIZED answer field",
+        "output:final_result:param:confidence": "OPTIMIZED confidence field",
+    }
+
+    # Run with candidate
+    result = signature_agent.run_signature_sync(sig, candidate=candidate)
+
+    # Check that output tools were optimized
+    assert test_model.last_model_request_parameters is not None
+    output_tools = test_model.last_model_request_parameters.output_tools
+    assert len(output_tools) == 1
+    assert output_tools[0].description == "OPTIMIZED description"
+    assert (
+        output_tools[0].parameters_json_schema["properties"]["answer"]["description"]
+        == "OPTIMIZED answer field"
+    )
+    assert (
+        output_tools[0].parameters_json_schema["properties"]["confidence"][
+            "description"
+        ]
+        == "OPTIMIZED confidence field"
+    )
+
+    # Validator still runs
+    assert result.output == GeographyAnswer(answer="Paris", confidence="high")

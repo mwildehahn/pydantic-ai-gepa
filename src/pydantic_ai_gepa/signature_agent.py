@@ -23,6 +23,7 @@ from pydantic_ai.settings import ModelSettings
 from pydantic_ai.tools import AgentDepsT, DeferredToolResults
 from pydantic_ai.toolsets import AbstractToolset
 
+from .gepa_graph.models import CandidateMap, ComponentValue
 from .input_type import BoundInputSpec, InputSpec, build_input_spec
 from .tool_components import (
     ToolOptimizationManager,
@@ -335,6 +336,16 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             return nullcontext()
         return self._tool_optimizer.candidate_context(candidate)
 
+    def _output_tool_candidate_context(self, candidate: dict[str, str] | None):
+        """Context manager that applies output tool candidate overrides if enabled."""
+        if not self._output_tool_optimizer or candidate is None:
+            return nullcontext()
+        # Convert dict[str, str] to CandidateMap for the optimizer
+        candidate_map: CandidateMap = {
+            k: ComponentValue(name=k, text=v) for k, v in candidate.items()
+        }
+        return self._output_tool_optimizer.candidate_context(candidate_map)
+
     @overload
     async def run_signature(
         self,
@@ -439,8 +450,18 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 "run_signature(..., output_type=...)."
             )
 
+        # If the wrapped agent has output_validators, we can't pass output_type
+        # at runtime (pydantic-ai raises UserError). Only pass it if the user
+        # explicitly requested a different type than the agent's default.
+        wrapped_output_type = getattr(self.wrapped, "output_type", None)
+        wrapped_has_validators = bool(getattr(self.wrapped, "_output_validators", None))
+        run_output_type: OutputSpec[Any] | type[Any] | None = effective_output_type
+        if wrapped_has_validators and effective_output_type == wrapped_output_type:
+            run_output_type = None
+
         with ExitStack() as stack:
             stack.enter_context(self._tool_candidate_context(candidate))
+            stack.enter_context(self._output_tool_candidate_context(candidate))
 
             if instructions_override is not None:
                 stack.enter_context(
@@ -449,7 +470,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
             return await self.wrapped.run(
                 user_prompt=normalized_user_prompt,
-                output_type=effective_output_type,
+                output_type=run_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
@@ -567,8 +588,18 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 "run_signature_sync(..., output_type=...)."
             )
 
+        # If the wrapped agent has output_validators, we can't pass output_type
+        # at runtime (pydantic-ai raises UserError). Only pass it if the user
+        # explicitly requested a different type than the agent's default.
+        wrapped_output_type = getattr(self.wrapped, "output_type", None)
+        wrapped_has_validators = bool(getattr(self.wrapped, "_output_validators", None))
+        run_output_type: OutputSpec[Any] | type[Any] | None = effective_output_type
+        if wrapped_has_validators and effective_output_type == wrapped_output_type:
+            run_output_type = None
+
         with ExitStack() as stack:
             stack.enter_context(self._tool_candidate_context(candidate))
+            stack.enter_context(self._output_tool_candidate_context(candidate))
 
             if instructions_override is not None:
                 stack.enter_context(
@@ -577,7 +608,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
 
             return self.wrapped.run_sync(
                 user_prompt=normalized_user_prompt,
-                output_type=effective_output_type,
+                output_type=run_output_type,
                 message_history=message_history,
                 deferred_tool_results=deferred_tool_results,
                 model=model,
@@ -696,11 +727,23 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
                 "run_signature_stream(..., output_type=...)."
             )
 
-        with self._tool_candidate_context(candidate):
+        # If the wrapped agent has output_validators, we can't pass output_type
+        # at runtime (pydantic-ai raises UserError). Only pass it if the user
+        # explicitly requested a different type than the agent's default.
+        wrapped_output_type = getattr(self.wrapped, "output_type", None)
+        wrapped_has_validators = bool(getattr(self.wrapped, "_output_validators", None))
+        run_output_type: OutputSpec[Any] | type[Any] | None = effective_output_type
+        if wrapped_has_validators and effective_output_type == wrapped_output_type:
+            run_output_type = None
+
+        with (
+            self._tool_candidate_context(candidate),
+            self._output_tool_candidate_context(candidate),
+        ):
             if instructions_override is None:
                 async with self.wrapped.run_stream(
                     user_prompt=normalized_user_prompt,
-                    output_type=effective_output_type,
+                    output_type=run_output_type,
                     message_history=message_history,
                     deferred_tool_results=deferred_tool_results,
                     model=model,
@@ -719,7 +762,7 @@ class SignatureAgent(WrapperAgent[AgentDepsT, OutputDataT]):
             with self.wrapped.override(instructions=instructions_override):
                 async with self.wrapped.run_stream(
                     user_prompt=normalized_user_prompt,
-                    output_type=effective_output_type,
+                    output_type=run_output_type,
                     message_history=message_history,
                     deferred_tool_results=deferred_tool_results,
                     model=model,
