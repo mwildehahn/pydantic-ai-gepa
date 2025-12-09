@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, cast
 
+import pytest
+
 from pydantic_ai.agent import AbstractAgent
 from pydantic_ai.builtin_tools import WebSearchTool
 from pydantic_ai.tools import ToolDefinition
@@ -310,4 +312,432 @@ class TestSearchExamplesToolOptimization:
         assert (
             updated_tool.parameters_json_schema["properties"]["query"]["description"]
             == "Describe the type of example you need"
+        )
+
+
+class TestSearchExamplesToolCapturedDuringAgentRun:
+    """Tests that search_examples tool is captured when passed to agent.run()."""
+
+    @pytest.mark.asyncio
+    async def test_search_examples_captured_via_prepare_tools_hook(self) -> None:
+        """When agent.run() is called with the search_examples toolset,
+        the tool should be captured by the ToolOptimizationManager."""
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+        from pydantic_ai_gepa.gepa_graph.proposal.student_tools import (
+            create_example_search_tool,
+        )
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.types import ExampleBankConfig
+        from pydantic_ai_gepa.tool_components import get_or_create_tool_optimizer
+
+        # Create an agent with tool optimization enabled
+        agent = Agent(
+            model=TestModel(),
+            instructions="Test agent",
+        )
+
+        # Install the tool optimizer (this is what AgentAdapter does)
+        optimizer = get_or_create_tool_optimizer(
+            agent, allowed_tools={"search_examples"}
+        )
+
+        # Before running: no search_examples components
+        seed_before = optimizer.get_seed_components()
+        assert "tool:search_examples:description" not in seed_before
+
+        # Create the example bank and toolset
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+        toolset = create_example_search_tool(
+            bank=bank,
+            instruction=bank.search_tool_instruction,
+            k=3,
+        )
+
+        # Run the agent with the toolset - this triggers _prepare_tools hook
+        await agent.run("Hello", toolsets=[toolset])
+
+        # After running: search_examples components should be captured
+        seed_after = optimizer.get_seed_components()
+        assert "tool:search_examples:description" in seed_after
+        assert seed_after["tool:search_examples:description"] == "Find similar examples"
+        assert "tool:search_examples:param:query" in seed_after
+
+    @pytest.mark.asyncio
+    async def test_search_examples_empty_bank_returns_message(self) -> None:
+        """When the example bank is empty, search_examples returns a friendly message."""
+        from pydantic_ai_gepa.gepa_graph.proposal.student_tools import (
+            create_example_search_tool,
+        )
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.types import ExampleBankConfig
+
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+        toolset = create_example_search_tool(
+            bank=bank,
+            instruction=bank.search_tool_instruction,
+            k=3,
+        )
+
+        # Get the underlying function and call it directly
+        search_fn = toolset.tools["search_examples"].function
+        result = search_fn(query="anything")
+
+        assert result == "No examples have been added to the example bank yet."
+
+    @pytest.mark.asyncio
+    async def test_search_examples_captured_even_with_optimize_tools_true(self) -> None:
+        """When optimize_tools=True (all tools), search_examples should still be captured."""
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+        from pydantic_ai_gepa.gepa_graph.proposal.student_tools import (
+            create_example_search_tool,
+        )
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.types import ExampleBankConfig
+        from pydantic_ai_gepa.tool_components import get_or_create_tool_optimizer
+
+        agent = Agent(
+            model=TestModel(),
+            instructions="Test agent",
+        )
+
+        # allowed_tools=None means all tools are allowed (optimize_tools=True)
+        optimizer = get_or_create_tool_optimizer(agent, allowed_tools=None)
+
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+        toolset = create_example_search_tool(
+            bank=bank,
+            instruction=bank.search_tool_instruction,
+            k=3,
+        )
+
+        await agent.run("Hello", toolsets=[toolset])
+
+        # Components should be captured regardless of allowed_tools setting
+        seed = optimizer.get_seed_components()
+        assert "tool:search_examples:description" in seed
+        assert "tool:search_examples:param:query" in seed
+
+    @pytest.mark.asyncio
+    async def test_search_examples_captured_with_specific_allowed_tools(self) -> None:
+        """When optimize_tools={'other_tool'}, search_examples is still ingested but not filtered."""
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+        from pydantic_ai_gepa.gepa_graph.proposal.student_tools import (
+            create_example_search_tool,
+        )
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.types import ExampleBankConfig
+        from pydantic_ai_gepa.tool_components import get_or_create_tool_optimizer
+
+        agent = Agent(
+            model=TestModel(),
+            instructions="Test agent",
+        )
+
+        # Only 'other_tool' is in allowed_tools, NOT search_examples
+        optimizer = get_or_create_tool_optimizer(agent, allowed_tools={"other_tool"})
+
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+        toolset = create_example_search_tool(
+            bank=bank,
+            instruction=bank.search_tool_instruction,
+            k=3,
+        )
+
+        await agent.run("Hello", toolsets=[toolset])
+
+        # The catalog ingests ALL tools, so seed_components includes search_examples
+        seed = optimizer.get_seed_components()
+        assert "tool:search_examples:description" in seed
+        assert "tool:search_examples:param:query" in seed
+
+        # However, when filtering a candidate, search_examples would be excluded
+        candidate = {
+            "tool:search_examples:description": "New description",
+            "tool:other_tool:description": "Other description",
+        }
+        filtered = optimizer._filter_candidate(candidate)
+        assert filtered is not None
+        assert "tool:other_tool:description" in filtered
+        assert "tool:search_examples:description" not in filtered
+
+    @pytest.mark.asyncio
+    async def test_search_examples_appears_in_model_request_parameters(self) -> None:
+        """Verify search_examples tool appears in model_request_parameters.function_tools."""
+        from pydantic_ai import Agent, capture_run_messages
+        from pydantic_ai.models.test import TestModel
+        from pydantic_ai.messages import ModelRequest
+        from pydantic_ai_gepa.gepa_graph.proposal.student_tools import (
+            create_example_search_tool,
+        )
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.types import ExampleBankConfig
+
+        agent = Agent(
+            model=TestModel(),
+            instructions="Test agent",
+        )
+
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+        toolset = create_example_search_tool(
+            bank=bank,
+            instruction=bank.search_tool_instruction,
+            k=3,
+        )
+
+        with capture_run_messages() as messages:
+            await agent.run("Hello", toolsets=[toolset])
+
+        # Find the first ModelRequest
+        model_request = None
+        for msg in messages:
+            if isinstance(msg, ModelRequest):
+                model_request = msg
+                break
+
+        assert model_request is not None
+        assert model_request.model_request_parameters is not None
+
+        # Check that search_examples is in function_tools
+        function_tools = model_request.model_request_parameters.function_tools
+        tool_names = [t.name for t in function_tools]
+        assert "search_examples" in tool_names
+
+    @pytest.mark.asyncio
+    async def test_agent_adapter_get_components_includes_search_examples_after_evaluate(
+        self,
+    ) -> None:
+        """Real AgentAdapter.get_components() should include search_examples after evaluation."""
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+        from pydantic_evals import Case
+        from pydantic_ai_gepa.adapters.agent_adapter import AgentAdapter
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.gepa_graph.models import ComponentValue
+        from pydantic_ai_gepa.types import (
+            ExampleBankConfig,
+            MetricResult,
+            RolloutOutput,
+        )
+
+        agent = Agent(
+            model=TestModel(),
+            instructions="Test agent",
+        )
+
+        def metric(
+            case: Case[str, str, None], output: RolloutOutput[str]
+        ) -> MetricResult:
+            return MetricResult(score=1.0, feedback="ok")
+
+        # Create adapter with optimize_tools=True
+        adapter = AgentAdapter(
+            agent=agent,
+            metric=metric,
+            optimize_tools=True,
+        )
+
+        # Before evaluation: no search_examples components
+        components_before = adapter.get_components()
+        assert "tool:search_examples:description" not in components_before
+
+        # Create example bank
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+
+        # Create a simple case
+        case = Case(name="test", inputs="Hello")
+        candidate = {"instructions": ComponentValue(name="instructions", text="Test")}
+
+        # Run evaluation with example_bank - this triggers agent.run() with the toolset
+        await adapter.evaluate(
+            batch=[case],
+            candidate=candidate,
+            capture_traces=True,
+            example_bank=bank,
+        )
+
+        # After evaluation: search_examples components should be captured
+        components_after = adapter.get_components()
+        assert "tool:search_examples:description" in components_after, (
+            f"Expected 'tool:search_examples:description' in components. "
+            f"Got: {list(components_after.keys())}"
+        )
+        assert (
+            components_after["tool:search_examples:description"].text
+            == "Find similar examples"
+        )
+        assert "tool:search_examples:param:query" in components_after
+
+    @pytest.mark.asyncio
+    async def test_signature_agent_adapter_get_components_includes_search_examples(
+        self,
+    ) -> None:
+        """SignatureAgentAdapter.get_components() should include search_examples after evaluation."""
+        from pydantic import BaseModel, Field
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+        from pydantic_evals import Case
+        from pydantic_ai_gepa.adapters.agent_adapter import SignatureAgentAdapter
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.gepa_graph.models import ComponentValue
+        from pydantic_ai_gepa.signature_agent import SignatureAgent
+        from pydantic_ai_gepa.types import (
+            ExampleBankConfig,
+            MetricResult,
+            RolloutOutput,
+        )
+
+        class TestInput(BaseModel):
+            text: str = Field(description="Input text")
+
+        class TestOutput(BaseModel):
+            result: str = Field(description="Output result")
+
+        # SignatureAgent wraps another agent
+        wrapped_agent = Agent(
+            model=TestModel(),
+            instructions="Test agent",
+            output_type=TestOutput,
+        )
+
+        agent = SignatureAgent(
+            wrapped=wrapped_agent,
+            input_type=TestInput,
+            optimize_tools=True,
+        )
+
+        def metric(
+            case: Case[TestInput, TestOutput, None], output: RolloutOutput[TestOutput]
+        ) -> MetricResult:
+            return MetricResult(score=1.0, feedback="ok")
+
+        adapter = SignatureAgentAdapter(
+            agent=agent,
+            metric=metric,
+            optimize_tools=True,
+        )
+
+        # Before evaluation: no search_examples components
+        components_before = adapter.get_components()
+        assert "tool:search_examples:description" not in components_before
+
+        # Create example bank
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+
+        # Create a simple case
+        case = Case(name="test", inputs=TestInput(text="Hello"))
+        candidate = {"instructions": ComponentValue(name="instructions", text="Test")}
+
+        # Run evaluation with example_bank
+        await adapter.evaluate(
+            batch=[case],
+            candidate=candidate,
+            capture_traces=True,
+            example_bank=bank,
+        )
+
+        # After evaluation: search_examples components should be captured
+        components_after = adapter.get_components()
+        assert "tool:search_examples:description" in components_after, (
+            f"Expected 'tool:search_examples:description' in components. "
+            f"Got: {list(components_after.keys())}"
+        )
+        assert (
+            components_after["tool:search_examples:description"].text
+            == "Find similar examples"
+        )
+        assert "tool:search_examples:param:query" in components_after
+
+    @pytest.mark.asyncio
+    async def test_adapter_optimize_tools_installs_on_agent_without_optimizer(
+        self,
+    ) -> None:
+        """Adapter with optimize_tools=True should work even if SignatureAgent has optimize_tools=False.
+
+        This reproduces the production setup where SignatureAgent(optimize_tools=False) but
+        SignatureAgentAdapter(optimize_tools=True).
+        """
+        from pydantic import BaseModel, Field
+        from pydantic_ai import Agent
+        from pydantic_ai.models.test import TestModel
+        from pydantic_evals import Case
+        from pydantic_ai_gepa.adapters.agent_adapter import SignatureAgentAdapter
+        from pydantic_ai_gepa.gepa_graph.example_bank import InMemoryExampleBank
+        from pydantic_ai_gepa.gepa_graph.models import ComponentValue
+        from pydantic_ai_gepa.signature_agent import SignatureAgent
+        from pydantic_ai_gepa.types import (
+            ExampleBankConfig,
+            MetricResult,
+            RolloutOutput,
+        )
+
+        class TestInput(BaseModel):
+            text: str = Field(description="Input text")
+
+        class TestOutput(BaseModel):
+            result: str = Field(description="Output result")
+
+        # Create SignatureAgent with optimize_tools=False (like the production code)
+        wrapped_agent = Agent(
+            model=TestModel(),
+            instructions="Test agent",
+            output_type=TestOutput,
+        )
+
+        sig_agent = SignatureAgent(
+            wrapped=wrapped_agent,
+            input_type=TestInput,
+            optimize_tools=False,  # This mirrors the production setup
+        )
+
+        def metric(
+            case: Case[TestInput, TestOutput, None], output: RolloutOutput[TestOutput]
+        ) -> MetricResult:
+            return MetricResult(score=1.0, feedback="ok")
+
+        # Adapter with optimize_tools=True should still work
+        adapter = SignatureAgentAdapter(
+            agent=sig_agent,
+            metric=metric,
+            optimize_tools=True,  # Adapter enables it
+        )
+
+        # Before evaluation: no search_examples components
+        components_before = adapter.get_components()
+        assert "tool:search_examples:description" not in components_before
+
+        # Create example bank
+        config = ExampleBankConfig(search_tool_instruction="Find similar examples")
+        bank = InMemoryExampleBank(config=config)
+
+        # Create a simple case
+        case = Case(name="test", inputs=TestInput(text="Hello"))
+        candidate = {"instructions": ComponentValue(name="instructions", text="Test")}
+
+        # Run evaluation with example_bank
+        await adapter.evaluate(
+            batch=[case],
+            candidate=candidate,
+            capture_traces=True,
+            example_bank=bank,
+        )
+
+        # After evaluation: search_examples components should be captured
+        components_after = adapter.get_components()
+        assert "tool:search_examples:description" in components_after, (
+            f"Expected 'tool:search_examples:description' in components. "
+            f"Got: {list(components_after.keys())}"
+        )
+        assert (
+            components_after["tool:search_examples:description"].text
+            == "Find similar examples"
         )

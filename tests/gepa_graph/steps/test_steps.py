@@ -287,6 +287,88 @@ async def test_evaluate_step_hydrates_new_components() -> None:
     assert deps.seed_candidate["tool:new"].text == "desc"
 
 
+class _SearchExamplesHydratingAdapter(_FakeAdapter):
+    """Mock adapter that simulates search_examples tool being captured during evaluation.
+
+    This is used to test _hydrate_missing_components behavior. For integration tests
+    that verify real adapter behavior, see TestSearchExamplesToolCapturedDuringAgentRun
+    in tests/test_tool_components.py.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._tool_captured = False
+
+    async def evaluate(self, batch, candidate, capture_traces, example_bank=None):
+        result = await super().evaluate(batch, candidate, capture_traces, example_bank)
+        # Simulates: tool optimizer captures search_examples during agent.run()
+        if example_bank is not None:
+            self._tool_captured = True
+        return result
+
+    def get_components(self) -> CandidateMap:
+        components = super().get_components()
+        if self._tool_captured:
+            hydrated = {name: value.model_copy() for name, value in components.items()}
+            hydrated["tool:search_examples:description"] = ComponentValue(
+                name="tool:search_examples:description",
+                text="Find similar examples",
+            )
+            hydrated["tool:search_examples:param:query"] = ComponentValue(
+                name="tool:search_examples:param:query",
+                text="What kind of example are you looking for?",
+            )
+            return hydrated
+        return components
+
+
+@pytest.mark.asyncio
+async def test_evaluate_step_hydrates_search_examples_when_example_bank_configured() -> (
+    None
+):
+    """Test that _hydrate_missing_components adds tool components to candidate.
+
+    This uses a mock adapter to test the hydration logic. For integration tests
+    that verify real adapter behavior, see test_tool_components.py.
+    """
+    example_bank_config = ExampleBankConfig(
+        search_tool_instruction="Find similar examples",
+    )
+    config = GepaConfig(
+        max_evaluations=10,
+        reflection_config=ReflectionConfig(example_bank=example_bank_config),
+    )
+    state = _make_state(num_instances=1, config=config)
+
+    # Use start_step to create candidate with example_bank
+    adapter = cast(Adapter[str, str, dict[str, str]], _SearchExamplesHydratingAdapter())
+    deps = _make_deps()
+    deps.adapter = adapter
+    ctx = _ctx(state, deps)
+
+    await start_step(ctx)
+
+    # Candidate should have example_bank but NOT search_examples components yet
+    candidate = state.candidates[0]
+    assert candidate.example_bank is not None
+    assert "tool:search_examples:description" not in candidate.components
+
+    # Now run evaluate step - this should hydrate the components
+    await evaluate_step(ctx)
+
+    # After evaluation, search_examples components should be in the candidate
+    assert "tool:search_examples:description" in candidate.components
+    assert (
+        candidate.components["tool:search_examples:description"].text
+        == "Find similar examples"
+    )
+    assert "tool:search_examples:param:query" in candidate.components
+
+    # And in seed_candidate too
+    assert deps.seed_candidate is not None
+    assert "tool:search_examples:description" in deps.seed_candidate
+
+
 @pytest.mark.asyncio
 async def test_continue_step_returns_end_when_budget_spent() -> None:
     state = _make_state()

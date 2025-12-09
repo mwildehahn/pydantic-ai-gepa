@@ -84,6 +84,15 @@ def extract_seed_candidate(
                 candidate[key] = ComponentValue(
                     name=key, text=_stringify_component_value(text)
                 )
+        else:
+            # SignatureAgent with optimize_tools=False: check if adapter installed
+            # an optimizer on the wrapped agent
+            optimizer = get_tool_optimizer(agent.wrapped)
+            if optimizer:
+                for key, text in optimizer.get_seed_components().items():
+                    candidate[key] = ComponentValue(
+                        name=key, text=_stringify_component_value(text)
+                    )
     else:
         optimizer = get_tool_optimizer(agent)
         if optimizer:

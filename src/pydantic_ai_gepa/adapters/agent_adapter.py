@@ -643,11 +643,7 @@ class _BaseAgentAdapter(
                 allowed_tools = self._optimize_tools_config
             get_or_create_tool_optimizer(self.agent, allowed_tools=allowed_tools)
         except Exception:
-            logfire.debug(
-                "Tool optimization not available for agent",
-                agent_name=getattr(self.agent, "name", self.agent.__class__.__name__),
-                exc_info=True,
-            )
+            pass  # Tool optimization not available for this agent type
 
     def _configure_output_tool_optimizer(self) -> None:
         """Install output tool optimization via prepare_output_tools when requested."""
