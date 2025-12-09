@@ -367,11 +367,9 @@ class InstructionProposalGenerator:
 
         component_sections: list[str] = []
 
-        # Show non-tool components in the candidate (tools are shown via JSON Schema below)
+        # Show all components in the candidate
         # Use clear boundary markers that won't conflict with content
         for component_name, component_value in candidate.components.items():
-            if component_name.startswith("tool:"):
-                continue  # Skip tool components, they're shown in JSON Schema
             component_sections.append(
                 f"=== start component: `{component_name}` given to student ==="
             )

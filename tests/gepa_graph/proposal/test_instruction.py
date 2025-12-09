@@ -916,6 +916,14 @@ This is the complete configuration the student agent was running with:
 Use the weather tool to answer questions about weather.
 === end ===
 
+=== start component: `tool:get_weather:description` given to student ===
+Get current weather for a location.
+=== end ===
+
+=== start component: `tool:get_weather:param:location` given to student ===
+The city name to get weather for.
+=== end ===
+
 **Tools available to student (JSON Schema):**
 ```json
 [
