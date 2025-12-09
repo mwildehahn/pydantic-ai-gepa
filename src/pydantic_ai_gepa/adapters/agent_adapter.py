@@ -421,7 +421,7 @@ class AgentAdapterTrajectory(Trajectory):
     function_tools: list[ToolDefinition] | None = None
     output_tools: list[ToolDefinition] | None = None
     error: str | None = None
-    usage: dict[str, int] = field(default_factory=dict)
+    usage: dict[str, Any] = field(default_factory=dict)
     case: Case[Any, Any, Any] | None = None
     metric_feedback: str | None = None
 

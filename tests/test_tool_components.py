@@ -383,7 +383,7 @@ class TestSearchExamplesToolCapturedDuringAgentRun:
 
         # Get the underlying function and call it directly
         search_fn = toolset.tools["search_examples"].function
-        result = search_fn(query="anything")
+        result = search_fn(query="anything")  # type: ignore[call-arg]
 
         assert result == "No examples have been added to the example bank yet."
 
