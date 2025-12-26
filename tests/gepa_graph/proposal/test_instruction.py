@@ -271,7 +271,8 @@ Each trace contains:
 
 **Use these traces to optimize the components listed below:**
 
-### Trace 1: trace1
+=== start trace 1 ===
+
 - **Score:** 0.5
 
 - **Messages:**
@@ -289,7 +290,10 @@ Each trace contains:
 ]
 ```
 
-### Trace 2: trace2
+=== end trace 1 ===
+
+=== start trace 2 ===
+
 - **Score:** 0.9
 
 - **Messages:**
@@ -306,6 +310,8 @@ Each trace contains:
   }
 ]
 ```
+
+=== end trace 2 ===
 
 
 ### Analysis guidance
@@ -330,6 +336,65 @@ Seed instructions
 Seed tools
 === end ===
 """)
+
+
+@pytest.mark.asyncio
+async def test_llm_generator_selection_mode_lists_components() -> None:
+    candidate = CandidateProgram(
+        idx=0,
+        components={
+            "instructions": ComponentValue(
+                name="instructions",
+                text="Seed instructions",
+            ),
+            "signature:Input:text:desc": ComponentValue(
+                name="signature:Input:text:desc",
+                text="Describe the text field.",
+            ),
+            "skill:roman-numerals:body": ComponentValue(
+                name="skill:roman-numerals:body",
+                text="(big skill body omitted in selection mode)",
+            ),
+        },
+        creation_type="seed",
+        discovered_at_iteration=0,
+        discovered_at_evaluation=0,
+    )
+    reflective_data = SharedReflectiveDataset(records=[_make_reflective_record()])
+
+    captured_prompt: list[str] = []
+
+    async def fake_model(messages, agent_info):
+        prompt = messages[-1].parts[0].content
+        captured_prompt.append(prompt)
+        content = """{
+            "reasoning": {
+                "pattern_discovery": "Patterns",
+                "creative_hypothesis": "Hyp",
+                "experimental_approach": "Approach"
+            },
+            "updated_components": [
+                {"component_name": "instructions", "optimized_value": "Improved instructions"}
+            ]
+        }"""
+        return ModelResponse(parts=[TextPart(content=content)])
+
+    generator = InstructionProposalGenerator()
+    model = FunctionModel(function=fake_model)
+    await generator.propose_texts(
+        candidate=candidate,
+        reflective_data=reflective_data,
+        components=None,
+        model=model,
+    )
+
+    prompt = captured_prompt[-1]
+    assert "## Optimizable components (current candidate)" in prompt
+    assert "skill:roman-numerals:body" in prompt
+    assert (
+        "=== start component: `skill:roman-numerals:body` given to student ==="
+        not in prompt
+    )
 
 
 @pytest.mark.asyncio
@@ -370,7 +435,7 @@ async def test_llm_generator_skips_components_without_records() -> None:
     )
 
     assert result.texts["instructions"] == "Improved instructions"
-    assert result.texts["tools"] == "Seed tools"
+    assert "tools" not in result.texts
 
 
 @pytest.mark.asyncio
@@ -395,10 +460,7 @@ async def test_llm_generator_returns_existing_text_on_agent_failure() -> None:
         model=model,
     )
 
-    assert result.texts == {
-        "instructions": "Seed instructions",
-        "tools": "Seed tools",
-    }
+    assert result.texts == {}
 
 
 @pytest.mark.asyncio
@@ -563,7 +625,7 @@ async def test_llm_generator_skips_entire_call_when_no_records() -> None:
         model=model,
     )
 
-    assert result.texts["instructions"] == "Seed instructions"
+    assert result.texts == {}
     assert call_count == 0
 
 
@@ -639,7 +701,8 @@ Each trace contains:
 
 **Use these traces to optimize the components listed below:**
 
-### Trace 1
+=== start trace 1 ===
+
 - **Score:** 0.5
 - **Success:** true
 - **Feedback:** Needs more detail
@@ -675,6 +738,8 @@ Each trace contains:
   }
 ]
 ```
+
+=== end trace 1 ===
 
 
 ### Analysis guidance
@@ -963,7 +1028,8 @@ Each trace contains:
 
 **Use these traces to optimize the components listed below:**
 
-### Trace 1: What's the weather in San Francisco?
+=== start trace 1 ===
+
 - **Score:** 0.9
 - **Success:** true
 - **Feedback:** Good use of tools
@@ -1059,7 +1125,10 @@ Each trace contains:
 }
 ```
 
-### Trace 2: What's the weather in New York?
+=== end trace 1 ===
+
+=== start trace 2 ===
+
 - **Score:** 0.9
 - **Success:** true
 - **Feedback:** Good use of tools
@@ -1154,6 +1223,8 @@ Each trace contains:
   "tool_calls": 1
 }
 ```
+
+=== end trace 2 ===
 
 
 ### Analysis guidance

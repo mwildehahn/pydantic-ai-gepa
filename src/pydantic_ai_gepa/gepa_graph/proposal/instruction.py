@@ -137,10 +137,10 @@ You have access to a **searchable example bank** - a persistent library of few-s
 - **Searchable example bank**: Use when you need tens of examples that would bloat the context if inlined. The student retrieves only relevant examples on demand.
 
 **Available tools:**
-- `add_examples(examples)` - Add multiple examples at once. Each example needs: title, keywords, content.
+- `add_example(title, keywords, content)` - Add an example (title + keywords + content).
 - `remove_example(example_id)` - Remove an example that's no longer helpful or is causing confusion.
 - `list_examples()` - See all examples currently in the bank.
-- `read_examples(example_ids)` - Read the full content of one or more examples.
+- `read_example(example_id)` - Read the full content of an example.
 - `test_retrieval(query)` - Preview what the student would see when searching with a given query.
 
 **When to add examples to the bank:**
@@ -160,6 +160,48 @@ When you add examples to the bank, also update the student's instructions to tel
 - Title: Brief, descriptive (e.g., "Handling null responses from API")
 - Keywords: Terms the student would search for (e.g., ["null", "API", "error handling", "empty response"])
 - Content: The actual example showing the pattern, ideally with both correct and incorrect approaches"""
+
+
+COMPONENT_DISCOVERY_TOOLS_INSTRUCTIONS = """## Component discovery tools
+
+You can use these tools to choose what to edit:
+- `list_components(prefix)` - List available component names (optional substring filter).
+- `search_components(query, top_k)` - Find likely relevant component names.
+- `load_component(component_name)` - Read the current text for a component.
+"""
+
+
+SKILLS_DISCOVERY_TOOLS_INSTRUCTIONS = """## Skills discovery tools
+
+When skills are enabled, you may also use:
+- `list_skills()` - List available skills (name + description).
+- `search_skills(query, top_k)` - Find relevant skills by keyword.
+- `load_skill(skill_path)` - Read the full SKILL.md for a skill (without activating it for editing).
+- `load_skill_file(skill_path, path)` - Read a file referenced by a skill (e.g. examples) without activating.
+- `activate_skill_components(skill_path, include_examples)` - Make a skill's description/body (and optionally examples) available as components to edit.
+- `list_active_skills()` - List which skills have been activated so far.
+"""
+
+
+def _toolset_has_tool(toolset: object, tool_name: str) -> bool:
+    tools = getattr(toolset, "tools", None)
+    if isinstance(tools, dict):
+        return tool_name in tools
+    return False
+
+
+def _skills_tools_enabled(component_toolsets: Sequence[AbstractToolset[None]]) -> bool:
+    # Detect whether the reflection toolset included skills tools (which only happens
+    # when `skills` is enabled in the runner).
+    return any(
+        _toolset_has_tool(toolset, "list_skills")
+        or _toolset_has_tool(toolset, "search_skills")
+        or _toolset_has_tool(toolset, "load_skill")
+        or _toolset_has_tool(toolset, "load_skill_file")
+        or _toolset_has_tool(toolset, "activate_skill_components")
+        or _toolset_has_tool(toolset, "list_active_skills")
+        for toolset in component_toolsets
+    )
 
 
 class TrajectoryAnalysis(BaseModel):
@@ -242,43 +284,45 @@ class InstructionProposalGenerator:
         *,
         candidate: CandidateProgram,
         reflective_data: ReflectiveDataset,
-        components: Sequence[str],
+        components: Sequence[str] | None,
         model: Model | KnownModelName | str,
         model_settings: ModelSettings | None = None,
         example_bank: InMemoryExampleBank | None = None,
+        component_toolsets: Sequence[AbstractToolset[None]] | None = None,
     ) -> ProposalResult:
         """Propose new texts for each component via the structured agent.
 
         Args:
             candidate: The candidate program to optimize
             reflective_data: Training data with execution traces
-            components: Component names to update
+            components: Optional component names to update. When None, the reflection agent
+                is responsible for selecting which components to update using tools.
             model: Model to use for proposal generation
             model_settings: Optional model settings (e.g., temperature, max_tokens)
             example_bank: Optional example bank for the reflection agent to manage.
                 If provided, the agent can add/remove examples via tool calls.
+            component_toolsets: Optional toolsets for component discovery/activation.
         """
-        if not components:
+        if components is not None and not components:
             return ProposalResult(texts={}, component_metadata={}, reasoning=None)
 
-        untouched: dict[str, str] = {}
         actionable: list[str] = []
-        for component in components:
-            if component not in candidate.components:
-                raise KeyError(f"Component '{component}' not found in candidate.")
+        if components is not None:
+            untouched: dict[str, str] = {}
+            for component in components:
+                if component not in candidate.components:
+                    raise KeyError(f"Component '{component}' not found in candidate.")
 
-            records = list(self._records_for_component(reflective_data, component))
-            if records:
-                actionable.append(component)
-            else:
-                untouched[component] = candidate.components[component].text
+                records = list(self._records_for_component(reflective_data, component))
+                if records:
+                    actionable.append(component)
+                else:
+                    untouched[component] = candidate.components[component].text
 
-        if not actionable:
-            return ProposalResult(
-                texts=untouched,
-                component_metadata={},
-                reasoning=None,
-            )
+            if not actionable:
+                return ProposalResult(texts={}, component_metadata={}, reasoning=None)
+        else:
+            untouched = {}
 
         prompt = self._build_user_prompt(
             candidate=candidate,
@@ -293,6 +337,19 @@ class InstructionProposalGenerator:
             if example_bank is not None:
                 toolsets.append(create_example_bank_tools(example_bank))
                 runtime_instructions_parts.append(EXAMPLE_BANK_TOOLS_INSTRUCTIONS)
+            if component_toolsets:
+                toolsets.extend(component_toolsets)
+                runtime_instructions_parts.append(
+                    COMPONENT_DISCOVERY_TOOLS_INSTRUCTIONS
+                )
+                if _skills_tools_enabled(component_toolsets):
+                    runtime_instructions_parts.append(
+                        SKILLS_DISCOVERY_TOOLS_INSTRUCTIONS
+                    )
+            if components is None:
+                runtime_instructions_parts.append(
+                    "Select which component(s) to update based on the traces, then include only those in `updated_components`."
+                )
             if self._additional_instructions:
                 runtime_instructions_parts.append(self._additional_instructions)
             runtime_instructions = (
@@ -311,16 +368,8 @@ class InstructionProposalGenerator:
         except InspectionAborted:
             raise
         except Exception:
-            # Fall back to the existing component texts when the agent fails.
-            fallback = {
-                **untouched,
-                **{
-                    component: candidate.components[component].text
-                    for component in actionable
-                },
-            }
             return ProposalResult(
-                texts=fallback,
+                texts={},
                 component_metadata={},
                 reasoning=None,
             )
@@ -331,16 +380,29 @@ class InstructionProposalGenerator:
             if update.component_name
         }
 
-        updated: dict[str, str] = dict(untouched)
-        for component in actionable:
-            updated[component] = updates.get(
-                component, candidate.components[component].text
-            )
+        updated: dict[str, str] = {}
+        for name, text in updates.items():
+            if name not in candidate.components:
+                continue
+            current = candidate.components[name].text
+            if str(text) != current:
+                updated[name] = str(text)
+        if components is not None:
+            # Ensure explicitly requested components don't get dropped when the agent omits them.
+            for component in actionable:
+                if component in updated:
+                    continue
+                proposed = updates.get(component)
+                if (
+                    proposed is not None
+                    and str(proposed) != candidate.components[component].text
+                ):
+                    updated[component] = str(proposed)
         metadata = self._build_component_metadata(
             reasoning=result.output.reasoning
             if self._include_hypothesis_metadata
             else None,
-            components=actionable,
+            components=sorted(updated.keys()),
         )
 
         return ProposalResult(
@@ -357,6 +419,7 @@ class InstructionProposalGenerator:
         components: Sequence[str],
         example_bank: InMemoryExampleBank | None = None,
     ) -> str:
+        selection_mode = not components
         lines = [
             "# Creative Instruction Design Challenge",
             "",
@@ -382,10 +445,101 @@ class InstructionProposalGenerator:
         target_components = {component for component in components}
 
         component_sections: list[str] = []
+        candidate_component_names = list(candidate.components.keys())
 
-        # Show all components in the candidate
-        # Use clear boundary markers that won't conflict with content
-        for component_name, component_value in candidate.components.items():
+        if selection_mode:
+            max_listed_components = 200
+            listed_component_names = candidate_component_names[:max_listed_components]
+            remaining_components = len(candidate_component_names) - len(
+                listed_component_names
+            )
+            prefix_counts: dict[str, int] = {}
+            for name in candidate_component_names:
+                if name == "instructions":
+                    prefix = "core"
+                elif name.startswith("signature:"):
+                    prefix = "signature"
+                elif name.startswith("tool:"):
+                    prefix = "tool"
+                elif name.startswith("skill:"):
+                    prefix = "skill"
+                else:
+                    prefix = name.split(":", 1)[0] if ":" in name else "core"
+                prefix_counts[prefix] = prefix_counts.get(prefix, 0) + 1
+            prefix_summary = ", ".join(
+                f"{prefix}={count}"
+                for prefix, count in sorted(
+                    prefix_counts.items(), key=lambda item: item[0]
+                )
+            )
+            lines.extend(
+                [
+                    "## Optimizable components (current candidate)",
+                    "",
+                    "This run is in component-selection mode: choose which component(s) to update based on the traces.",
+                    "The full set of optimizable components is listed here; load any component as needed using the discovery tools.",
+                    "",
+                    f"Total components: {len(candidate_component_names)}",
+                    f"Component groups: {prefix_summary}",
+                    "",
+                    "Component names:",
+                    "```",
+                    *listed_component_names,
+                    *(
+                        [
+                            f"... ({remaining_components} more; use list_components()/search_components() to narrow)"
+                        ]
+                        if remaining_components > 0
+                        else []
+                    ),
+                    "```",
+                    "",
+                ]
+            )
+            skill_components_present = any(
+                name.startswith("skill:") for name in candidate_component_names
+            ) or any(
+                name.startswith(
+                    (
+                        "tool:list_skills:",
+                        "tool:search_skills:",
+                        "tool:load_skill:",
+                        "tool:load_skill_file:",
+                    )
+                )
+                for name in candidate_component_names
+            )
+            if skill_components_present:
+                lines.extend(
+                    [
+                        "Skills note:",
+                        "- Skills content is lazily loaded, so `skill:*` components won't appear until you activate them.",
+                        "- Use `list_skills()`, optionally `load_skill(...)` / `load_skill_file(...)` to inspect, then `activate_skill_components(...)` to make specific skills editable as `skill:*` components.",
+                        "",
+                    ]
+                )
+
+        # Show all components in the candidate (explicit mode), or a minimal snapshot
+        # (selection mode) to avoid bloating the prompt when many components exist.
+        included_component_names: list[str]
+        if selection_mode:
+            included_component_names = [
+                name
+                for name in candidate_component_names
+                if name == "instructions" or name.startswith("signature:")
+            ]
+            if not included_component_names:
+                included_component_names = [
+                    name
+                    for name in candidate_component_names
+                    if not name.startswith("skill:")
+                ][:5]
+        else:
+            included_component_names = candidate_component_names
+
+        # Use clear boundary markers that won't conflict with content.
+        for component_name in included_component_names:
+            component_value = candidate.components[component_name]
             component_sections.append(
                 f"=== start component: `{component_name}` given to student ==="
             )
@@ -549,7 +703,41 @@ class InstructionProposalGenerator:
                 "",
                 "## Components to update",
                 "",
-                "Rewrite these components as a coordinated update based on the evidence above:",
+                (
+                    "Select which component(s) to update based on the evidence above, then rewrite only those components."
+                    if selection_mode
+                    else "Rewrite these components as a coordinated update based on the evidence above:"
+                ),
+                *(
+                    [
+                        "",
+                        "Selection tips:",
+                        *(
+                            [
+                                "- If you need to edit skills content, first use `search_skills(...)`, then `activate_skill_components(...)` to materialize `skill:*` components, then update those `skill:*` components.",
+                            ]
+                            if any(
+                                name.startswith("skill:")
+                                for name in candidate.components
+                            )
+                            or any(
+                                name.startswith(
+                                    (
+                                        "tool:list_skills:",
+                                        "tool:search_skills:",
+                                        "tool:load_skill:",
+                                        "tool:load_skill_file:",
+                                    )
+                                )
+                                for name in candidate.components
+                            )
+                            else []
+                        ),
+                        "- If tool usage is inefficient or confusing, update the relevant `tool:*` components (e.g., tool descriptions/parameter docs) so the student uses tools correctly.",
+                    ]
+                    if selection_mode
+                    else []
+                ),
                 "",
             ]
         )

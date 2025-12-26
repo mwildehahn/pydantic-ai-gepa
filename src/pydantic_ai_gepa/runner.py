@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Awaitable, Callable, Iterator, Sequence
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Mapping, cast
 
 import logfire
@@ -35,6 +36,9 @@ from .gepa_graph.models import (
 )
 from .input_type import InputSpec
 from .reflection import ReflectionSampler
+from .skills import SkillsFS
+from .skills.search import SkillsSearchProvider
+from .tool_components import get_tool_optimizer
 from .types import (
     Case,
     MetricResult,
@@ -43,7 +47,7 @@ from .types import (
 )
 from .progress import OptimizationProgress
 
-ComponentSelectorLiteral = Literal["round_robin", "all"]
+ComponentSelectorLiteral = Literal["round_robin", "all", "agent", "reflection"]
 
 if TYPE_CHECKING:
     from pydantic_ai.agent import AbstractAgent
@@ -126,9 +130,14 @@ async def optimize_agent(
     agent: AbstractAgent[Any, Any],
     trainset: DatasetInput,
     *,
-    metric: Callable[[Case[Any, Any, Any], RolloutOutput[Any]], MetricResult],
+    metric: Callable[
+        [Case[Any, Any, Any], RolloutOutput[Any]],
+        MetricResult | Awaitable[MetricResult],
+    ],
     valset: DatasetInput | None = None,
     input_type: InputSpec[BaseModel] | None = None,
+    skills: SkillsFS | str | Path | None = None,
+    skills_search_backend: SkillsSearchProvider | None = None,
     seed_candidate: Mapping[str, ComponentValue | str] | None = None,
     reflection_config: ReflectionConfig | None = None,
     candidate_selection_strategy: str = "pareto",
@@ -137,12 +146,12 @@ async def optimize_agent(
     perfect_score: float = 1.0,
     track_component_hypotheses: bool = False,
     # Component selection configuration
-    module_selector: str = "round_robin",
     # Merge-based configuration
     use_merge: bool = False,
     max_merge_invocations: int = 5,
     # Budget
     max_metric_calls: int = 200,
+    max_iterations: int | None = None,
     # Caching configuration
     enable_cache: bool = False,
     cache_dir: str | None = None,
@@ -155,6 +164,8 @@ async def optimize_agent(
     deterministic_proposer: Any | None = None,
     # Reflection sampler
     reflection_sampler: ReflectionSampler | None = None,
+    # Component selection
+    module_selector: str = "round_robin",
     # Tool configuration
     optimize_tools: bool = False,
     optimize_output_type: bool = False,
@@ -175,6 +186,12 @@ async def optimize_agent(
         valset: Optional validation dataset specification. Defaults to ``trainset`` when omitted.
         input_type: Optional structured input specification whose instructions and
             field descriptions should be optimized alongside the agent's prompts.
+        skills: Optional skills (either a ``SkillsFS`` instance or a directory path)
+            whose description/body components should be optimized and made available
+            to the student agent via tools during evaluation.
+        skills_search_backend: Optional search backend for skills discovery. When provided,
+            it is passed through to the student toolset so searches can be backed by
+            external indexes (e.g., TurboPuffer) and incorporate per-candidate overlays.
 
         reflection_config: Configuration for the reflection agent (model, include_case_metadata,
             include_expected_output, example_bank). When None, reflection runs with default settings.
@@ -185,15 +202,13 @@ async def optimize_agent(
         track_component_hypotheses: When True, store the reflection hypothesis metadata with
             each component version and surface it to future reflection prompts.
 
-        # Component selection configuration
-        module_selector: Component selection strategy; must be 'round_robin' or 'all'.
-
         # Merge-based configuration
         use_merge: Whether to use the merge strategy for combining candidates.
         max_merge_invocations: Maximum number of merge invocations to perform.
 
         # Budget
         max_metric_calls: Maximum number of metric evaluations (budget).
+        max_iterations: Optional cap on the number of GEPA loop iterations.
 
         # Caching configuration
         enable_cache: Whether to enable caching of metric results for resumable runs.
@@ -245,6 +260,8 @@ async def optimize_agent(
                 exc_info=True,
             )
 
+    skills_fs = _coerce_skills_fs(skills)
+
     extracted_seed_candidate = extract_seed_candidate_with_input_type(
         agent=agent,
         input_type=input_type,
@@ -261,6 +278,47 @@ async def optimize_agent(
                 "Seed candidate keys do not match extracted seed candidate keys"
             )
 
+    if (
+        skills_fs is not None
+        and not optimize_tools
+        and get_tool_optimizer(agent) is None
+    ):
+        # When skills are enabled, the student agent gains default skills tools
+        # (list/search/load). Install a restricted tool optimizer so these tool schemas
+        # can be optimized even when optimize_tools=False.
+        #
+        # This is intentionally after seed normalization so user-provided seed candidates
+        # don't have to anticipate tool:* keys (they can be hydrated later).
+        from .tool_components import get_or_create_tool_optimizer
+
+        manager = get_or_create_tool_optimizer(
+            agent,
+            allowed_tools={
+                "list_skills",
+                "search_skills",
+                "load_skill",
+                "load_skill_file",
+            },
+        )
+
+        try:
+            from .gepa_graph.proposal.student_tools import create_skills_toolset
+
+            toolset = create_skills_toolset(
+                skills_fs,
+                search_backend=skills_search_backend,
+            )
+            manager.record_model_request(
+                function_tools=[tool.tool_def for tool in toolset.tools.values()],
+            )
+        except Exception:
+            # If pre-seeding fails, the optimizer will still learn tool schemas from
+            # actual model runs (when available).
+            logfire.debug(
+                "Failed to pre-seed skills tool components; continuing",
+                exc_info=True,
+            )
+
     cache_manager = None
     if enable_cache:
         cache_manager = CacheManager(
@@ -273,6 +331,8 @@ async def optimize_agent(
         agent=agent,
         metric=metric,
         input_type=input_type,
+        skills_fs=skills_fs,
+        skills_search_backend=skills_search_backend,
         cache_manager=cache_manager,
         optimize_tools=optimize_tools,
         optimize_output_type=optimize_output_type,
@@ -282,6 +342,7 @@ async def optimize_agent(
 
     config = _build_gepa_config(
         max_metric_calls=max_metric_calls,
+        max_iterations=max_iterations,
         reflection_minibatch_size=reflection_minibatch_size,
         skip_perfect_score=skip_perfect_score,
         perfect_score=perfect_score,
@@ -412,6 +473,7 @@ async def optimize_agent(
 def _build_gepa_config(
     *,
     max_metric_calls: int,
+    max_iterations: int | None,
     reflection_minibatch_size: int,
     skip_perfect_score: bool,
     perfect_score: float,
@@ -425,7 +487,7 @@ def _build_gepa_config(
     reflection_sampler: ReflectionSampler | None,
     track_component_hypotheses: bool,
 ) -> GepaConfig:
-    component_selector: ComponentSelectorLiteral = _resolve_component_selector(
+    component_selector = _resolve_component_selector(
         module_selector, len(seed_candidate)
     )
     candidate_selector: CandidateSelectorStrategy = _resolve_candidate_selector(
@@ -434,6 +496,7 @@ def _build_gepa_config(
 
     return GepaConfig(
         max_evaluations=max_metric_calls,
+        max_iterations=max_iterations,
         minibatch_size=reflection_minibatch_size,
         perfect_score=float(perfect_score),
         skip_perfect_score=skip_perfect_score,
@@ -449,15 +512,16 @@ def _build_gepa_config(
 
 
 def _resolve_component_selector(
-    selector: str, component_count: int
-) -> ComponentSelectorLiteral:
-    if selector not in {"round_robin", "all"}:
+    selector: str,
+    component_count: int,
+) -> Literal["round_robin", "all", "reflection"]:
+    if selector not in {"round_robin", "all", "reflection"}:
         raise ValueError(
-            "module_selector must be either 'round_robin' or 'all' for gepa_graph runs."
+            "module_selector must be 'round_robin', 'all', or 'reflection'."
         )
     if selector == "round_robin" and component_count <= 1:
         return "all"
-    return cast(ComponentSelectorLiteral, selector)
+    return cast(Literal["round_robin", "all", "reflection"], selector)
 
 
 def _resolve_candidate_selector(strategy: str) -> CandidateSelectorStrategy:
@@ -467,6 +531,14 @@ def _resolve_candidate_selector(strategy: str) -> CandidateSelectorStrategy:
         raise ValueError(
             "candidate_selection_strategy must be 'pareto' or 'current_best'."
         ) from error
+
+
+def _coerce_skills_fs(skills: SkillsFS | str | Path | None) -> SkillsFS | None:
+    if skills is None:
+        return None
+    if isinstance(skills, SkillsFS):
+        return skills
+    return SkillsFS.from_disk(Path(skills))
 
 
 def _describe_graph_event(

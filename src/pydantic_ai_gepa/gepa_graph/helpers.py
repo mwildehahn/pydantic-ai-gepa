@@ -14,6 +14,7 @@ from .selectors import (
     ComponentSelector,
     CurrentBestCandidateSelector,
     ParetoCandidateSelector,
+    ReflectionComponentSelector,
     RoundRobinComponentSelector,
 )
 
@@ -83,6 +84,11 @@ def _build_component_selector(config: GepaConfig) -> ComponentSelector:
         return RoundRobinComponentSelector()
     if config.component_selector == "all":
         return AllComponentSelector()
+    if config.component_selector == "reflection":
+        # In agent-driven mode, the reflection proposer chooses components via tools.
+        # The deps container still requires a selector instance, but ReflectStep won't
+        # consult it when component_selector == "reflection".
+        return ReflectionComponentSelector()
     raise ValueError(f"Unsupported component selector '{config.component_selector}'.")
 
 

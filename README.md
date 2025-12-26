@@ -61,6 +61,7 @@ GEPA can optimize different parts of your agent:
 - Signature field descriptions (when using SignatureAgent)
 - Tool descriptions and parameter docs (set `optimize_tools=True`)
 - Output model docstrings and field descriptions (set `optimize_output_type=True` when using structured outputs)
+- Agent Skills packs (SKILL.md description/body + `examples/` files) when you pass `skills=...`
 
 All these text components evolve together using LLM-guided improvements:
 
@@ -98,7 +99,10 @@ uv sync --all-extras
 # Run examples
 uv run python examples/classification.py
 uv run python examples/math_tools.py
+uv run python examples/optimize_skills.py
 ```
+
+`examples/optimize_skills.py` uses the built-in local skills search by default. For a faster in-process index that supports `reindex_skills(...)`, use `InMemorySkillsSearchProvider` and pass it via `skills_search_backend=...`.
 
 ### Running the Math Tools Example
 
@@ -163,6 +167,18 @@ The optimization runs as a pydantic-graph workflow:
 - **ContinueNode** - Check stopping conditions, decide next action (reflect/merge/stop)
 - **ReflectNode** - Sample minibatch, analyze failures, propose improvements via LLM
 - **MergeNode** - Genetic crossover of successful candidates (when enabled)
+
+To enable merge/crossover (useful when different branches improve different components), set:
+
+```python
+result = await optimize_agent(
+    ...,
+    use_merge=True,
+    max_merge_invocations=5,
+)
+```
+
+For large component sets (e.g. when optimizing a skills pack with many skills/files), prefer `module_selector="reflection"` so the reflection agent can search/activate only the relevant skill components from traces.
 
 Evaluations run in parallel for speed.
 

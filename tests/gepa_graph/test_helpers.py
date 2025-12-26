@@ -25,6 +25,7 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
     ParetoCandidateSelector,
+    ReflectionComponentSelector,
     RoundRobinComponentSelector,
 )
 
@@ -115,3 +116,16 @@ async def test_create_deps_supports_alternate_selectors() -> None:
     state = _make_state(config)
     batch = await deps.batch_sampler.sample(state.training_set, state, size=2)
     assert len(batch) == 2
+
+
+def test_create_deps_supports_agent_component_selector() -> None:
+    from pydantic_ai_gepa.types import ReflectionConfig
+
+    adapter = _make_adapter()
+    config = GepaConfig(
+        component_selector="reflection",
+        reflection_config=ReflectionConfig(model="reflection-model"),
+    )
+
+    deps = create_deps(adapter, config)
+    assert isinstance(deps.component_selector, ReflectionComponentSelector)

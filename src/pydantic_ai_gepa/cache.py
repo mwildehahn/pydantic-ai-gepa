@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import hashlib
+import inspect
 from dataclasses import is_dataclass
 from pathlib import Path
+from collections.abc import Awaitable
 from typing import Any, Callable, TypeVar
 
 import cloudpickle
@@ -456,7 +458,8 @@ def create_cached_metric(
     *,
     model_identifier: str | None = None,
 ) -> Callable[
-    [Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]], MetricResult
+    [Case[CaseInputT, CaseOutputT, CaseMetadataT], RolloutOutput[Any]],
+    MetricResult | Awaitable[MetricResult],
 ]:
     """Create a cached version of a metric function.
 
@@ -477,7 +480,7 @@ def create_cached_metric(
     def cached_metric(
         case: Case[CaseInputT, CaseOutputT, CaseMetadataT],
         output: RolloutOutput[Any],
-    ) -> MetricResult:
+    ) -> MetricResult | Awaitable[MetricResult]:
         # Check cache first
         cached_result = cache_manager.get_cached_metric_result(
             case,
@@ -492,6 +495,21 @@ def create_cached_metric(
 
         # Call the actual metric
         metric_result = metric(case, output)
+        if inspect.isawaitable(metric_result):
+
+            async def cache_and_return() -> MetricResult:
+                awaited = await metric_result
+                cache_manager.cache_metric_result(
+                    case,
+                    None,
+                    output,
+                    candidate,
+                    awaited,
+                    model_identifier=model_identifier,
+                )
+                return awaited
+
+            return cache_and_return()
 
         # Cache the result
         cache_manager.cache_metric_result(

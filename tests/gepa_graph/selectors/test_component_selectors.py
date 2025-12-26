@@ -1,6 +1,6 @@
-"""Tests for component selection strategies."""
-
 from __future__ import annotations
+
+import pytest
 
 from pydantic_evals import Case
 
@@ -17,39 +17,46 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
 )
 
 
-def _make_state() -> GepaState:
-    training = [
-        Case(name=f"case-{idx}", inputs=f"prompt-{idx}", metadata={})
-        for idx in range(2)
-    ]
-    state = GepaState(config=GepaConfig(), training_set=ListDataLoader(training))
-    candidate = CandidateProgram(
-        idx=0,
-        components={
-            "system": ComponentValue(name="system", text="sys"),
-            "user": ComponentValue(name="user", text="usr"),
-            "instructions": ComponentValue(name="instructions", text="inst"),
-        },
-        creation_type="seed",
-        discovered_at_iteration=0,
-        discovered_at_evaluation=0,
+def _make_state(component_names: list[str]) -> GepaState:
+    config = GepaConfig()
+    dataset = [Case(name="case-1", inputs="x", metadata=None)]
+    state = GepaState(
+        config=config,
+        training_set=ListDataLoader(dataset),
+        validation_set=ListDataLoader(dataset),
     )
-    state.add_candidate(candidate, auto_assign_idx=False)
+    state.add_candidate(
+        CandidateProgram(
+            idx=0,
+            components={
+                name: ComponentValue(name=name, text=f"seed {name}")
+                for name in component_names
+            },
+            creation_type="seed",
+            discovered_at_iteration=0,
+            discovered_at_evaluation=0,
+        )
+    )
     return state
 
 
-def test_round_robin_component_selector_cycles() -> None:
-    state = _make_state()
+def test_round_robin_component_selector_cycles_components() -> None:
+    state = _make_state(["a", "b", "c"])
     selector = RoundRobinComponentSelector()
+    assert selector.select(state, 0) == ["a"]
+    assert selector.select(state, 0) == ["b"]
+    assert selector.select(state, 0) == ["c"]
+    assert selector.select(state, 0) == ["a"]
 
-    selections = [selector.select(state, 0)[0] for _ in range(5)]
-    assert selections[:3] == ["system", "user", "instructions"]
-    assert selections[3:] == ["system", "user"]
+
+def test_round_robin_component_selector_raises_for_missing_candidate() -> None:
+    state = _make_state(["a"])
+    selector = RoundRobinComponentSelector()
+    with pytest.raises(IndexError):
+        selector.select(state, 1)
 
 
 def test_all_component_selector_returns_all_components() -> None:
-    state = _make_state()
+    state = _make_state(["a", "b"])
     selector = AllComponentSelector()
-
-    selected = selector.select(state, 0)
-    assert set(selected) == {"system", "user", "instructions"}
+    assert selector.select(state, 0) == ["a", "b"]
