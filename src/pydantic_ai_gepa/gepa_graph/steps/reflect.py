@@ -31,7 +31,12 @@ from ...skill_components import (
     materialize_skill_components_for_path,
 )
 from ...skills import normalize_rel_path, parse_skill_md
-from ...skills.models import SkillFileResult, SkillLoadResult, SkillSummary
+from ...skills.models import (
+    SkillFileResult,
+    SkillLoadResult,
+    SkillSearchResult,
+    SkillSummary,
+)
 from ...skills.search import LocalSkillsSearchProvider
 from .continue_step import IterationAction
 
@@ -441,7 +446,7 @@ def _build_component_selection_toolset(
             return sorted(items, key=lambda s: s.skill_path)
 
     @toolset.tool
-    async def search_skills(query: str, top_k: int = 8):  # type: ignore[no-untyped-def]
+    async def search_skills(query: str, top_k: int = 8) -> list[SkillSearchResult]:
         """Search the enabled skills to find potentially relevant skills."""
         candidate = _candidate()
         with apply_candidate_to_skills(skills_fs, candidate.components) as view:

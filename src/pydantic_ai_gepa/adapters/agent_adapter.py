@@ -163,50 +163,6 @@ def _compact_dict(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None}
 
 
-_SCHEMA_KEY_ORDER = (
-    "type",
-    "title",
-    "description",
-    "properties",
-    "items",
-    "enum",
-    "anyOf",
-    "oneOf",
-    "allOf",
-    "format",
-    "default",
-    "examples",
-)
-_SCHEMA_STRIP_KEYS = ("required", "additionalProperties")
-
-
-def _normalize_json_schema(value: Any) -> Any:
-    """Normalize JSON schema dicts for deterministic prompts/snapshots.
-
-    Pydantic-generated schemas can vary slightly across environments (and even
-    across tests) in both key ordering and in optional keys like `required` or
-    `additionalProperties`. For reflection prompts, we prefer a compact and
-    stable representation over strict schema fidelity.
-    """
-    if isinstance(value, list):
-        return [_normalize_json_schema(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-
-    ordered: dict[str, Any] = {}
-
-    for key in _SCHEMA_KEY_ORDER:
-        if key in value:
-            ordered[key] = _normalize_json_schema(value[key])
-
-    for key, inner in value.items():
-        if key in ordered or key in _SCHEMA_STRIP_KEYS:
-            continue
-        ordered[key] = _normalize_json_schema(inner)
-
-    return ordered
-
-
 def _safe_getattr(obj: Any, attr: str) -> Any | None:
     try:
         return getattr(obj, attr)
@@ -532,7 +488,7 @@ class AgentAdapterTrajectory(Trajectory):
                 "type": "function",
                 "function": {
                     "name": tool.name,
-                    "parameters": _normalize_json_schema(tool.parameters_json_schema),
+                    "parameters": tool.parameters_json_schema,
                 },
             }
             if tool.description:

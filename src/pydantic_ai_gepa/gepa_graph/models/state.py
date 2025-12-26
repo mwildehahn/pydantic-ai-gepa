@@ -211,14 +211,6 @@ class GepaConfig(BaseModel):
             raise ValueError("perfect_score must be > 0.")
         return value
 
-    @field_validator("component_selector", mode="before")
-    @classmethod
-    def _coerce_component_selector(cls, value: Any) -> Any:
-        # Back-compat: older configs used "agent" for tool-driven selection.
-        if value == "agent":
-            return "reflection"
-        return value
-
 
 class GepaState(BaseModel):
     """Shared mutable state that flows through the GEPA graph steps."""
