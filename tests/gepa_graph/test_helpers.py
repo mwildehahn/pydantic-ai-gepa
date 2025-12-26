@@ -25,6 +25,7 @@ from pydantic_ai_gepa.gepa_graph.selectors import (
     BatchSampler,
     CurrentBestCandidateSelector,
     ParetoCandidateSelector,
+    ReflectionComponentSelector,
     RoundRobinComponentSelector,
 )
 
@@ -127,4 +128,4 @@ def test_create_deps_supports_agent_component_selector() -> None:
     )
 
     deps = create_deps(adapter, config)
-    assert isinstance(deps.component_selector, RoundRobinComponentSelector)
+    assert isinstance(deps.component_selector, ReflectionComponentSelector)
