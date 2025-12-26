@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+import asyncio
 from inline_snapshot import snapshot
 from pydantic import BaseModel, Field
 from pydantic_ai_gepa import MetricResult, SignatureAgent, SignatureAgentAdapter
@@ -345,6 +346,66 @@ def test_gepa_adapter_with_signatures():
     assert adapter.input_spec.model_cls is EmailSupportSignature
     assert adapter.agent == signature_agent
     assert adapter.metric == support_metric
+
+
+@pytest.mark.asyncio
+async def test_gepa_adapter_supports_async_metric():
+    """Ensure adapters await async metric functions."""
+    agent = Agent(
+        TestModel(
+            custom_output_args=SupportResponse(
+                priority="low",
+                category="general",
+                suggested_response="Default",
+                needs_escalation=False,
+            )
+        ),
+        output_type=SupportResponse,
+    )
+
+    async def support_metric_async(
+        case: Case[EmailSupportSignature, SupportResponse, dict[str, Any] | None],
+        output: Any,
+    ) -> MetricResult:
+        await asyncio.sleep(0)
+        return MetricResult(score=0.7, feedback="Async metric ok")
+
+    signature_agent = SignatureAgent(
+        agent,
+        input_type=EmailSupportSignature,
+        output_type=SupportResponse,
+    )
+    adapter = SignatureAgentAdapter[
+        EmailSupportSignature,
+        SupportResponse,
+        dict[str, Any] | None,
+    ](
+        agent=signature_agent,
+        metric=support_metric_async,
+        input_type=EmailSupportSignature,
+    )
+
+    sig_input = EmailSupportSignature(
+        emails=[
+            Email(
+                header=EmailHeader(
+                    sender=EmailSender(name="User", address="user@example.com"),
+                    subject="Help",
+                ),
+                contents="Need assistance",
+            )
+        ],
+        previous_interactions=None,
+        company_policies="Policy",
+    )
+    instance = Case(
+        name="case-async-metric",
+        inputs=sig_input,
+        metadata=None,
+    )
+
+    batch = await adapter.evaluate([instance], candidate={}, capture_traces=False)
+    assert batch.scores == [0.7]
 
 
 @pytest.mark.asyncio

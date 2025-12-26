@@ -2147,6 +2147,7 @@ dependencies = [
     { name = "mcp-run-python" },
     { name = "pydantic-ai" },
     { name = "pydantic-graph" },
+    { name = "pyyaml" },
     { name = "rich" },
 ]
 
@@ -2170,6 +2171,7 @@ requires-dist = [
     { name = "mcp-run-python", specifier = ">=0.0.21" },
     { name = "pydantic-ai", git = "https://github.com/mwildehahn/pydantic-ai?rev=b9d643c24ef08c0af24f291cc1ed746af93498f7" },
     { name = "pydantic-graph", git = "https://github.com/mwildehahn/pydantic-ai?subdirectory=pydantic_graph&rev=b9d643c24ef08c0af24f291cc1ed746af93498f7" },
+    { name = "pyyaml", specifier = ">=6.0.0" },
     { name = "rich", specifier = ">=13.7.1" },
 ]
 

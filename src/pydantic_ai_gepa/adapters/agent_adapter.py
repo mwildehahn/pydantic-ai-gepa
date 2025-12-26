@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import ExitStack
 from dataclasses import asdict, dataclass, field
 import json
@@ -43,6 +44,7 @@ from pydantic_ai.tools import ToolDefinition
 
 from ..cache import CacheManager
 from ..gepa_graph.proposal.student_tools import create_example_search_tool
+from ..gepa_graph.proposal.student_tools import create_skills_toolset
 from ..exceptions import UsageBudgetExceeded
 from ..components import (
     apply_candidate_to_agent,
@@ -53,6 +55,9 @@ from ..gepa_graph.models import CandidateMap, candidate_texts
 from ..inspection import InspectionAborted
 from ..input_type import BoundInputSpec, InputSpec, build_input_spec
 from ..signature_agent import SignatureAgent
+from ..skill_components import apply_candidate_to_skills
+from ..skills import SkillsFS
+from ..skills.search import SkillsSearchProvider
 from ..tool_components import (
     get_or_create_output_tool_optimizer,
     get_or_create_tool_optimizer,
@@ -156,6 +161,50 @@ def _serialize_for_reflection(obj: Any) -> Any:
 
 def _compact_dict(data: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in data.items() if value is not None}
+
+
+_SCHEMA_KEY_ORDER = (
+    "type",
+    "title",
+    "description",
+    "properties",
+    "items",
+    "enum",
+    "anyOf",
+    "oneOf",
+    "allOf",
+    "format",
+    "default",
+    "examples",
+)
+_SCHEMA_STRIP_KEYS = ("required", "additionalProperties")
+
+
+def _normalize_json_schema(value: Any) -> Any:
+    """Normalize JSON schema dicts for deterministic prompts/snapshots.
+
+    Pydantic-generated schemas can vary slightly across environments (and even
+    across tests) in both key ordering and in optional keys like `required` or
+    `additionalProperties`. For reflection prompts, we prefer a compact and
+    stable representation over strict schema fidelity.
+    """
+    if isinstance(value, list):
+        return [_normalize_json_schema(item) for item in value]
+    if not isinstance(value, dict):
+        return value
+
+    ordered: dict[str, Any] = {}
+
+    for key in _SCHEMA_KEY_ORDER:
+        if key in value:
+            ordered[key] = _normalize_json_schema(value[key])
+
+    for key, inner in value.items():
+        if key in ordered or key in _SCHEMA_STRIP_KEYS:
+            continue
+        ordered[key] = _normalize_json_schema(inner)
+
+    return ordered
 
 
 def _safe_getattr(obj: Any, attr: str) -> Any | None:
@@ -483,7 +532,7 @@ class AgentAdapterTrajectory(Trajectory):
                 "type": "function",
                 "function": {
                     "name": tool.name,
-                    "parameters": tool.parameters_json_schema,
+                    "parameters": _normalize_json_schema(tool.parameters_json_schema),
                 },
             }
             if tool.description:
@@ -593,12 +642,15 @@ class _BaseAgentAdapter(
         *,
         agent: "AbstractAgent[Any, Any]",
         metric: Callable[
-            [Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult
+            [Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]],
+            MetricResult | Awaitable[MetricResult],
         ],
         input_spec: BoundInputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool | set[str] = False,
         optimize_output_type: bool = False,
+        skills_fs: SkillsFS | None = None,
+        skills_search_backend: SkillsSearchProvider | None = None,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
     ) -> None:
@@ -606,6 +658,8 @@ class _BaseAgentAdapter(
         self.metric = metric
         self.input_spec = input_spec
         self.cache_manager = cache_manager
+        self.skills_fs = skills_fs
+        self.skills_search_backend = skills_search_backend
         self._model_identifier = _derive_model_identifier(agent)
         if (
             self.cache_manager
@@ -821,7 +875,11 @@ class _BaseAgentAdapter(
                 if cached_metric is not None:
                     metric_result = cached_metric
                 else:
-                    metric_result = self.metric(case, output)
+                    maybe_metric_result = self.metric(case, output)
+                    if inspect.isawaitable(maybe_metric_result):
+                        metric_result = await maybe_metric_result
+                    else:
+                        metric_result = maybe_metric_result
                     self.cache_manager.cache_metric_result(
                         case,
                         case_index,
@@ -831,12 +889,15 @@ class _BaseAgentAdapter(
                         model_identifier=self._model_identifier,
                     )
             else:
-                metric_result = self.metric(case, output)
+                maybe_metric_result = self.metric(case, output)
+                if inspect.isawaitable(maybe_metric_result):
+                    metric_result = await maybe_metric_result
+                else:
+                    metric_result = maybe_metric_result
 
-            if trajectory is not None and metric_result is not None:
+            if trajectory is not None:
                 trajectory.metric_feedback = metric_result.feedback
 
-            assert metric_result is not None
             result: dict[str, Any] = {
                 "output": output,
                 "score": metric_result.score,
@@ -858,6 +919,7 @@ class _BaseAgentAdapter(
                 error_kind=error_kind,
                 capture_traces=capture_traces,
                 candidate_keys=sorted(candidate.keys()) if candidate else None,
+                exc_info=True,
             )
             output = RolloutOutput.from_error(exc, kind=error_kind)
             trajectory = (
@@ -1187,11 +1249,12 @@ class _BaseAgentAdapter(
 
     def get_components(self) -> CandidateMap:
         """Return the current components extracted from the agent and signature."""
-        return extract_seed_candidate_with_input_type(
+        components = extract_seed_candidate_with_input_type(
             agent=self.agent,
             input_type=self.input_spec,
             optimize_output_type=self.optimize_output_type,
         )
+        return components
 
 
 class AgentAdapter(
@@ -1205,11 +1268,14 @@ class AgentAdapter(
         *,
         agent: "AbstractAgent[Any, Any]",
         metric: Callable[
-            [Case[str, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult
+            [Case[str, OutputT, MetadataT], RolloutOutput[OutputT]],
+            MetricResult | Awaitable[MetricResult],
         ],
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
         optimize_output_type: bool = False,
+        skills_fs: SkillsFS | None = None,
+        skills_search_backend: SkillsSearchProvider | None = None,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
     ) -> None:
@@ -1220,6 +1286,8 @@ class AgentAdapter(
             cache_manager=cache_manager,
             optimize_tools=optimize_tools,
             optimize_output_type=optimize_output_type,
+            skills_fs=skills_fs,
+            skills_search_backend=skills_search_backend,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
         )
@@ -1238,14 +1306,25 @@ class AgentAdapter(
             raise TypeError(
                 "AgentAdapter expects Case.inputs to be a string prompt for prompt-based agents"
             )
-        toolsets = None
+        toolsets_list = []
         if example_bank is not None:
-            search_tool = create_example_search_tool(
-                bank=example_bank,
-                instruction=example_bank.search_tool_instruction,
-                k=example_bank.retrieval_k,
+            toolsets_list.append(
+                create_example_search_tool(
+                    bank=example_bank,
+                    instruction=example_bank.search_tool_instruction,
+                    k=example_bank.retrieval_k,
+                )
             )
-            toolsets = [search_tool]
+        if self.skills_fs is not None:
+            with apply_candidate_to_skills(self.skills_fs, candidate) as skills_view:
+                toolsets_list.append(
+                    create_skills_toolset(
+                        skills_view,
+                        search_backend=self.skills_search_backend,
+                        candidate=candidate,
+                    )
+                )
+        toolsets = toolsets_list if toolsets_list else None
         return await self.agent.run(
             prompt,
             message_history=message_history,
@@ -1286,12 +1365,15 @@ class SignatureAgentAdapter(
         *,
         agent: SignatureAgent[Any, OutputT],
         metric: Callable[
-            [Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]], MetricResult
+            [Case[InputT, OutputT, MetadataT], RolloutOutput[OutputT]],
+            MetricResult | Awaitable[MetricResult],
         ],
         input_type: InputSpec[BaseModel] | None = None,
         cache_manager: CacheManager | None = None,
         optimize_tools: bool = False,
         optimize_output_type: bool = False,
+        skills_fs: SkillsFS | None = None,
+        skills_search_backend: SkillsSearchProvider | None = None,
         agent_usage_limits: _usage.UsageLimits | None = None,
         gepa_usage_limits: _usage.UsageLimits | None = None,
     ) -> None:
@@ -1309,6 +1391,8 @@ class SignatureAgentAdapter(
             cache_manager=cache_manager,
             optimize_tools=optimize_tools,
             optimize_output_type=optimize_output_type,
+            skills_fs=skills_fs,
+            skills_search_backend=skills_search_backend,
             agent_usage_limits=agent_usage_limits,
             gepa_usage_limits=gepa_usage_limits,
         )
@@ -1324,14 +1408,25 @@ class SignatureAgentAdapter(
     ) -> AgentRunResult[Any]:
         inputs = self._validate_inputs(case.inputs)
         candidate_text = candidate_texts(candidate)
-        toolsets = None
+        toolsets_list = []
         if example_bank is not None:
-            search_tool = create_example_search_tool(
-                bank=example_bank,
-                instruction=example_bank.search_tool_instruction,
-                k=example_bank.retrieval_k,
+            toolsets_list.append(
+                create_example_search_tool(
+                    bank=example_bank,
+                    instruction=example_bank.search_tool_instruction,
+                    k=example_bank.retrieval_k,
+                )
             )
-            toolsets = [search_tool]
+        if self.skills_fs is not None:
+            with apply_candidate_to_skills(self.skills_fs, candidate) as skills_view:
+                toolsets_list.append(
+                    create_skills_toolset(
+                        skills_view,
+                        search_backend=self.skills_search_backend,
+                        candidate=candidate,
+                    )
+                )
+        toolsets = toolsets_list if toolsets_list else None
         return await self._signature_agent.run_signature(
             inputs,
             message_history=message_history,
@@ -1356,7 +1451,10 @@ class SignatureAgentAdapter(
 def create_adapter(
     *,
     agent: "AbstractAgent[Any, Any]",
-    metric: Callable[[Case[Any, Any, MetadataT], RolloutOutput[Any]], MetricResult],
+    metric: Callable[
+        [Case[Any, Any, MetadataT], RolloutOutput[Any]],
+        MetricResult | Awaitable[MetricResult],
+    ],
     input_type: InputSpec[BaseModel] | None = None,
     optimize_output_type: bool = False,
     **kwargs: Any,

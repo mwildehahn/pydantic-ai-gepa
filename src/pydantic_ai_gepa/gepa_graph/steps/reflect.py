@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import difflib
+import hashlib
+import inspect
+import re
 from typing import Any, Mapping, Sequence, cast
 
 import logfire
 from pydantic_graph.beta import StepContext
+from pydantic_ai import FunctionToolset
+from pydantic_ai.exceptions import ModelRetry
 from pydantic_ai.models import KnownModelName, Model
 from pydantic_ai.settings import ModelSettings
 
@@ -20,9 +26,25 @@ from ..deps import GepaDeps
 from ..evaluation import EvaluationResults
 from ..models import CandidateMap, CandidateProgram, ComponentValue, GepaState
 from ..proposal.instruction import ProposalResult
+from ...skill_components import (
+    apply_candidate_to_skills,
+    materialize_skill_components_for_path,
+)
+from ...skills import normalize_rel_path, parse_skill_md
+from ...skills.models import SkillFileResult, SkillLoadResult, SkillSummary
+from ...skills.search import LocalSkillsSearchProvider
 from .continue_step import IterationAction
 
 _IMPROVEMENT_EPSILON = 1e-9
+_TOKEN_RE = re.compile(r"[a-zA-Z0-9_/-]{3,}")
+
+
+def _tokenize(text: str) -> set[str]:
+    return {m.group(0).lower() for m in _TOKEN_RE.finditer(text or "")}
+
+
+def _hash_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> IterationAction:
@@ -83,35 +105,62 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
         state.last_accepted = False
         return "continue"
 
-    components = _select_components(state, deps, parent_idx)
+    reflection_model = _resolve_model(deps)
+    components_to_update: Sequence[str] | None
+    component_toolsets: list[FunctionToolset] | None = None
+    if state.config.component_selector == "reflection":
+        components_to_update = None
+        components_for_dataset = list(parent.components.keys())
+        component_toolsets = [
+            _build_component_selection_toolset(
+                state=state,
+                deps=deps,
+                parent_idx=parent_idx,
+            )
+        ]
+    else:
+        selection = deps.component_selector.select(
+            state,
+            parent_idx,
+            model=reflection_model,
+            eval_results=parent_results,
+        )
+        if inspect.isawaitable(selection):
+            selection = await selection
+        components_to_update = list(selection)
+        components_for_dataset = components_to_update
+
     logfire.debug(
         "ReflectStep selected components",
-        components=components,
         parent_idx=parent_idx,
+        selector=state.config.component_selector,
+        components_to_update=components_to_update,
+        candidate_component_count=len(parent.components),
     )
+
     reflective_dataset = _build_reflective_dataset(
         deps=deps,
         state=state,
         candidate=parent,
         eval_results=parent_results,
-        components=components,
+        components=components_for_dataset,
     )
-    reflection_model = _resolve_model(deps)
-
     with logfire.span(
         "propose new texts",
         parent_idx=parent_idx,
-        components=components,
         model=reflection_model,
+        selector=state.config.component_selector,
+        components_to_update=components_to_update,
     ):
         proposal_result = await _propose_new_texts(
             deps=deps,
             state=state,
             parent=parent,
             reflective_dataset=reflective_dataset,
-            components=components,
+            components=components_to_update,
             model=reflection_model,
             model_settings=deps.model_settings,
+            component_toolsets=component_toolsets,
         )
         component_metadata = (
             proposal_result.component_metadata
@@ -123,7 +172,6 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
             logfire.info(
                 "ReflectStep proposal reasoning",
                 parent_idx=parent_idx,
-                components=components,
                 pattern=reasoning.pattern_discovery,
                 hypothesis=reasoning.creative_hypothesis,
                 approach=reasoning.experimental_approach,
@@ -148,7 +196,7 @@ async def reflect_step(ctx: StepContext[GepaState, GepaDeps, None]) -> Iteration
             for name, value in new_candidate.components.items()
             if value.text != parent.components[name].text
         )
-        or components,
+        or (list(components_to_update) if components_to_update is not None else []),
     )
 
     with logfire.span(
@@ -292,16 +340,217 @@ def _should_skip_perfect(
     return total >= perfect * len(scores)
 
 
-def _select_components(
+def _build_component_selection_toolset(
+    *,
     state: GepaState,
     deps: GepaDeps,
     parent_idx: int,
-) -> list[str]:
-    selector = deps.component_selector
-    select_fn = getattr(selector, "select", None)
-    if select_fn is None:
-        select_fn = getattr(selector, "select_components")
-    return list(select_fn(state, parent_idx))
+) -> FunctionToolset:
+    toolset: FunctionToolset[None] = FunctionToolset()
+
+    def _candidate() -> CandidateProgram:
+        return state.candidates[parent_idx]
+
+    @toolset.tool
+    def list_components(prefix: str | None = None) -> list[str]:
+        """List available component names (optionally filtered by substring)."""
+        names = sorted(_candidate().components.keys())
+        if prefix:
+            needle = prefix.casefold()
+            names = [name for name in names if needle in name.casefold()]
+        return names
+
+    @toolset.tool
+    def search_components(query: str, top_k: int = 12) -> list[str]:
+        """Search component names by simple token matching."""
+        if top_k <= 0:
+            return []
+        tokens = _tokenize(query)
+        if not tokens:
+            return []
+        scored: list[tuple[float, str]] = []
+        for name in _candidate().components.keys():
+            lower = name.casefold()
+            score = sum(1.0 for t in tokens if t and t in lower)
+            if score > 0:
+                scored.append((score, name))
+        scored.sort(key=lambda item: (-item[0], item[1]))
+        return [name for _, name in scored[:top_k]]
+
+    @toolset.tool
+    def load_component(component_name: str) -> str:
+        """Load the current text value of a component."""
+        candidate = _candidate()
+        component = candidate.components.get(component_name)
+        if component is None:
+            raise KeyError(f"Unknown component: {component_name}")
+        return component.text
+
+    skills_fs = getattr(deps.adapter, "skills_fs", None)
+    if skills_fs is None:
+        return toolset
+
+    search_backend = getattr(deps.adapter, "skills_search_backend", None)
+    backend = search_backend or LocalSkillsSearchProvider()
+
+    def _resolve_skill_dir(view, skill_path: str) -> str:  # type: ignore[no-untyped-def]
+        try:
+            normalized = normalize_rel_path(skill_path)
+        except Exception as e:
+            raise ModelRetry(
+                f"Invalid skill_path={skill_path!r}: {e}. Use list_skills() to see valid skill paths."
+            ) from e
+
+        candidates = [
+            normalized,
+            normalized.replace("_", "-"),
+            normalized.casefold(),
+        ]
+        for candidate_path in candidates:
+            if candidate_path and view.exists(f"{candidate_path}/SKILL.md"):
+                return candidate_path
+
+        available = sorted(set(view.iter_skill_dirs()))
+        close = difflib.get_close_matches(normalized, available, n=8, cutoff=0.45)
+        hint = f" Did you mean: {', '.join(close)}?" if close else ""
+        raise ModelRetry(
+            f"Unknown skill_path={skill_path!r}.{hint} Use list_skills() to see valid skill paths."
+        )
+
+    @toolset.tool
+    def list_skills() -> list[SkillSummary]:
+        """List available skills with their name and description."""
+        candidate = _candidate()
+        with apply_candidate_to_skills(skills_fs, candidate.components) as view:
+            items: list[SkillSummary] = []
+            for skill_dir in view.iter_skill_dirs():
+                if not skill_dir:
+                    continue
+                try:
+                    raw = view.read_text(f"{skill_dir}/SKILL.md")
+                    skill_md = parse_skill_md(raw)
+                except Exception:
+                    continue
+                items.append(
+                    SkillSummary(
+                        skill_path=skill_dir,
+                        name=skill_md.frontmatter.name,
+                        description=skill_md.frontmatter.description,
+                    )
+                )
+            return sorted(items, key=lambda s: s.skill_path)
+
+    @toolset.tool
+    async def search_skills(query: str, top_k: int = 8):  # type: ignore[no-untyped-def]
+        """Search the enabled skills to find potentially relevant skills."""
+        candidate = _candidate()
+        with apply_candidate_to_skills(skills_fs, candidate.components) as view:
+            return await backend.search(
+                query=query,
+                top_k=top_k,
+                fs=view,
+                candidate=candidate.components,
+            )
+
+    @toolset.tool
+    def load_skill(skill_path: str) -> SkillLoadResult:
+        """Load the full SKILL.md for a skill."""
+        candidate = _candidate()
+        with apply_candidate_to_skills(skills_fs, candidate.components) as view:
+            normalized = _resolve_skill_dir(view, skill_path)
+            path = f"{normalized}/SKILL.md"
+            content = view.read_text(path)
+        return SkillLoadResult(
+            skill_path=normalized,
+            content=content,
+            content_hash=_hash_text(content),
+        )
+
+    @toolset.tool
+    def load_skill_file(skill_path: str, path: str) -> SkillFileResult:
+        """Load a file within a skill directory."""
+        candidate = _candidate()
+        with apply_candidate_to_skills(skills_fs, candidate.components) as view:
+            normalized_skill = _resolve_skill_dir(view, skill_path)
+            try:
+                normalized_file = normalize_rel_path(path)
+            except Exception as e:
+                raise ModelRetry(
+                    f"Invalid path={path!r}: {e}. Use load_skill(...) to find valid file paths within a skill."
+                ) from e
+            full_path = f"{normalized_skill}/{normalized_file}"
+            if not view.exists(full_path):
+                raise ModelRetry(
+                    f"Unknown file path={normalized_file!r} for skill_path={normalized_skill!r}. "
+                    "Use load_skill(...) to find valid file paths within a skill."
+                )
+            content = view.read_text(full_path)
+        return SkillFileResult(
+            skill_path=normalized_skill,
+            file_path=normalized_file,
+            content=content,
+            content_hash=_hash_text(content),
+        )
+
+    @toolset.tool
+    def activate_skill_components(
+        skill_path: str, include_examples: bool = False
+    ) -> list[str]:
+        """Activate a skill's components so they can be optimized as `skill:*` entries."""
+        candidate = _candidate()
+        with apply_candidate_to_skills(skills_fs, candidate.components) as view:
+            resolved_path = _resolve_skill_dir(view, skill_path)
+            new_components = materialize_skill_components_for_path(
+                view,
+                skill_path=resolved_path,
+                include_examples=include_examples,
+            )
+
+        state.activate_skill_path(resolved_path)
+
+        activated: list[str] = []
+        for program in state.candidates:
+            for key, value in new_components.items():
+                if key in program.components:
+                    continue
+                program.components[key] = ComponentValue(
+                    name=key,
+                    text=value.text,
+                    version=0,
+                    metadata=None,
+                )
+                activated.append(key)
+
+        if deps.seed_candidate is not None:
+            for key, value in new_components.items():
+                deps.seed_candidate.setdefault(
+                    key,
+                    ComponentValue(
+                        name=key,
+                        text=value.text,
+                        version=0,
+                        metadata=None,
+                    ),
+                )
+
+        return sorted(set(activated))
+
+    @toolset.tool
+    def activate_skill(skill_path: str, include_examples: bool = False) -> list[str]:
+        """Deprecated alias for activate_skill_components."""
+        logfire.warn(
+            "activate_skill is deprecated; use activate_skill_components",
+            skill_path=skill_path,
+            include_examples=include_examples,
+        )
+        return activate_skill_components(skill_path, include_examples=include_examples)
+
+    @toolset.tool
+    def list_active_skills() -> list[str]:
+        """List skill paths that have been activated so far."""
+        return sorted(state.active_skill_paths)
+
+    return toolset
 
 
 def _build_reflective_dataset(
@@ -375,12 +624,13 @@ async def _propose_new_texts(
     state: GepaState,
     parent: CandidateProgram,
     reflective_dataset: ReflectiveDataset,
-    components: Sequence[str],
+    components: Sequence[str] | None,
     model: Model | KnownModelName | str,
     model_settings: ModelSettings | None = None,
+    component_toolsets: Sequence[FunctionToolset] | None = None,
 ) -> ProposalResult:
     proposal = deps.proposal_generator
-    return await proposal.propose_texts(
+    kwargs: dict[str, Any] = dict(
         candidate=parent,
         reflective_data=reflective_dataset,
         components=components,
@@ -388,6 +638,15 @@ async def _propose_new_texts(
         model_settings=model_settings,
         example_bank=parent.example_bank,
     )
+    if component_toolsets is not None:
+        propose_sig = inspect.signature(proposal.propose_texts)
+        if "component_toolsets" in propose_sig.parameters or any(
+            p.kind is inspect.Parameter.VAR_KEYWORD
+            for p in propose_sig.parameters.values()
+        ):
+            kwargs["component_toolsets"] = component_toolsets
+
+    return await proposal.propose_texts(**kwargs)
 
 
 def _create_candidate(

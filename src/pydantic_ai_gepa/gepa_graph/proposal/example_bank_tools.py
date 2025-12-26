@@ -31,25 +31,21 @@ def create_example_bank_tools(bank: InMemoryExampleBank) -> FunctionToolset:
     toolset: FunctionToolset[None] = FunctionToolset()
 
     @toolset.tool
-    def add_examples(examples: list[ExampleInput]) -> str:
-        """Add multiple few-shot examples to help the student agent handle similar cases.
+    def add_example(title: str, keywords: list[str], content: str) -> str:
+        """Add a few-shot example to help the student agent handle similar cases.
 
         Use this when you identify patterns in the failures that could be addressed
         by showing the student concrete examples of correct behavior. You can add
-        many examples at once to build a comprehensive reference library.
+        multiple examples over time to build a comprehensive reference library.
         """
-        added: list[str] = []
-        for ex in examples:
-            example = BankedExample(
-                title=ex.title,
-                keywords=ex.keywords,
-                content=ex.content,
-            )
-            bank.add(example)
-            added.append(f"'{ex.title}' (id: {example.id})")
-        if not added:
-            return "No examples provided."
-        return f"Added {len(added)} examples: {', '.join(added)}"
+        ex = ExampleInput(title=title, keywords=keywords, content=content)
+        example = BankedExample(
+            title=ex.title,
+            keywords=ex.keywords,
+            content=ex.content,
+        )
+        bank.add(example)
+        return f"Added example '{ex.title}' (id: {example.id})"
 
     @toolset.tool
     def remove_example(example_id: str) -> str:
@@ -82,28 +78,22 @@ def create_example_bank_tools(bank: InMemoryExampleBank) -> FunctionToolset:
         return "\n".join(lines)
 
     @toolset.tool
-    def read_examples(example_ids: list[str]) -> str:
-        """Read the full content of one or more examples.
+    def read_example(example_id: str) -> str:
+        """Read the full content of an example.
 
         Use this after list_examples() to see the complete content of
         examples you want to review, modify, or use as reference.
         """
-        results: list[str] = []
-        for example_id in example_ids:
-            example = bank.get(example_id)
-            if example is None:
-                results.append(f"[{example_id}] Not found")
-            else:
-                lines = [
-                    f"[{example.id}] {example.title}",
-                    f"Keywords: {', '.join(example.keywords) if example.keywords else '(none)'}",
-                    "",
-                    example.content,
-                ]
-                results.append("\n".join(lines))
-        if not results:
-            return "No example IDs provided."
-        return "\n\n---\n\n".join(results)
+        example = bank.get(example_id)
+        if example is None:
+            return f"[{example_id}] Not found"
+        lines = [
+            f"[{example.id}] {example.title}",
+            f"Keywords: {', '.join(example.keywords) if example.keywords else '(none)'}",
+            "",
+            example.content,
+        ]
+        return "\n".join(lines)
 
     @toolset.tool
     def test_retrieval(query: str) -> str:

@@ -2,9 +2,26 @@
 
 from __future__ import annotations
 
+import difflib
+import hashlib
+from typing import Any
+
 from pydantic_ai import FunctionToolset
+from pydantic_ai.exceptions import ModelRetry
 
 from ..example_bank import InMemoryExampleBank
+from ...skills import OverlayFS, SkillsFS, normalize_rel_path, parse_skill_md
+from ...skills.models import (
+    SkillFileResult,
+    SkillLoadResult,
+    SkillSearchResult,
+    SkillSummary,
+)
+from ...skills.search import (
+    LocalSkillsSearchProvider,
+    SkillsSearchProvider,
+    local_search_skills_sync,
+)
 
 
 def create_example_search_tool(
@@ -45,4 +62,135 @@ def create_example_search_tool(
     return toolset
 
 
-__all__ = ["create_example_search_tool"]
+def create_skills_toolset(
+    fs: SkillsFS | OverlayFS,
+    *,
+    search_backend: SkillsSearchProvider | None = None,
+    candidate: dict[str, Any] | None = None,
+) -> FunctionToolset:
+    """Create a skills toolset backed by a SkillsFS (or overlay)."""
+    toolset: FunctionToolset[None] = FunctionToolset()
+    backend = search_backend or LocalSkillsSearchProvider()
+
+    def _hash_text(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def _resolve_skill_dir(skill_path: str) -> str:
+        try:
+            normalized = normalize_rel_path(skill_path)
+        except Exception as e:
+            raise ModelRetry(
+                f"Invalid skill_path={skill_path!r}: {e}. Use list_skills() to see valid skill paths."
+            ) from e
+
+        candidates = [
+            normalized,
+            normalized.replace("_", "-"),
+            normalized.casefold(),
+        ]
+        for candidate_path in candidates:
+            if candidate_path and fs.exists(f"{candidate_path}/SKILL.md"):
+                return candidate_path
+
+        available = sorted(set(fs.iter_skill_dirs()))
+        close = difflib.get_close_matches(normalized, available, n=8, cutoff=0.45)
+        hint = f" Did you mean: {', '.join(close)}?" if close else ""
+        raise ModelRetry(
+            f"Unknown skill_path={skill_path!r}.{hint} Use list_skills() to see valid skill paths."
+        )
+
+    def _read_skill_md(skill_path: str) -> tuple[str, str]:
+        normalized = _resolve_skill_dir(skill_path)
+        path = f"{normalized}/SKILL.md"
+        content = fs.read_text(path)
+        return content, _hash_text(content)
+
+    @toolset.tool
+    def list_skills() -> list[SkillSummary]:
+        """List available skills with their name and description."""
+        items: list[SkillSummary] = []
+        for skill_dir in fs.iter_skill_dirs():
+            if not skill_dir:
+                continue
+            try:
+                raw, _ = _read_skill_md(skill_dir)
+                skill_md = parse_skill_md(raw)
+            except Exception:
+                continue
+            items.append(
+                SkillSummary(
+                    skill_path=skill_dir,
+                    name=skill_md.frontmatter.name,
+                    description=skill_md.frontmatter.description,
+                )
+            )
+        return sorted(items, key=lambda s: s.skill_path)
+
+    if search_backend is None:
+
+        @toolset.tool
+        def search_skills(query: str, top_k: int = 8) -> list[SkillSearchResult]:
+            """Search skills by simple keyword matching (local fallback)."""
+            return local_search_skills_sync(query=query, top_k=top_k, fs=fs)
+
+    else:
+        from ...gepa_graph.models import CandidateMap, ComponentValue
+
+        @toolset.tool
+        async def search_skills(query: str, top_k: int = 8) -> list[SkillSearchResult]:
+            """Search skills using the configured backend."""
+            candidate_map: CandidateMap | None = None
+            if isinstance(candidate, dict):
+                candidate_map = {}
+                for k, v in candidate.items():
+                    if isinstance(v, ComponentValue):
+                        candidate_map[k] = v
+                    elif isinstance(v, str):
+                        candidate_map[k] = ComponentValue(name=k, text=v)
+
+            return await backend.search(
+                query=query,
+                top_k=top_k,
+                fs=fs,
+                candidate=candidate_map,
+            )
+
+    @toolset.tool
+    def load_skill(skill_path: str) -> SkillLoadResult:
+        """Load the full SKILL.md for a skill."""
+        content, content_hash = _read_skill_md(skill_path)
+        normalized = _resolve_skill_dir(skill_path)
+        return SkillLoadResult(
+            skill_path=normalized,
+            content=content,
+            content_hash=content_hash,
+        )
+
+    @toolset.tool
+    def load_skill_file(skill_path: str, path: str) -> SkillFileResult:
+        """Load a file within a skill directory."""
+        normalized_skill = _resolve_skill_dir(skill_path)
+        try:
+            normalized_file = normalize_rel_path(path)
+        except Exception as e:
+            raise ModelRetry(
+                f"Invalid path={path!r}: {e}. Use load_skill(...) to find valid file paths within a skill."
+            ) from e
+        full_path = f"{normalized_skill}/{normalized_file}"
+        if not fs.exists(full_path):
+            raise ModelRetry(
+                f"Unknown file path={normalized_file!r} for skill_path={normalized_skill!r}. "
+                "Use load_skill(...) to find valid file paths within a skill."
+            )
+        content = fs.read_text(full_path)
+        return SkillFileResult(
+            skill_path=normalized_skill,
+            file_path=normalized_file,
+            content=content,
+            content_hash=_hash_text(content),
+        )
+
+    return toolset
+
+
+__all__ = ["create_example_search_tool", "create_skills_toolset"]

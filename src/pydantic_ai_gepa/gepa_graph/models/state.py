@@ -119,10 +119,11 @@ class GepaConfig(BaseModel):
     )
 
     # Component selection
-    component_selector: Literal["round_robin", "all"] = Field(
+    component_selector: Literal["round_robin", "all", "reflection"] = Field(
         default="round_robin",
-        description="Strategy for choosing which component to edit each reflection cycle.",
+        description="How to decide which components to update on each reflection cycle.",
     )
+
     candidate_selector: CandidateSelectorStrategy = Field(
         default=CandidateSelectorStrategy.PARETO,
         description="Strategy for selecting the base candidate to mutate (pareto or current_best).",
@@ -210,6 +211,14 @@ class GepaConfig(BaseModel):
             raise ValueError("perfect_score must be > 0.")
         return value
 
+    @field_validator("component_selector", mode="before")
+    @classmethod
+    def _coerce_component_selector(cls, value: Any) -> Any:
+        # Back-compat: older configs used "agent" for tool-driven selection.
+        if value == "agent":
+            return "reflection"
+        return value
+
 
 class GepaState(BaseModel):
     """Shared mutable state that flows through the GEPA graph steps."""
@@ -233,6 +242,11 @@ class GepaState(BaseModel):
     evaluation_errors: list[EvaluationErrorEvent] = Field(
         default_factory=list,
         description="Captured evaluation errors for downstream reporting.",
+    )
+
+    active_skill_paths: set[str] = Field(
+        default_factory=set,
+        description="Skill paths that have been activated/materialized into candidates.",
     )
 
     last_accepted: bool = Field(
@@ -348,6 +362,24 @@ class GepaState(BaseModel):
             )
         )
         return candidate
+
+    def activate_skill_path(self, skill_path: str) -> bool:
+        """Record a skill as activated.
+
+        Returns True if the skill path was newly activated.
+        """
+        if not skill_path:
+            raise ValueError("skill_path must be non-empty.")
+        if skill_path in self.active_skill_paths:
+            return False
+        self.active_skill_paths.add(skill_path)
+        return True
+
+    def is_skill_active(self, skill_path: str) -> bool:
+        """Return True if the skill path has already been activated."""
+        if not skill_path:
+            return False
+        return skill_path in self.active_skill_paths
 
     def get_best_candidate(self) -> CandidateProgram | None:
         """Return the current best candidate if available."""

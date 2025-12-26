@@ -29,6 +29,12 @@ from .input_type import (
     get_gepa_components,
 )
 from .signature_agent import SignatureAgent
+from .skills import SkillsFS
+from .skills.search import (
+    InMemorySkillsSearchProvider,
+    LocalSkillsSearchProvider,
+    SkillsSearchProvider,
+)
 from .types import (
     Case,
     ExampleBankConfig,
@@ -68,6 +74,10 @@ __all__ = [
     "build_input_spec",
     "SignatureSuffix",
     "SignatureAgent",
+    "SkillsFS",
+    "SkillsSearchProvider",
+    "LocalSkillsSearchProvider",
+    "InMemorySkillsSearchProvider",
     "InspectingModel",
     "InspectionAborted",
     "InspectionSnapshot",

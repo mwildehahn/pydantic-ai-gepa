@@ -10,6 +10,7 @@ from .component import (
     AllComponentSelector,
     ComponentSelector,
     RoundRobinComponentSelector,
+    is_async_component_selector,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "CurrentBestCandidateSelector",
     "ParetoCandidateSelector",
     "RoundRobinComponentSelector",
+    "is_async_component_selector",
 ]

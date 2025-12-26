@@ -309,7 +309,7 @@ class GEPAAdapter(Protocol[CaseT, Trajectory, RolloutOutput]):
 
 **Configuration**
 - `candidate_selector`: Which program to evolve
-- `module_selector`: Which components to update
+- `module_selector`: Which components to update ("round_robin", "all", or "reflection")
 - `batch_sampler`: Training example selection
 - `perfect_score`: Score threshold for skipping
 - `skip_perfect_score`: Whether to skip perfect-scoring batches
@@ -808,7 +808,7 @@ log_metrics(metrics: dict[str, Any], step: int | None = None)
 - `valset` - Defaults to trainset if not provided
 - `adapter` - Created from task_lm if not provided
 - `candidate_selection_strategy` - Defaults to "pareto"
-- `module_selector` - Defaults to "round_robin"
+- `module_selector` - Defaults to "round_robin" ("round_robin", "all", or "reflection")
 - `batch_sampler` - Defaults to "epoch_shuffled"
 - `reflection_minibatch_size` - Defaults to reasonable value (3-10)
 - `reflection_config` - Defaults to None; when provided, configures the reflection agent (model, include_case_metadata, include_expected_output, example_bank)
@@ -920,6 +920,7 @@ log_metrics(metrics: dict[str, Any], step: int | None = None)
 3. Evaluate with capture_traces=True
 4. Skip if no trajectories or all perfect
 5. Select components to update (module_selector)
+   - If module_selector == "reflection": the reflection agent selects components via tools (and can activate skills on demand)
 6. Build reflective dataset (adapter.make_reflective_dataset)
 7. Propose new texts:
    - If adapter.propose_new_texts: use it

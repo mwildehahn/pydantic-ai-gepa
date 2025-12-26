@@ -28,3 +28,7 @@ def test_config_validation_errors() -> None:
 
     with pytest.raises(ValidationError):
         GepaConfig(max_iterations=0)
+
+    # component_selector is a constrained literal
+    with pytest.raises(ValidationError):
+        GepaConfig(component_selector="bogus")  # type: ignore[arg-type]
