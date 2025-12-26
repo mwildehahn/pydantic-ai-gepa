@@ -52,6 +52,13 @@ class AllComponentSelector:
         return component_names
 
 
+class ReflectionComponentSelector:
+    """No-op selector used when reflection tools pick components."""
+
+    def select(self, state: GepaState, candidate_idx: int, **kwargs: Any) -> list[str]:
+        return []
+
+
 def is_async_component_selector(selector: Any) -> bool:
     select_fn = getattr(selector, "select", None)
     return inspect.iscoroutinefunction(select_fn)
@@ -60,6 +67,7 @@ def is_async_component_selector(selector: Any) -> bool:
 __all__ = [
     "AllComponentSelector",
     "ComponentSelector",
+    "ReflectionComponentSelector",
     "RoundRobinComponentSelector",
     "is_async_component_selector",
 ]

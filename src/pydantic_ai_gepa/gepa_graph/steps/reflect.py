@@ -30,7 +30,7 @@ from ...skill_components import (
     apply_candidate_to_skills,
     materialize_skill_components_for_path,
 )
-from ...skills import normalize_rel_path, parse_skill_md
+from ...skills import OverlayFS, normalize_rel_path, parse_skill_md
 from ...skills.models import (
     SkillFileResult,
     SkillLoadResult,
@@ -398,7 +398,7 @@ def _build_component_selection_toolset(
     search_backend = getattr(deps.adapter, "skills_search_backend", None)
     backend = search_backend or LocalSkillsSearchProvider()
 
-    def _resolve_skill_dir(view, skill_path: str) -> str:  # type: ignore[no-untyped-def]
+    def _resolve_skill_dir(view: OverlayFS, skill_path: str) -> str:
         try:
             normalized = normalize_rel_path(skill_path)
         except Exception as e:

@@ -515,9 +515,6 @@ def _resolve_component_selector(
     selector: str,
     component_count: int,
 ) -> Literal["round_robin", "all", "reflection"]:
-    # Back-compat: accept legacy "agent".
-    if selector == "agent":
-        selector = "reflection"
     if selector not in {"round_robin", "all", "reflection"}:
         raise ValueError(
             "module_selector must be 'round_robin', 'all', or 'reflection'."
